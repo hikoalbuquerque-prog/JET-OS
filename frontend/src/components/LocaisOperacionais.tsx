@@ -29,6 +29,7 @@ export interface LocalOperacional {
   telefone?: string;
   horario?: string;        // "08:00–18:00"
   obs?: string;
+  foto?: string;           // URL da foto
   ativo: boolean;
   criadoEm?: any;
   atualizadoEm?: any;
@@ -108,8 +109,11 @@ export function LocalOperacionalModal({
   const [telefone, setTelefone]   = useState(editando?.telefone || '');
   const [horario, setHorario]     = useState(editando?.horario || '');
   const [obs, setObs]             = useState(editando?.obs || '');
+  const [foto, setFoto]           = useState(editando?.foto || '');
+  const [fotoPreview, setFotoPreview] = useState(editando?.foto || '');
   const [ativo, setAtivo]         = useState(editando?.ativo ?? true);
   const [busy, setBusy]           = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Geocode reverso para preencher endereço
   useEffect(() => {
@@ -119,6 +123,20 @@ export function LocalOperacionalModal({
       .then(d => { if (d.display_name) setEndereco(d.display_name); })
       .catch(() => {});
   }, []);
+
+  // Handle foto upload
+  const handleFotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setFoto(base64);
+      setFotoPreview(base64);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const salvar = async () => {
     if (!nome.trim()) { showToast('Informe o nome do local', 'error'); return; }
@@ -133,6 +151,7 @@ export function LocalOperacionalModal({
       if (telefone)    raw.telefone    = telefone;
       if (horario)     raw.horario     = horario;
       if (obs)         raw.obs         = obs;
+      if (foto)        raw.foto        = foto;
       const payload = raw as Omit<LocalOperacional, 'id'>;
       if (editando) {
         await updateDoc(doc(db, 'locais_operacionais', editando.id), payload as any);
@@ -170,13 +189,14 @@ export function LocalOperacionalModal({
 
   return (
     <div style={{
-      position: 'fixed', right: 0, top: 0, bottom: 0, width: 340,
+      position: 'fixed', right: 0, top: 0, bottom: 0, width: 420,
       background: 'rgba(13,18,30,.97)', backdropFilter: 'blur(16px)',
       borderLeft: '1px solid rgba(255,255,255,.08)', zIndex: 500,
       display: 'flex', flexDirection: 'column',
+      overflowY: 'auto',
     }}>
       {/* Header */}
-      <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>
             {editando ? 'Editar local' : 'Novo local operacional'}
@@ -189,7 +209,7 @@ export function LocalOperacionalModal({
       </div>
 
       {/* Form */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ flex: 1, padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto' }}>
 
         {/* Tipo */}
         <div>
@@ -226,6 +246,44 @@ export function LocalOperacionalModal({
           <label style={lbl}>Endereço</label>
           <input value={endereco} onChange={e => setEndereco(e.target.value)}
             placeholder="Endereço completo" style={inp} />
+        </div>
+
+        {/* Foto */}
+        <div>
+          <label style={lbl}>Foto do local</label>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleFotoChange}
+            style={{ display: 'none' }}
+          />
+          {fotoPreview && (
+            <div style={{ marginBottom: 10, borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,.1)' }}>
+              <img src={fotoPreview} alt="Preview" style={{ width: '100%', height: 200, objectFit: 'cover' }} />
+            </div>
+          )}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              width: '100%', padding: '10px 12px',
+              background: 'rgba(96,165,250,.1)', border: '1px solid rgba(96,165,250,.3)',
+              borderRadius: 8, color: '#60a5fa', fontSize: 13, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            }}>
+            📷 {fotoPreview ? 'Alterar foto' : 'Adicionar foto'}
+          </button>
+          {fotoPreview && (
+            <button
+              onClick={() => { setFoto(''); setFotoPreview(''); }}
+              style={{
+                width: '100%', padding: '8px 12px', marginTop: 6,
+                background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)',
+                borderRadius: 8, color: '#ef4444', fontSize: 12, cursor: 'pointer',
+              }}>
+              Remover foto
+            </button>
+          )}
         </div>
 
         {/* Capacidade + Horário */}
@@ -276,7 +334,7 @@ export function LocalOperacionalModal({
       </div>
 
       {/* Footer */}
-      <div style={{ padding: '14px 20px', borderTop: '1px solid rgba(255,255,255,.06)', display: 'flex', gap: 8 }}>
+      <div style={{ padding: '14px 20px', borderTop: '1px solid rgba(255,255,255,.06)', display: 'flex', gap: 8, flexShrink: 0 }}>
         {editando && (
           <button onClick={excluir} style={{
             padding: '11px 14px', borderRadius: 10,
