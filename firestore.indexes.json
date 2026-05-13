@@ -1,0 +1,54 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "estacoes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pais",  "order": "ASCENDING" },
+        { "fieldPath": "cidade","order": "ASCENDING" },
+        { "fieldPath": "tipo",  "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "estacoes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cidade",      "order": "ASCENDING" },
+        { "fieldPath": "criadoEm",    "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "estacoes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cidade",      "order": "ASCENDING" },
+        { "fieldPath": "ia.aprovado", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "estacoes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dupGrupo",    "order": "ASCENDING" },
+        { "fieldPath": "criadoEm",    "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "poligonos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cidade", "order": "ASCENDING" },
+        { "fieldPath": "fase",   "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "eventos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "estacaoId", "order": "ASCENDING" },
+        { "fieldPath": "criadoEm", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

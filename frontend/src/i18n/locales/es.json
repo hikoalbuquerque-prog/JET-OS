@@ -1,0 +1,57 @@
+{
+  "app": { "nome": "App Estaciones", "carregando": "Cargando..." },
+  "auth": {
+    "login": "Iniciar sesión", "logout": "Cerrar sesión",
+    "email": "Correo", "senha": "Contraseña", "entrar": "Entrar",
+    "solicitarAcesso": "Solicitar acceso", "semAcesso": "¿Sin acceso? Solicita aquí",
+    "erroLogin": "Correo o contraseña incorrectos", "nome": "Nombre completo"
+  },
+  "mapa": {
+    "carregando": "Cargando mapa...", "semEstacoes": "No se encontraron estaciones",
+    "minhaLocalizacao": "Mi ubicación", "centralizar": "Centrar",
+    "recarregar": "Recargar", "varreduraIA": "Análisis IA", "custosAPI": "Costos API"
+  },
+  "estacao": {
+    "adicionar": "Agregar estación", "editar": "Editar", "excluir": "Eliminar",
+    "salvar": "Guardar", "cancelar": "Cancelar", "tipo": "Tipo",
+    "publica": "Pública", "privada": "Privada", "concorrente": "Competidor",
+    "status": "Estado", "cidade": "Ciudad", "bairro": "Colonia",
+    "endereco": "Dirección", "larguraFaixa": "Ancho de franja libre (m)",
+    "observacoes": "Observaciones", "foto": "Foto",
+    "streetView": "Street View", "croqui": "Croquis",
+    "gerarStreetView": "Generar Street View", "gerarCroqui": "Generar croquis",
+    "analisarIA": "Analizar banqueta con IA",
+    "adicionarMesmoAssim": "Agregar de todas formas", "adicionarAqui": "Agregar aquí"
+  },
+  "ia": {
+    "analisando": "Analizando banqueta...", "aprovado": "Banqueta adecuada",
+    "reprovado": "Banqueta posiblemente insuficiente",
+    "atencao": "ATENCIÓN", "ok": "OK", "largura": "Ancho estimado",
+    "confianca": "Confianza", "indefinido": "indefinido",
+    "alta": "alta", "media": "media", "baixa": "baja",
+    "reanalisar": "Re-analizar", "abrirSVManual": "Abrir Street View manual"
+  },
+  "varredura": {
+    "titulo": "Análisis IA", "raio": "Radio", "metros": "metros",
+    "iniciar": "Iniciar análisis", "parando": "Deteniendo...",
+    "analisando": "Analizando", "concluida": "Análisis completado",
+    "pontos": "puntos", "aprovados": "Aprobados", "reprovados": "Reprobados",
+    "adicionarLote": "Agregar en lote", "modoEconomico": "Modo económico"
+  },
+  "custos": {
+    "titulo": "Costos API", "total": "Costo estimado total",
+    "atualizar": "Actualizar", "zerar": "Reiniciar contadores",
+    "economia": "Ahorro estimado vs Google SV",
+    "chamadas": "llamadas", "gratis": "GRATIS",
+    "cobertura": "Cobertura de fuentes", "configurar": "Configurar claves"
+  },
+  "status": {
+    "SOLICITADO": "Solicitado", "APROVADO": "Aprobado",
+    "REPROVADO": "Reprobado", "INSTALADO": "Instalado", "CANCELADO": "Cancelado"
+  },
+  "erros": {
+    "generico": "Ocurrió un error. Intenta de nuevo.",
+    "semConexao": "Sin conexión con el servidor.",
+    "semPermissao": "Sin permiso para esta acción."
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "app": { "nome": "Station App", "carregando": "Loading..." },
+  "auth": {
+    "login": "Sign in", "logout": "Sign out",
+    "email": "Email", "senha": "Password", "entrar": "Sign in",
+    "solicitarAcesso": "Request access", "semAcesso": "No access? Request here",
+    "erroLogin": "Invalid email or password", "nome": "Full name"
+  },
+  "mapa": {
+    "carregando": "Loading map...", "semEstacoes": "No stations found",
+    "minhaLocalizacao": "My location", "centralizar": "Center",
+    "recarregar": "Reload", "varreduraIA": "AI Scan", "custosAPI": "API Costs"
+  },
+  "estacao": {
+    "adicionar": "Add station", "editar": "Edit", "excluir": "Delete",
+    "salvar": "Save", "cancelar": "Cancel", "tipo": "Type",
+    "publica": "Public", "privada": "Private", "concorrente": "Competitor",
+    "status": "Status", "cidade": "City", "bairro": "Neighborhood",
+    "endereco": "Address", "larguraFaixa": "Free lane width (m)",
+    "observacoes": "Notes", "foto": "Photo",
+    "streetView": "Street View", "croqui": "Sketch",
+    "gerarStreetView": "Generate Street View", "gerarCroqui": "Generate sketch",
+    "analisarIA": "Analyze sidewalk with AI",
+    "adicionarMesmoAssim": "Add anyway", "adicionarAqui": "Add here"
+  },
+  "ia": {
+    "analisando": "Analyzing sidewalk...", "aprovado": "Adequate sidewalk",
+    "reprovado": "Possibly insufficient sidewalk",
+    "atencao": "WARNING", "ok": "OK", "largura": "Estimated width",
+    "confianca": "Confidence", "indefinido": "undefined",
+    "alta": "high", "media": "medium", "baixa": "low",
+    "reanalisar": "Re-analyze", "abrirSVManual": "Open manual Street View"
+  },
+  "varredura": {
+    "titulo": "AI Scan", "raio": "Radius", "metros": "meters",
+    "iniciar": "Start scan", "parando": "Stopping...",
+    "analisando": "Analyzing", "concluida": "Scan complete",
+    "pontos": "points", "aprovados": "Approved", "reprovados": "Rejected",
+    "adicionarLote": "Batch add", "modoEconomico": "Economy mode"
+  },
+  "custos": {
+    "titulo": "API Costs", "total": "Estimated total cost",
+    "atualizar": "Refresh", "zerar": "Reset counters",
+    "economia": "Estimated savings vs Google SV",
+    "chamadas": "calls", "gratis": "FREE",
+    "cobertura": "Source coverage", "configurar": "Configure keys"
+  },
+  "status": {
+    "SOLICITADO": "Requested", "APROVADO": "Approved",
+    "REPROVADO": "Rejected", "INSTALADO": "Installed", "CANCELADO": "Cancelled"
+  },
+  "erros": {
+    "generico": "An error occurred. Please try again.",
+    "semConexao": "No connection to server.",
+    "semPermissao": "No permission for this action."
+  }
+}

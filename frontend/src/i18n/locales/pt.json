@@ -1,0 +1,103 @@
+{
+  "app": {
+    "nome": "App Estações",
+    "carregando": "Carregando..."
+  },
+  "auth": {
+    "login": "Entrar",
+    "logout": "Sair",
+    "email": "E-mail",
+    "senha": "Senha",
+    "entrar": "Entrar",
+    "solicitarAcesso": "Solicitar acesso",
+    "semAcesso": "Sem acesso? Solicite aqui",
+    "erroLogin": "E-mail ou senha incorretos",
+    "nome": "Nome completo"
+  },
+  "mapa": {
+    "carregando": "Carregando mapa...",
+    "semEstacoes": "Nenhuma estação encontrada",
+    "minhaLocalizacao": "Minha localização",
+    "centralizar": "Centralizar",
+    "recarregar": "Recarregar",
+    "varreduraIA": "Varredura IA",
+    "custosAPI": "Custos API"
+  },
+  "estacao": {
+    "adicionar": "Adicionar estação",
+    "editar": "Editar",
+    "excluir": "Excluir",
+    "salvar": "Salvar",
+    "cancelar": "Cancelar",
+    "tipo": "Tipo",
+    "publica": "Pública",
+    "privada": "Privada",
+    "concorrente": "Concorrente",
+    "status": "Status",
+    "cidade": "Cidade",
+    "bairro": "Bairro",
+    "endereco": "Endereço",
+    "larguraFaixa": "Largura da faixa livre (m)",
+    "observacoes": "Observações",
+    "foto": "Foto",
+    "streetView": "Street View",
+    "croqui": "Croqui",
+    "gerarStreetView": "Gerar Street View",
+    "gerarCroqui": "Gerar croqui",
+    "analisarIA": "Analisar calçada com IA",
+    "adicionarMesmoAssim": "Adicionar mesmo assim",
+    "adicionarAqui": "Adicionar aqui"
+  },
+  "ia": {
+    "analisando": "Analisando calçada...",
+    "aprovado": "Calçada adequada",
+    "reprovado": "Calçada possivelmente insuficiente",
+    "atencao": "ATENÇÃO",
+    "ok": "OK",
+    "largura": "Largura estimada",
+    "confianca": "Confiança",
+    "indefinido": "indefinido",
+    "alta": "alta",
+    "media": "média",
+    "baixa": "baixa",
+    "reanalisar": "Re-analisar",
+    "abrirSVManual": "Abrir Street View manual"
+  },
+  "varredura": {
+    "titulo": "Varredura IA",
+    "raio": "Raio",
+    "metros": "metros",
+    "iniciar": "Iniciar varredura",
+    "parando": "Parando...",
+    "analisando": "Analisando",
+    "concluida": "Varredura concluída",
+    "pontos": "pontos",
+    "aprovados": "Aprovados",
+    "reprovados": "Reprovados",
+    "adicionarLote": "Adicionar em lote",
+    "modoEconomico": "Modo econômico"
+  },
+  "custos": {
+    "titulo": "Custos API",
+    "total": "Custo estimado total",
+    "atualizar": "Atualizar",
+    "zerar": "Zerar contadores",
+    "economia": "Economia estimada vs Google SV",
+    "chamadas": "chamadas",
+    "gratis": "GRÁTIS",
+    "cobertura": "Cobertura das fontes",
+    "configurar": "Configurar chaves"
+  },
+  "status": {
+    "SOLICITADO": "Solicitado",
+    "APROVADO": "Aprovado",
+    "REPROVADO": "Reprovado",
+    "INSTALADO": "Instalado",
+    "CANCELADO": "Cancelado"
+  },
+  "erros": {
+    "generico": "Ocorreu um erro. Tente novamente.",
+    "semConexao": "Sem conexão com o servidor.",
+    "semPermissao": "Sem permissão para esta ação."
+  }
+}

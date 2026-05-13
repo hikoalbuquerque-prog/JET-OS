@@ -1,0 +1,123 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function getUser() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+
+    function isAtivo() {
+      return isAuth() && getUser().ativo == true;
+    }
+
+    function hasRole(role) {
+      return isAtivo() && getUser().role == role;
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function isGestor() {
+      return isAtivo() && getUser().role in ['admin', 'gestor'];
+    }
+
+    function isCampo() {
+      return isAtivo() && getUser().role in ['admin', 'gestor', 'campo'];
+    }
+
+    function isGuard() {
+      return isAtivo() && getUser().role in ['admin', 'gestor', 'guard'];
+    }
+
+    function hasPais(pais) {
+      return isAtivo() && pais in getUser().paises;
+    }
+
+    // ── ESTAÇÕES ──────────────────────────────────────────────────
+    match /estacoes/{id} {
+      allow read: if isCampo();
+      allow create: if isCampo();
+      allow update: if isGestor() ||
+        (isCampo() && resource.data.operador == request.auth.token.email);
+      allow delete: if isGestor();
+    }
+
+    // ── USUÁRIOS ──────────────────────────────────────────────────
+    match /usuarios/{uid} {
+      allow read: if isAuth() && (request.auth.uid == uid || isGestor());
+      allow create: if false;
+      allow update: if isAdmin() ||
+        (isGestor() && request.resource.data.role in ['campo', 'gestor', 'guard']);
+      allow delete: if isAdmin();
+    }
+
+    // ── SOLICITAÇÕES ──────────────────────────────────────────────
+    match /solicitacoes/{id} {
+      allow create: if true;
+      allow read, update: if isGestor();
+      allow delete: if isAdmin();
+    }
+
+    // ── POLÍGONOS (ZONAS) ─────────────────────────────────────────
+    match /poligonos/{id} {
+      allow read: if isCampo() || isGuard();
+      allow write: if isGestor();
+    }
+
+    // ── EVENTOS (LOG) ─────────────────────────────────────────────
+    match /eventos/{id} {
+      allow read: if isGestor();
+      allow create: if isCampo();
+      allow update, delete: if false;
+    }
+
+    // ── CONFIG ────────────────────────────────────────────────────
+    match /config/{id} {
+      allow read: if isCampo() || isGuard();
+      allow write: if isAdmin();
+    }
+
+    // ── ANALYTICS ─────────────────────────────────────────────────
+    match /analytics_days/{id} {
+      allow read: if isGestor();
+      allow write: if isGestor();
+    }
+
+    // ── LOCAIS OPERACIONAIS ───────────────────────────────────────
+    match /locais_operacionais/{id} {
+      allow read: if isCampo() || isGuard();
+      allow write: if isGestor();
+    }
+
+    // ── CIDADES EXPANSÃO ──────────────────────────────────────────
+    match /cidades_expansao/{id} {
+      allow read: if isGestor();
+      allow write: if isGestor();
+    }
+
+    // ── OCORRÊNCIAS (JET GUARD) ───────────────────────────────────
+    match /ocorrencias/{id} {
+      // Guard pode criar e ler as próprias; gestor/admin lê tudo
+      allow create: if isGuard();
+
+      allow read: if isGestor() ||
+        (isGuard() && resource.data.registradoPor == request.auth.uid);
+
+      // Guard pode atualizar as próprias enquanto abertas
+      // Gestor/admin pode atualizar qualquer uma (fechar, resolver)
+      allow update: if isGestor() ||
+        (isGuard() &&
+         resource.data.registradoPor == request.auth.uid &&
+         resource.data.status == 'Aberto');
+
+      // Apenas admin pode excluir
+      allow delete: if isAdmin();
+    }
+
+  }
+}

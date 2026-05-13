@@ -1,0 +1,34 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function getUser() {
+      return firestore.get(/databases/(default)/documents/usuarios/$(request.auth.uid)).data;
+    }
+
+    function isAtivo() {
+      return isAuth() && getUser().ativo == true;
+    }
+
+    function hasRole(roles) {
+      return isAtivo() && getUser().role in roles;
+    }
+
+    // Fotos de ocorrências — guard e campo podem fazer upload
+    match /ocorrencias/{fileName} {
+      allow read:  if isAuth();
+      allow write: if hasRole(['guard', 'campo', 'gestor', 'admin']);
+    }
+
+    // Outros arquivos — apenas gestor/admin
+    match /{allPaths=**} {
+      allow read:  if isAuth();
+      allow write: if hasRole(['gestor', 'admin']);
+    }
+
+  }
+}

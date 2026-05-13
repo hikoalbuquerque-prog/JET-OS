@@ -1,0 +1,41 @@
+# Firebase locais
+.firebase/
+.firebaserc
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+.npm
+
+# Variáveis de ambiente
+.env
+.env.local
+.env.*.local
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build/Temp
+dist/
+build/
+.cache/
+*.bak
+*.tmp
+
+# Credenciais (IMPORTANTE!)
+*-key.json
+service-account-key.json
+credentials.json
+firebase-credentials.json*-key.json 
+service-account-key.json 
+serviceAccountKey.json 
