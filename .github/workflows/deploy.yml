@@ -29,4 +29,4 @@ jobs:
       - name: Deploy to Firebase
         run: |
           npm install -g firebase-tools
-          firebase deploy --token "${{ secrets.FIREBASE_TOKEN }}" --project jet-os-7
+          firebase deploy --token "${{ secrets.FIREBASE_TOKEN }}" --project jet-os-7 --force
