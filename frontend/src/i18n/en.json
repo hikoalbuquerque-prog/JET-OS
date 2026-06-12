@@ -1,0 +1,602 @@
+{
+  "nav": {
+    "selectCity": "Select city...",
+    "darkMode": "Dark",
+    "lightMode": "Light",
+    "guide": "Guide"
+  },
+  "map": {
+    "addStation": "Add station",
+    "tapToPosition": "Tap map to position",
+    "youAreHere": "You are here",
+    "addStationHere": "Add station here",
+    "cityDetected": "City detected",
+    "locationUnavailable": "Location unavailable"
+  },
+  "filters": {
+    "type": "TYPE",
+    "status": "STATUS",
+    "public": "Pub",
+    "private": "Priv",
+    "competitor": "Comp",
+    "requested": "Requested",
+    "negotiation": "Negotiating",
+    "approved": "Approved",
+    "installed": "Installed",
+    "rejected": "Rejected",
+    "cancelled": "Cancelled",
+    "stations": "st."
+  },
+  "drawer": {
+    "addStation": "Add station",
+    "editStation": "Edit station",
+    "saveChanges": "Save changes",
+    "cancel": "Cancel",
+    "saving": "Saving...",
+    "photo": "Place photo",
+    "camera": "Camera",
+    "gallery": "Gallery",
+    "photoSaved": "✓ Photo saved",
+    "measureArea": "Mark area with measurements",
+    "stationType": "Station type",
+    "public": "Public",
+    "private": "Private",
+    "competitor": "Competitor",
+    "status": "Status",
+    "consultant": "Field consultant",
+    "consultantPlaceholder": "Name of consultant who visited",
+    "laneWidth": "Free lane width (m)",
+    "laneWidthPlaceholder": "e.g: 3.5",
+    "observations": "Observations",
+    "obsPlaceholder": "Additional information...",
+    "redo": "Redo",
+    "savePhoto": "Save",
+    "gps": "GPS",
+    "map": "Map",
+    "address": "Address",
+    "geo": "Geo",
+    "tapMapAdjust": "Tap map or drag pin to adjust location",
+    "addressSearch": "E.g: Main St 123, City",
+    "geoCoordsPlaceholder": "-8.063116, -34.872091",
+    "geoApply": "Location applied",
+    "geoInvalid": "Invalid format. E.g: -8.063116, -34.872091",
+    "geocoding": "Geocoding...",
+    "locationAdjusted": "Location adjusted manually",
+    "addStationBtn": "Add station",
+    "editStationBtn": "Save changes",
+    "tempPassword": "Use temporary password received via WhatsApp in 'Current password' field."
+  },
+  "guard": {
+    "newOccurrence": "+ New occurrence",
+    "myShift": "My shift",
+    "occurrenceType": "OCCURRENCE TYPE",
+    "robbery": "Robbery",
+    "attempt": "Attempt",
+    "vandalism": "Vandalism",
+    "recovery": "Recovery",
+    "other": "Other",
+    "assetId": "Asset ID / Code",
+    "assetPlaceholder": "E.g: JET-001234",
+    "notes": "Notes",
+    "notesPlaceholder": "Describe what happened...",
+    "searching": "Searching",
+    "save": "Report occurrence",
+    "saving": "Reporting...",
+    "saved": "Occurrence reported!",
+    "myGPS": "My GPS",
+    "onMap": "On map",
+    "byAddress": "Address",
+    "gpsCapturing": "Capturing GPS...",
+    "locationAdjusted": "Location adjusted manually",
+    "assetType": "Asset type",
+    "assetTypePlaceholder": "Scooter",
+    "shift": "Shift",
+    "shiftMorning": "Morning (06–14h)",
+    "shiftAfternoon": "Afternoon (14–22h)",
+    "shiftNight": "Night (22–06h)",
+    "photos": "Occurrence photos",
+    "photo1": "Photo 1",
+    "photo2": "Photo 2",
+    "bo": "Police Report (optional)",
+    "boNumber": "Report number",
+    "boPhoto": "Report photo",
+    "additionalObs": "Additional observation",
+    "assetIdPlaceholder": "ID / asset plate",
+    "descRequired": "Description *",
+    "stationId": "Station ID (optional)",
+    "gpsOk": "GPS captured",
+    "gpsError": "GPS unavailable",
+    "gpsLoading": "Getting location...",
+    "Patinete": "Scooter",
+    "Bicicleta": "Bike",
+    "Bateria": "Battery"
+  },
+  "photo": {
+    "stationArea": "Station area",
+    "dragCorners": "Drag the 4 colored corners · Use slider to rotate",
+    "redetect": "Re-detect",
+    "length": "Length (m)",
+    "width": "Width (m)",
+    "rotation": "Rotation",
+    "reset": "Reset",
+    "saveWithMeasures": "Save with measurements",
+    "loading": "Loading..."
+  },
+  "toast": {
+    "stationSaved": "Station saved!",
+    "stationUpdated": "Station updated!",
+    "error": "Error saving",
+    "photoSaved": "Photo with measurements saved!",
+    "citySelected": "City detected"
+  },
+  "cities": {
+    "title": "Select cities",
+    "search": "Search city...",
+    "clear": "Clear",
+    "close": "Close",
+    "viewMap": "View map",
+    "withStations": "WITH STATIONS",
+    "planning": "PLANNING",
+    "noCity": "No city found",
+    "noStations": "No city with stations"
+  },
+  "usuarios": {
+    "title": "Users",
+    "subtitle": "Manage access and requests",
+    "requests": "Requests",
+    "users": "Users",
+    "approveAs": "Approve as:",
+    "reject": "Reject",
+    "deactivate": "Deactivate",
+    "activate": "Activate",
+    "search": "Search by name or email...",
+    "allRoles": "All roles",
+    "found": "user found",
+    "foundPlural": "users found",
+    "noneFound": "No users found.",
+    "approved": "User approved!",
+    "copyWhatsapp": "Copy to WhatsApp",
+    "copied": "Copied!"
+  },
+  "guide": {
+    "title": "JET OS Guide",
+    "subtitle": "{n} topics available for {role}",
+    "selectTopic": "SELECT A TOPIC TO START",
+    "steps": "steps",
+    "footer": "✦ JET OS · field version",
+    "footerDesc": "Questions? Talk to your operation manager. This guide is personalized for your access as",
+    "back": "← Back",
+    "close": "✕ Close",
+    "step": "Step",
+    "of": "of",
+    "tip": "💡 Tip",
+    "next": "Next →",
+    "done": "✓ Done",
+    "prev": "← Previous",
+    "allSteps": "ALL STEPS",
+    "topics": {
+      "mapa": {
+        "titulo": "Map & navigation",
+        "passos": [
+          {
+            "titulo": "Navigate the map",
+            "desc": "Drag to move, pinch to zoom. Tap a station to see details."
+          },
+          {
+            "titulo": "Filter stations",
+            "desc": "Use TYPE (Pub/Priv/Comp) and STATUS buttons to filter stations."
+          },
+          {
+            "titulo": "Satellite mode",
+            "desc": "Tap 🛰 in the side FABs to enable satellite view."
+          },
+          {
+            "titulo": "GoJet live",
+            "desc": "Tap 🛴 to see GoJet scooters and parkings in real time.",
+            "dica": "Available for managers and admins only."
+          }
+        ]
+      },
+      "add-estacao": {
+        "titulo": "Add station",
+        "passos": [
+          {
+            "titulo": "Enable add mode",
+            "desc": "Tap the + FAB and then tap the map to place the pin."
+          },
+          {
+            "titulo": "Fill data",
+            "desc": "Name, address, type (Public/Private/Competitor), status and field consultant."
+          },
+          {
+            "titulo": "Photo",
+            "desc": "Use Camera, Gallery or paste a URL. Photos are saved to Firebase Storage."
+          },
+          {
+            "titulo": "Save",
+            "desc": "Tap Add station. City is detected automatically from GPS."
+          }
+        ]
+      },
+      "foto-medidas": {
+        "titulo": "Photo with measurements",
+        "passos": [
+          {
+            "titulo": "Access",
+            "desc": "In the station popup, tap Sketch to open the editor."
+          },
+          {
+            "titulo": "Adjust corners",
+            "desc": "Drag the 4 colored corners to mark the station area."
+          },
+          {
+            "titulo": "Rotate",
+            "desc": "Use the rotation slider to align correctly."
+          },
+          {
+            "titulo": "Save",
+            "desc": "Tap Save with measurements. Dimensions are calculated automatically.",
+            "dica": "The sketch appears in the station PDF report."
+          }
+        ]
+      },
+      "guard": {
+        "titulo": "Guard — Incidents",
+        "passos": [
+          {
+            "titulo": "Access Guard",
+            "desc": "Tap the 🛡 FAB (purple). Available for guard, field, manager and security manager."
+          },
+          {
+            "titulo": "Register incident",
+            "desc": "Select type, fill in asset ID (e.g. S.315761), shift and location."
+          },
+          {
+            "titulo": "Searching field",
+            "desc": "For Robbery/Attempt, fill in suspect description for real-time alerts."
+          },
+          {
+            "titulo": "Photos & report",
+            "desc": "Add up to 2 photos and the police report number."
+          },
+          {
+            "titulo": "Search asset",
+            "desc": "In the panel, use the search field to find incidents by asset ID.",
+            "dica": "Filter works in real time."
+          }
+        ]
+      },
+      "ocorrencias-guard": {
+        "titulo": "View incidents",
+        "passos": [
+          {
+            "titulo": "Guard panel",
+            "desc": "Tap Guard in the map header to open the side panel."
+          },
+          {
+            "titulo": "Type filters",
+            "desc": "Filter by Robbery, Vandalism, Attempt, etc."
+          },
+          {
+            "titulo": "Asset search",
+            "desc": "Use the search field to find incidents for a specific scooter."
+          },
+          {
+            "titulo": "Edit/Resolve",
+            "desc": "Tap the incident then Edit/Resolve to update status or add notes."
+          }
+        ]
+      },
+      "slots-gestor": {
+        "titulo": "🎛 Create & Manage Slots",
+        "passos": [
+          { "titulo": "What is a slot", "desc": "A slot is a work shift assigned to one or more agents. It groups tasks (points to visit), defines schedule, zone and type: Charger (battery swap) or Scout (redistribute scooters). The agent accepts, checks in with a photo and executes each task.", "dica": "Every slot has an acceptance SLA. If no one accepts in time, the system escalates via Telegram." },
+          { "titulo": "Create a manual slot", "desc": "Go to 📦 Slots → ➕ Create tab. Choose type (Scout or Charger), fill in title, shift times, zone, SLA and (optionally) assign a worker. Add tasks with destination, quantity and priority. Click ✓ Create Slot.", "dica": "Leaving the Worker field empty keeps the slot open for any agent in the city to accept." },
+          { "titulo": "Auto-slot engine", "desc": "In 📦 Slots → 🤖 Auto-slots tab, create a config per zone. Set quantity thresholds (min, target, max) and battery threshold. The engine runs every 15 min via Cloud Function and creates slots automatically.", "dica": "Empty points generate urgent slots. Excess scooters generate redistribution scouts." },
+          { "titulo": "Time windows", "desc": "In the zone config, ⏰ Windows tab: define time windows with their own parameters — e.g. morning peak 07h-09h with target 12, night 22h-00h with reduced target. The active window overrides global values.", "dica": "Cross-midnight windows are supported. The one with the highest numeric priority wins overlaps." },
+          { "titulo": "Workers per slot", "desc": "In the Workers per slot field of the zone config, set N. The engine finds the N nearest available agents and distributes tasks round-robin: task 1→A, task 2→B, task 3→A…", "dica": "Use 2+ workers in large zones or when many critical points appear simultaneously." },
+          { "titulo": "Off-point scooters (Scout)", "desc": "Enable Include off-point scooters in the config. The engine detects scooters without a parking_id and generates 📍 Return to [Point X] tasks, grouping scooters within a 0.5 km radius." },
+          { "titulo": "Monitor slot in real time", "desc": "In the 📋 Slots tab, each card shows status, worker, progress and SLA. Click to expand and see all tasks. Flashing orange card = acceptance SLA expiring soon.", "dica": "Use the status filter at the top (Open / In progress / Done) to focus on active slots." },
+          { "titulo": "Reassign or cancel", "desc": "In the expanded card, click ✏ Reassign to change the worker without losing history. To cancel, click ✕ Cancel and state the reason — the worker gets push + Telegram automatically.", "dica": "Cancelled slots cannot be reopened. Create a new one if needed." },
+          { "titulo": "Team tab", "desc": "In 📦 Slots → 👥 Team tab, see all workers in the city with their current status (free, in slot, offline). Click to view history and completion rate." },
+          { "titulo": "Charger: battery priority", "desc": "The engine sorts scooters from most critical (lowest battery) to least. Bikes below 10% get urgent priority. Tasks are grouped by GoJet point.", "dica": "Battery threshold is configurable per zone and per time window. Default: 40%." },
+          { "titulo": "Scout: point classification", "desc": "Empty → urgent, refill full target. Low (<50%) → high, fill the gap. Excess (>120%) → normal, redistribute surplus. All types go in ONE slot, ordered by urgency." },
+          { "titulo": "SLA and auto-escalation", "desc": "If a slot stays unaccepted past the SLA, the Cloud Function escalates: Telegram to the managers group, increased priority and a new dispatch to the next available workers.", "dica": "Configure the acceptance SLA per zone. Manual slots also have an SLA field at creation." },
+          { "titulo": "Team GPS on map", "desc": "With 👥 Field active, see agents on the map. Green = GPS < 90s. Yellow = 90s-5min. Red = >5min. Click a pin to fly to their position.", "dica": "In the task detail view, the mini-map shows the agent's distance to the destination in real time." },
+          { "titulo": "Export history", "desc": "In 📦 Slots → 📂 History tab, filter by period, type, zone and status. Click ⬇ CSV to export with UTF-8 BOM — opens directly in Excel without encoding issues." }
+        ]
+      },
+      "slots-logistica": {
+        "titulo": "Slots & Logistics",
+        "passos": [
+          {
+            "titulo": "What are slots",
+            "desc": "Work shifts for logistics agents with defined schedule, zone and role."
+          },
+          {
+            "titulo": "Accept slot",
+            "desc": "In the Slots tab, see available slots and tap Accept."
+          },
+          {
+            "titulo": "Check-in",
+            "desc": "At shift time, tap Check-in. GPS activates automatically.",
+            "dica": "Allow location all the time for background GPS."
+          },
+          {
+            "titulo": "Tasks",
+            "desc": "In the Tasks tab, see priority-ordered points. Tap to see address and navigate."
+          },
+          {
+            "titulo": "Complete task",
+            "desc": "Start task > go to point > take photo > Mark as done."
+          },
+          {
+            "titulo": "Check-out",
+            "desc": "When done, tap Check-out to stop GPS."
+          }
+        ]
+      },
+      "gojet-overlay": {
+        "titulo": "GoJet live on map",
+        "passos": [
+          {
+            "titulo": "Enable",
+            "desc": "Tap the 🛴 button in FABs."
+          },
+          {
+            "titulo": "Point colors",
+            "desc": "🔴 Empty · 🟠 <50% · 🟡 50–85% · 🔵 On target (85–120%) · 🟢 Excess (>120%)",
+            "dica": "Points with target = circle. Without target = grey square."
+          },
+          {
+            "titulo": "Scooter colors",
+            "desc": "🟢 Available · 🟡 In rental · ⚫ Reserved · 🔴 Maintenance · 🟣 Workshop (not counted) · 🟠 Low battery"
+          },
+          {
+            "titulo": "Mini-dashboard",
+            "desc": "Tap 📊 bottom-left: empty points, below target, bikes by status."
+          },
+          {
+            "titulo": "Freshness",
+            "desc": "🟢 Data < 3min · 🟡 3–8min · 🔴 > 8min ago."
+          },
+          {
+            "titulo": "Point filters",
+            "desc": "All · 🔴 Empty · 🟠 < target · 🔵 On target · 🟢 Excess · 🔗 M1/M2/M3",
+            "dica": "🔗 filter shows GoJet points with JET OS station within 150m."
+          },
+          {
+            "titulo": "Scooter filters",
+            "desc": "⚠️ Out of point · 🟠 Low battery · 🟢 Available."
+          },
+          {
+            "titulo": "Workers on map",
+            "desc": "Tap 👥 Field to see online operators. Tap name to fly to their position."
+          }
+        ]
+      },
+      "instalar-pwa": {
+        "titulo": "Install the app",
+        "passos": [
+          {
+            "titulo": "Android",
+            "desc": "Chrome > menu > Add to home screen."
+          },
+          {
+            "titulo": "iOS",
+            "desc": "Safari > Share > Add to Home Screen."
+          },
+          {
+            "titulo": "Permissions",
+            "desc": "Grant location access all the time for background GPS.",
+            "dica": "Disable battery optimization for the app in Settings > Apps."
+          },
+          {
+            "titulo": "Updates",
+            "desc": "App updates automatically. Close and reopen if changes don't appear."
+          }
+        ]
+      },
+      "pois": {
+        "titulo": "Points of Interest (POIs)",
+        "passos": [
+          { "titulo": "OSM POIs", "desc": "Tap the 🔍 FAB then 📍 to load points from OpenStreetMap." },
+          { "titulo": "Candidate Points", "desc": "Tap 🎯 to open the candidate points panel.", "dica": "Adjust Gap Radius, Area Radius and Min Score to calibrate suggestions." }
+        ]
+      },
+      "locais-logisticos": {
+        "titulo": "Logistics Locations",
+        "passos": [
+          { "titulo": "What they are", "desc": "Charging Bases, Service Centers, Warehouses and Redistribution Points — where scooters are charged, repaired or stored." },
+          { "titulo": "Enable on map", "desc": "Tap the 🏭 FAB. Pins appear with icon by type.", "dica": "Tap any pin to edit the location." },
+          { "titulo": "Add new location", "desc": "With 🏭 active, tap 📍 and tap the map. The form opens with name, type, photo, capacity and responsible." },
+          { "titulo": "Financial management", "desc": "Tap 💳 to open the financial panel. Select a location and month to see payments.", "dica": "For energy, previous + current reading calculates the value automatically." }
+        ]
+      },
+      "zonas": {
+        "titulo": "Zones and polygons",
+        "passos": [
+          { "titulo": "Create zone", "desc": "Tap the ⬡ FAB then 'New zone'. Tap the map to add vertices." },
+          { "titulo": "Import KMZ", "desc": "Tap '📂 KMZ' to import zones from a Google My Maps file. Stations are ignored — only polygons are imported." },
+          { "titulo": "Edit vertices", "desc": "Select a zone and tap 'Edit vertices' to drag the points." },
+          { "titulo": "Configure", "desc": "Set name, group, phase, color and priority." }
+        ]
+      },
+      "gps-alertas": {
+        "titulo": "📡 Automatic GPS alerts",
+        "passos": [
+          { "titulo": "What it is", "desc": "Cloud Functions monitor field operators' GPS and send automatic alerts via Telegram." },
+          { "titulo": "Arrival alert", "desc": "If an operator doesn't arrive at the point within 20 minutes of starting the task, Telegram notifies the manager with the current distance." },
+          { "titulo": "Delay alert", "desc": "If a task runs for more than 30 minutes without completing, an alert is sent with progress (e.g. 3/5 delivered)." },
+          { "titulo": "GPS lost", "desc": "If an operator with an active task goes more than 10 minutes without sending GPS, Telegram alerts to check the app.", "dica": "Configure in Settings → Apps → JET OS → Battery → No restriction." },
+          { "titulo": "Cooldown", "desc": "Alerts have a 30-minute cooldown to prevent spam. The same operator/task won't trigger repeated alerts before that." }
+        ]
+      },
+      "guard-expandido": {
+        "titulo": "🛡 Guard & Security",
+        "passos": [
+          { "titulo": "Register incident", "desc": "Tap the 🛡 FAB. Fill in type, description, location and photos. Telegram receives automatic notifications for Robbery, Vandalism and Attempt. Recovery also notifies Telegram." },
+          { "titulo": "Incident types", "desc": "Vandalism, Robbery, Attempt, Recovery, Other. Robberies appear in the Robberies Panel. Vandalism has extra damage assessment fields (%, R$)." },
+          { "titulo": "Vandalism damage", "desc": "When editing a Vandalism incident, fill in '% Damage' (0–100) and 'Value R$' after workshop assessment. These appear in Guard Dashboard and Report." },
+          { "titulo": "Edit timeline", "desc": "Each saved change (status, type, asset, report, searching) is recorded in the incident history with user name, changed field and timestamp. Visible in the edit modal." },
+          { "titulo": "Wanted tab", "desc": "In the Guard mobile screen, the 🔍 Wanted tab lists all assets marked as wanted. Search by asset ID, city or type." },
+          { "titulo": "City filters", "desc": "In the Guard map panel, city chips appear above the list. Tap to filter incidents from the desired city." },
+          { "titulo": "Guard Dashboard", "desc": "The '📊 Guard Dash' button in the header shows Robberies, Vandalism, R$ damage, BRPD losses, recovery rate and weekly trend." },
+          { "titulo": "Time counter", "desc": "Open incidents show a '🔓 2h30m' badge indicating how long they've been open. Yellow < 6h, orange > 6h, red > 1 day." },
+          { "titulo": "Executive report", "desc": "'Send Report' in Guard Dashboard sends to Telegram: PT-BR + RU message and 4-page PDF. P1: Robberies PT. P2: Robberies RU. P3: Vandalism. P4: Losses and full appendix." },
+          { "titulo": "Gestor Seg role", "desc": "The 'gestor_seg' role accesses Guard, Guard Analytics, Guard Dashboard and Robberies Panel. Can approve contractor records. No access to stations or slots." }
+        ]
+      },
+      "roubos": {
+        "titulo": "🔴 Robberies & Guard Reports",
+        "passos": [
+          { "titulo": "Open panel", "desc": "Tap 🔴 Robberies in the map FABs. Available for manager, gestor_seg and admin. Red pins appear on the map when Guard opens." },
+          { "titulo": "KPIs", "desc": "Total robberies, recovered, recovery rate, open wanted. Filters: 7d / 30d / 90d / all. Search by asset ID, city or description." },
+          { "titulo": "Automatic daily report", "desc": "Sent at 7am Tuesday–Sunday to the Telegram group. Reports the previous day. On Monday it sends the weekly report (Sun → Sat of the previous week)." },
+          { "titulo": "Manual report", "desc": "'Send Report' button in Guard Dashboard. Immediately generates and sends the 4-page executive PDF plus PT-BR + RU message." },
+          { "titulo": "PDF structure", "desc": "P1 PT: Open robberies (no recovered), KPIs, city table, 24h details. P2 RU: same info in Russian. P3: Vandalism with R$ and % damage. P4: BRPD losses, general KPIs and full appendix with clickable photos." },
+          { "titulo": "Real dates in report", "desc": "Yesterday shows the real date (e.g. 09/06). Current month shows the range (e.g. 01/06 to 09/06). Accumulated shows the year range of data (e.g. 2023–2026)." }
+        ]
+      },
+      "gestor-logistica": {
+        "titulo": "Logistics Manager",
+        "passos": [
+          {
+            "titulo": "Open panel",
+            "desc": "Click '🚚 Logistics' in the header."
+          },
+          {
+            "titulo": "City filter",
+            "desc": "Admin: dropdown at top. Manager: sees only their city (cidadesGerenciaLog).",
+            "dica": "Edit Firestore document: cidadesGerenciaLog (array)."
+          },
+          {
+            "titulo": "Dashboard",
+            "desc": "Live KPIs: operators online, pending tasks, today slots. Weather alert via Open-Meteo."
+          },
+          {
+            "titulo": "Attendance",
+            "desc": "Scheduled CLT vs clock-in today. ✅ Came / ❌ Absent / 😴 Day off / ⏳ Waiting."
+          },
+          {
+            "titulo": "Operators",
+            "desc": "Live GPS with 8h history for anti-fraud. Distances detect GPS spoofing."
+          },
+          {
+            "titulo": "Slots",
+            "desc": "Batch creation. Weather forecast warns about rain before Scout slots.",
+            "dica": "Auto-confirmation: reminder 120min, re-check 90min, reopen 60min without response."
+          },
+          {
+            "titulo": "Tasks",
+            "desc": "Filter by type. Reassignment with distance per operator. XLSX and PDF export."
+          },
+          {
+            "titulo": "MEIs",
+            "desc": "Temporary suspension with countdown. Alert for expiries within 3 days."
+          },
+          {
+            "titulo": "Telegram",
+            "desc": "Direct send by city/group. Role templates. Mass slot confirmation.",
+            "dica": "Configure Chat ID in Config → Telegram."
+          }
+        ]
+      },
+      "gojet-dashboard": {
+        "titulo": "GoJet Dashboard",
+        "passos": [
+          {
+            "titulo": "Open",
+            "desc": "Click 📊 next to 🛴 button. Available for manager and admin."
+          },
+          {
+            "titulo": "Summary tab",
+            "desc": "Distribution bars by status, scooter stats, online workers and full color legend."
+          },
+          {
+            "titulo": "Points tab",
+            "desc": "Table: status, available, physical, target, occupation %, M1/M2/M3 badge.",
+            "dica": "Sort by Status (critical first), Name A-Z or Quantity."
+          },
+          {
+            "titulo": "Filters",
+            "desc": "🔴 Empty · 🟠 <50% · 🟡 50–85% · 🔵 On target · 🟢 Excess. Search by name."
+          },
+          {
+            "titulo": "Scooters tab",
+            "desc": "Clickable KPIs. ID, visual battery, at point or out, sub-status."
+          },
+          {
+            "titulo": "Workers tab",
+            "desc": "GPS: 🟢<5min / 🟡<15min / 🟠<30min. Exact time. Google Maps link."
+          }
+        ]
+      }
+    }
+  },
+  "fab": {
+    "addStation": "Add station",
+    "myLocation": "My location",
+    "guard": "Guard — report occurrence",
+    "pois": "Points of interest",
+    "poisOsm": "OSM POIs",
+    "poisGoogle": "Google POIs",
+    "candidates": "Candidate Pts",
+    "cycleways": "Cycleways",
+    "zones": "Zones",
+    "manageZones": "Manage zones",
+    "drawZone": "Draw new zone",
+    "addExpCity": "Add expansion city",
+    "radius": "Radius {n}m",
+    "locais": "Logistics sites",
+    "addLocalMap": "Mark site on map",
+    "financial": "Financial & Contracts",
+    "cancelAction": "Cancel",
+    "slots": "Slots & Logistics",
+    "gojet": "GoJet live",
+    "gojetDash": "GoJet Dashboard"
+  },
+  "legend": {
+    "pub": "Public",
+    "priv": "Private",
+    "conc": "Competitor",
+    "requested": "Requested",
+    "negotiation": "Negotiating",
+    "approved": "Approved",
+    "installed": "Installed",
+    "rejected": "Rejected",
+    "cancelled": "Cancelled",
+    "osmPois": "OSM POIs",
+    "googlePois": "Google POIs",
+    "zones": "Zones",
+    "cycleways": "Cycleways",
+    "locais": "Logistics sites"
+  },
+  "header": {
+    "users": "Users",
+    "analytics": "Analytics",
+    "dashboard": "Dashboard",
+    "guard": "Guard",
+    "candidates": "Candidate Pts",
+    "logout": "Logout"
+  },
+  "popup": {
+    "addStationHere": "Add station here",
+    "edit": "Edit",
+    "delete": "Delete",
+    "streetView": "Street View",
+    "photo": "Photo",
+    "maps": "Maps",
+    "croqui": "Sketch",
+    "sv": "SV",
+    "del": "Del",
+    "addPhoto": "Add photo",
+    "viewDoc": "View",
+    "addDocs": "Add documents",
+    "updateDocs": "Update documents",
+    "publicDocs": "Public Documents",
+    "tpu": "TPU",
+    "authorization": "Authorization",
+    "notRegistered": "not registered"
+  }
+}

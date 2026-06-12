@@ -1,0 +1,541 @@
+{
+  "nav": {
+    "selectCity": "Selecionar cidade...",
+    "darkMode": "Dark",
+    "lightMode": "Light",
+    "guide": "Guia"
+  },
+  "map": {
+    "addStation": "Adicionar estação",
+    "tapToPosition": "Toque no mapa para posicionar",
+    "youAreHere": "Você está aqui",
+    "addStationHere": "Add estação aqui",
+    "cityDetected": "Cidade detectada",
+    "locationUnavailable": "Localização indisponível"
+  },
+  "filters": {
+    "type": "TIPO",
+    "status": "STATUS",
+    "public": "Pub",
+    "private": "Priv",
+    "competitor": "Conc",
+    "requested": "Solicitado",
+    "negotiation": "Negociação",
+    "approved": "Aprovado",
+    "installed": "Instalado",
+    "rejected": "Reprovado",
+    "cancelled": "Cancelado",
+    "stations": "est."
+  },
+  "drawer": {
+    "addStation": "Adicionar estação",
+    "editStation": "Editar estação",
+    "saveChanges": "Salvar alterações",
+    "cancel": "Cancelar",
+    "saving": "Salvando...",
+    "photo": "Foto do local",
+    "camera": "Câmera",
+    "gallery": "Galeria",
+    "photoSaved": "✓ Foto salva",
+    "measureArea": "Marcar área com medidas",
+    "stationType": "Tipo de estação",
+    "public": "Publica",
+    "private": "Privada",
+    "competitor": "Concorrente",
+    "status": "Status",
+    "consultant": "Consultor de campo",
+    "consultantPlaceholder": "Nome do consultor que visitou",
+    "laneWidth": "Largura da faixa livre (m)",
+    "laneWidthPlaceholder": "ex: 3.5",
+    "observations": "Observações",
+    "obsPlaceholder": "Informações adicionais...",
+    "redo": "Refazer",
+    "savePhoto": "Salvar",
+    "gps": "GPS",
+    "map": "Mapa",
+    "address": "Endereço",
+    "geo": "Geo",
+    "tapMapAdjust": "Toque no mapa ou arraste o pin para ajustar a localização",
+    "addressSearch": "Ex: Av. Boa Viagem 500, Recife",
+    "geoCoordsPlaceholder": "-8.063116, -34.872091",
+    "geoApply": "Localização aplicada",
+    "geoInvalid": "Formato inválido. Ex: -8.063116, -34.872091",
+    "geocoding": "geocodificando...",
+    "locationAdjusted": "Local ajustado manualmente",
+    "addStationBtn": "Adicionar estação",
+    "editStationBtn": "Salvar alterações",
+    "tempPassword": "Use a senha temporária recebida pelo WhatsApp no campo \"Senha atual\"."
+  },
+  "guard": {
+    "newOccurrence": "+ Nova ocorrência",
+    "myShift": "Meu turno",
+    "occurrenceType": "TIPO DE OCORRÊNCIA",
+    "robbery": "Roubo",
+    "attempt": "Tentativa",
+    "vandalism": "Vandalismo",
+    "recovery": "Recuperação",
+    "other": "Outro",
+    "assetId": "ID do Ativo / Código",
+    "assetPlaceholder": "Ex: JET-001234",
+    "notes": "Observações",
+    "notesPlaceholder": "Descreva o ocorrido...",
+    "searching": "Procurando",
+    "save": "Registrar ocorrência",
+    "saving": "Registrando...",
+    "saved": "Ocorrência registrada!",
+    "myGPS": "Meu GPS",
+    "onMap": "No mapa",
+    "byAddress": "Endereço",
+    "gpsCapturing": "Capturando GPS...",
+    "locationAdjusted": "Local ajustado manualmente",
+    "assetType": "Tipo de ativo",
+    "assetTypePlaceholder": "Patinete",
+    "shift": "Turno",
+    "shiftMorning": "Manhã (06–14h)",
+    "shiftAfternoon": "Tarde (14–22h)",
+    "shiftNight": "Noite (22–06h)",
+    "photos": "Fotos da ocorrência",
+    "photo1": "Foto 1",
+    "photo2": "Foto 2",
+    "bo": "Boletim de Ocorrência (opcional)",
+    "boNumber": "Número do BO",
+    "boPhoto": "Foto do BO",
+    "additionalObs": "Observação adicional",
+    "assetIdPlaceholder": "ID / placa do ativo",
+    "descRequired": "Descrição *",
+    "stationId": "ID da estação (opcional)",
+    "gpsOk": "GPS capturado",
+    "gpsError": "GPS indisponível",
+    "gpsLoading": "Obtendo localização...",
+    "Patinete": "Patinete",
+    "Bicicleta": "Bicicleta",
+    "Bateria": "Bateria"
+  },
+  "photo": {
+    "stationArea": "Área da Estação",
+    "dragCorners": "Arraste os 4 cantos coloridos · Use o slider para rotacionar",
+    "redetect": "Re-detectar",
+    "length": "Comprimento (m)",
+    "width": "Largura (m)",
+    "rotation": "Rotação",
+    "reset": "Resetar",
+    "saveWithMeasures": "Salvar com medidas",
+    "loading": "Carregando..."
+  },
+  "toast": {
+    "stationSaved": "Estação salva!",
+    "stationUpdated": "Estação atualizada!",
+    "error": "Erro ao salvar",
+    "photoSaved": "Foto com medidas salva!",
+    "citySelected": "Cidade detectada"
+  },
+  "cities": {
+    "title": "Selecionar cidades",
+    "search": "Buscar cidade...",
+    "clear": "Limpar",
+    "close": "Fechar",
+    "viewMap": "Ver mapa",
+    "withStations": "COM ESTAÇÕES",
+    "planning": "PLANEJAMENTO",
+    "noCity": "Nenhuma cidade encontrada",
+    "noStations": "Nenhuma cidade com estações"
+  },
+  "usuarios": {
+    "title": "Usuários",
+    "subtitle": "Gerencie acessos e solicitações",
+    "requests": "Solicitações",
+    "users": "Usuários",
+    "approveAs": "Aprovar como:",
+    "reject": "Rejeitar",
+    "deactivate": "Desativar",
+    "activate": "Ativar",
+    "search": "Buscar por nome ou e-mail...",
+    "allRoles": "Todos os roles",
+    "found": "usuário encontrado",
+    "foundPlural": "usuários encontrados",
+    "noneFound": "Nenhum usuário encontrado.",
+    "approved": "Usuário aprovado!",
+    "copyWhatsapp": "Copiar para WhatsApp",
+    "copied": "Copiado!"
+  },
+  "guide": {
+    "title": "Guia JET OS",
+    "subtitle": "{n} tópicos disponíveis para {role}",
+    "selectTopic": "SELECIONE UM TÓPICO PARA COMEÇAR",
+    "steps": "passos",
+    "footer": "✦ JET OS · versão campo",
+    "footerDesc": "Dúvidas? Fale com o gestor da operação. Este guia é personalizado para o seu acesso como",
+    "back": "← Voltar",
+    "close": "✕ Fechar",
+    "step": "Passo",
+    "of": "de",
+    "tip": "💡 Dica",
+    "next": "Próximo →",
+    "done": "✓ Concluído",
+    "prev": "← Anterior",
+    "allSteps": "TODOS OS PASSOS",
+    "topics": {
+      "mapa": {
+        "titulo": "Mapa e navegação",
+        "passos": [
+          {
+            "titulo": "Navegar pelo mapa",
+            "desc": "Arraste para mover, use dois dedos para zoom. Clique em uma estação para ver detalhes."
+          },
+          {
+            "titulo": "Filtrar estações",
+            "desc": "Use os botões TIPO (Pub/Priv/Conc) e STATUS (Negociação/Aprovado/Instalado) para filtrar."
+          },
+          {
+            "titulo": "Modo satélite",
+            "desc": "Clique em 🛰 nos FABs laterais para ativar a visão de satélite."
+          },
+          {
+            "titulo": "GoJet ao vivo",
+            "desc": "Clique em 🛴 nos FABs para ver os patinetes e parkings GoJet em tempo real.",
+            "dica": "Disponível apenas para gestor e admin."
+          }
+        ]
+      },
+      "add-estacao": {
+        "titulo": "Adicionar estação",
+        "passos": [
+          {
+            "titulo": "Ativar modo adição",
+            "desc": "Clique no FAB + e depois toque no mapa para posicionar o pin."
+          },
+          {
+            "titulo": "Preencher dados",
+            "desc": "Nome, endereço, tipo (Pública/Privada/Concorrente), status e consultor de campo."
+          },
+          {
+            "titulo": "Foto do local",
+            "desc": "Clique em Câmera, Galeria ou cole uma URL. Fotos são salvas no Firebase Storage."
+          },
+          {
+            "titulo": "Salvar",
+            "desc": "Clique em Adicionar estação. A cidade é detectada automaticamente."
+          }
+        ]
+      },
+      "foto-medidas": {
+        "titulo": "Foto com medidas",
+        "passos": [
+          {
+            "titulo": "Acessar",
+            "desc": "No popup da estação, clique em Croquis para abrir o editor."
+          },
+          {
+            "titulo": "Ajustar cantos",
+            "desc": "Arraste os 4 cantos coloridos para delimitar a área da estação."
+          },
+          {
+            "titulo": "Rotacionar",
+            "desc": "Use o slider de rotação para alinhar corretamente."
+          },
+          {
+            "titulo": "Salvar",
+            "desc": "Clique em Salvar com medidas. As dimensões são calculadas automaticamente.",
+            "dica": "O croqui aparece no relatório PDF da estação."
+          }
+        ]
+      },
+      "guard": {
+        "titulo": "Guard — Ocorrências",
+        "passos": [
+          {
+            "titulo": "Acessar Guard",
+            "desc": "Clique no FAB 🛡 (roxo). Disponível para guard, campo, gestor e gestor_seg."
+          },
+          {
+            "titulo": "Registrar ocorrência",
+            "desc": "Selecione o tipo, preencha o ativo (ex: S.315761), turno e localização."
+          },
+          {
+            "titulo": "Campo Procurando",
+            "desc": "Para Roubos/Tentativas, preencha a descrição do suspeito para alertas em tempo real."
+          },
+          {
+            "titulo": "Foto e BO",
+            "desc": "Adicione até 2 fotos e o número do Boletim de Ocorrência."
+          },
+          {
+            "titulo": "Buscar ativo",
+            "desc": "No painel, use o campo de busca para encontrar ocorrências por ID do ativo.",
+            "dica": "O filtro funciona em tempo real."
+          }
+        ]
+      },
+      "ocorrencias-guard": {
+        "titulo": "Visualizar ocorrências",
+        "passos": [
+          {
+            "titulo": "Painel Guard",
+            "desc": "Clique em Guard no header para abrir o painel lateral."
+          },
+          {
+            "titulo": "Filtros de tipo",
+            "desc": "Filtre por Roubo, Vandalismo, Tentativa, etc."
+          },
+          {
+            "titulo": "Busca por ativo",
+            "desc": "Use o campo de busca para encontrar ocorrências de um patinete específico."
+          },
+          {
+            "titulo": "Editar/Resolver",
+            "desc": "Clique na ocorrência e em Editar/Resolver para atualizar status ou adicionar observação."
+          }
+        ]
+      },
+      "slots-gestor": {
+        "titulo": "🎛 Criar & Gerenciar Slots",
+        "passos": [
+          { "titulo": "O que é um slot", "desc": "Um slot é um turno de trabalho atribuído a um ou mais agentes. Ele agrupa tarefas (pontos a visitar), define horário, zona e tipo: Charger (trocar bateria) ou Scout (redistribuir patinetes). O agente aceita, faz check-in com foto e executa cada tarefa.", "dica": "Cada slot tem SLA de aceite. Se ninguém aceitar no prazo, o sistema escala via Telegram." },
+          { "titulo": "Criar slot manual", "desc": "Acesse 📦 Slots → aba ➕ Criar. Escolha tipo (Scout ou Charger), preencha título, turno, zona, SLA e (opcional) atribua um worker. Adicione as tarefas com destino, quantidade e prioridade. Clique ✓ Criar Slot.", "dica": "Deixar o campo Worker vazio mantém o slot aberto para qualquer agente da cidade aceitar." },
+          { "titulo": "Motor de auto-slots", "desc": "Em 📦 Slots → aba 🤖 Auto-slots, crie uma configuração por zona. Defina limiares de quantidade (mínimo, alvo, máximo) e bateria. O motor roda a cada 15 min via Cloud Function e cria slots automaticamente.", "dica": "Pontos zerados geram slots urgentes. Excesso de patinetes gera scouts de redistribuição." },
+          { "titulo": "Faixas de horário", "desc": "Na config da zona, aba ⏰ Faixas: defina janelas com parâmetros próprios — ex: pico manhã 07h-09h com alvo 12, noturno 22h-00h com alvo reduzido. A faixa ativa sobrepõe os valores globais.", "dica": "Faixas cruzando meia-noite são suportadas. A de maior prioridade numérica vence sobreposições." },
+          { "titulo": "Workers por slot", "desc": "No campo Workers por slot da config da zona, defina N. O motor busca os N agentes disponíveis mais próximos e distribui tarefas em round-robin: tarefa 1→A, tarefa 2→B, tarefa 3→A…", "dica": "Use 2+ workers em zonas grandes ou com muitos pontos críticos simultâneos." },
+          { "titulo": "Bikes fora de ponto (Scout)", "desc": "Ative Incluir bikes fora de ponto na config. O motor detecta patinetes sem parking_id e gera tarefas 📍 Retornar para [Ponto X], agrupando bikes em raio de 0,5 km." },
+          { "titulo": "Acompanhar slot em tempo real", "desc": "Na aba 📋 Slots, cada card mostra status, worker, progresso e SLA. Clique para expandir e ver todas as tarefas. Card laranja piscante = SLA de aceite próximo do vencimento.", "dica": "Use o filtro no topo (Aberto / Em andamento / Concluído) para focar nos slots ativos." },
+          { "titulo": "Reatribuir ou cancelar", "desc": "No card expandido, clique ✏ Reatribuir para trocar o worker sem perder o histórico. Para cancelar, clique ✕ Cancelar e informe o motivo — o worker recebe push + Telegram automaticamente.", "dica": "Slot cancelado não pode ser reaberto. Crie um novo se necessário." },
+          { "titulo": "Aba Equipe", "desc": "Em 📦 Slots → aba 👥 Equipe, veja todos os workers da cidade com status atual (livre, em slot, offline). Clique para ver histórico e taxa de conclusão." },
+          { "titulo": "Charger: prioridade de bateria", "desc": "O motor ordena patinetes do mais crítico ao menos crítico. Bikes abaixo de 10% recebem prioridade urgente. As tarefas são agrupadas por ponto GoJet.", "dica": "O threshold de bateria é configurável por zona e por faixa de horário. Padrão: 40%." },
+          { "titulo": "Scout: classificação de pontos", "desc": "Zerado → urgente, repor alvo inteiro. Baixo (<50%) → alta, repor diferença. Excesso (>120%) → normal, redistribuir sobra. Todos os tipos vão em UM slot, ordenados por urgência." },
+          { "titulo": "SLA e escalada automática", "desc": "Se o slot ficar sem aceite além do SLA, a Cloud Function escala: Telegram para o grupo de gestores, prioridade aumentada e novo disparo para próximos workers.", "dica": "Configure o SLA de aceite em cada zona. Slots manuais também têm campo SLA na criação." },
+          { "titulo": "GPS da equipe no mapa", "desc": "Com 👥 Campo ativo, veja agentes no mapa. Verde = GPS < 90s. Amarelo = 90s-5min. Vermelho = >5min. Clique no pin para voar até a posição.", "dica": "No detalhe da tarefa, o mini-mapa mostra a distância do agente ao destino em tempo real." },
+          { "titulo": "Exportar histórico", "desc": "Em 📦 Slots → aba 📂 Histórico, filtre por período, tipo, zona e status. Clique ⬇ CSV para exportar com BOM UTF-8 — abre direto no Excel BR sem precisar de encoding manual." }
+        ]
+      },
+      "slots-logistica": {
+        "titulo": "Slots & Logística",
+        "passos": [
+          {
+            "titulo": "O que são slots",
+            "desc": "Turnos de trabalho para agentes de logística com horário, zona e cargo definidos."
+          },
+          {
+            "titulo": "Aceitar slot",
+            "desc": "Na aba Slots, veja os disponíveis e clique em Aceitar."
+          },
+          {
+            "titulo": "Check-in",
+            "desc": "No horário, clique em Check-in. O GPS é ativado automaticamente.",
+            "dica": "Permita localização o tempo todo para GPS em background."
+          },
+          {
+            "titulo": "Tarefas",
+            "desc": "Na aba Tarefas, veja os pontos ordenados por prioridade. Toque para ver endereço e navegar."
+          },
+          {
+            "titulo": "Concluir tarefa",
+            "desc": "Iniciar tarefa > ir ao ponto > tirar foto > Marcar concluída."
+          },
+          {
+            "titulo": "Check-out",
+            "desc": "Ao terminar o turno, clique em Check-out para encerrar o GPS."
+          }
+        ]
+      },
+      "gojet-overlay": {
+        "titulo": "GoJet ao vivo no mapa",
+        "passos": [
+          {
+            "titulo": "Ativar",
+            "desc": "Clique no botão 🛴 nos FABs."
+          },
+          {
+            "titulo": "Cores dos pontos",
+            "desc": "🔴 Zerado · 🟠 <50% · 🟡 50–85% · 🔵 No target (85–120%) · 🟢 Excedente (>120%)",
+            "dica": "Pontos com target = círculo. Sem target = quadrado cinza."
+          },
+          {
+            "titulo": "Cores dos patinetes",
+            "desc": "🟢 Disponível · 🟡 Em aluguel · ⚫ Reservado · 🔴 Manutenção · 🟣 Oficina (não conta) · 🟠 Bateria baixa"
+          },
+          {
+            "titulo": "Mini-dashboard",
+            "desc": "Clique em 📊 no canto inferior esquerdo: zerados, abaixo target, bikes por status."
+          },
+          {
+            "titulo": "Freshness",
+            "desc": "🟢 Dados < 3min · 🟡 3–8min · 🔴 > 8min atrás."
+          },
+          {
+            "titulo": "Filtros de pontos",
+            "desc": "Todos · 🔴 Zerados · 🟠 < target · 🔵 No target · 🟢 Excesso · 🔗 M1/M2/M3",
+            "dica": "Filtro 🔗 mostra pontos com estação JET OS a menos de 150m."
+          },
+          {
+            "titulo": "Filtros patinetes",
+            "desc": "⚠️ Fora ponto · 🟠 Bateria baixa · 🟢 Disponíveis."
+          },
+          {
+            "titulo": "Workers no mapa",
+            "desc": "Clique em 👥 Campo para ver operadores. Clique no nome para voar até a posição."
+          }
+        ]
+      },
+      "instalar-pwa": {
+        "titulo": "Instalar o app",
+        "passos": [
+          {
+            "titulo": "Android",
+            "desc": "Chrome > menu > Adicionar à tela inicial."
+          },
+          {
+            "titulo": "iOS",
+            "desc": "Safari > Compartilhar > Adicionar à Tela de Início."
+          },
+          {
+            "titulo": "Permissões",
+            "desc": "Conceda localização o tempo todo para GPS em background.",
+            "dica": "Desative otimização de bateria para o app em Configurações > Aplicativos."
+          },
+          {
+            "titulo": "Atualização",
+            "desc": "O app atualiza automaticamente. Feche e reabra se as mudanças não aparecerem."
+          }
+        ]
+      },
+      "gestor-logistica": {
+        "titulo": "Gestor Logística",
+        "passos": [
+          {
+            "titulo": "Abrir o painel",
+            "desc": "Clique em '🚚 Gestor Log.' no header. Disponível para admin, supergestor e gestor."
+          },
+          {
+            "titulo": "Filtro por cidade",
+            "desc": "Admin/supergestor: dropdown no topo. Gestor: vê apenas a cidade atribuída (campo cidadesGerenciaLog).",
+            "dica": "Para atribuir cidades a um gestor, edite o documento no Firestore: cidadesGerenciaLog (array)."
+          },
+          {
+            "titulo": "Dashboard",
+            "desc": "KPIs ao vivo: operadores online, tarefas pendentes, slots do dia. Alerta de clima via Open-Meteo."
+          },
+          {
+            "titulo": "Presença",
+            "desc": "CLT escalados × ponto batido hoje. Status: ✅ Veio / ❌ Faltou / 😴 Folga / ⏳ Aguardando."
+          },
+          {
+            "titulo": "Operadores",
+            "desc": "GPS ao vivo com histórico de 8h para verificação anti-fraude. Distâncias detectam spoofing de GPS."
+          },
+          {
+            "titulo": "Slots",
+            "desc": "Criação em lote. Clima previsto avisa sobre chuva antes de criar slots de Scout.",
+            "dica": "Confirmação automática: lembrete 120min, reconfirmação 90min, reabertura 60min sem resposta."
+          },
+          {
+            "titulo": "Tarefas",
+            "desc": "Filtro por tipo. Reatribuição com distância por operador. Export XLSX e PDF."
+          },
+          {
+            "titulo": "MEIs",
+            "desc": "Suspensão temporária com countdown. Alerta para vencimentos em 3 dias."
+          },
+          {
+            "titulo": "Telegram",
+            "desc": "Envio direto por cidade/grupo. Templates por cargo. Confirmação de slot em massa.",
+            "dica": "Configure Chat ID em Config → Telegram."
+          }
+        ]
+      },
+      "gojet-dashboard": {
+        "titulo": "GoJet Dashboard",
+        "passos": [
+          {
+            "titulo": "Abrir",
+            "desc": "Clique em 📊 ao lado do botão 🛴. Disponível para gestor e admin."
+          },
+          {
+            "titulo": "Aba Resumo",
+            "desc": "Barras de distribuição por status, stats de patinetes, workers online e legenda completa."
+          },
+          {
+            "titulo": "Aba Pontos",
+            "desc": "Tabela: status, disponível, físico, target, barra de ocupação %, badge M1/M2/M3.",
+            "dica": "Ordene por Status (críticos primeiro), Nome A-Z ou Quantidade."
+          },
+          {
+            "titulo": "Filtros",
+            "desc": "🔴 Zerado · 🟠 <50% · 🟡 50–85% · 🔵 No target · 🟢 Excesso. Busca por nome."
+          },
+          {
+            "titulo": "Aba Patinetes",
+            "desc": "KPIs clicáveis. ID, bateria visual, em ponto ou fora, sub-status."
+          },
+          {
+            "titulo": "Aba Workers",
+            "desc": "GPS: 🟢<5min / 🟡<15min / 🟠<30min. Horário exato. Link Google Maps."
+          }
+        ]
+      }
+    }
+  },
+  "fab": {
+    "addStation": "Adicionar estação",
+    "myLocation": "Minha localização",
+    "guard": "Guard — registrar ocorrência",
+    "pois": "Pontos de interesse",
+    "poisOsm": "POIs OSM",
+    "poisGoogle": "POIs Google",
+    "candidates": "Pt. Candidatos",
+    "cycleways": "Ciclovias",
+    "zones": "Zonas",
+    "manageZones": "Gerir zonas",
+    "drawZone": "Desenhar nova zona",
+    "addExpCity": "Adicionar cidade de expansão",
+    "radius": "Raio {n}m",
+    "locais": "Locais Logísticos",
+    "addLocalMap": "Marcar local no mapa",
+    "financial": "Financeiro & Contratos",
+    "cancelAction": "Cancelar",
+    "slots": "Slots & Logística",
+    "gojet": "GoJet ao vivo",
+    "gojetDash": "GoJet Dashboard"
+  },
+  "legend": {
+    "pub": "Pública",
+    "priv": "Privada",
+    "conc": "Concorrente",
+    "requested": "Solicitado",
+    "negotiation": "Negociação",
+    "approved": "Aprovado",
+    "installed": "Instalado",
+    "rejected": "Reprovado",
+    "cancelled": "Cancelado",
+    "osmPois": "POIs OSM",
+    "googlePois": "POIs Google",
+    "zones": "Zonas",
+    "cycleways": "Ciclovias",
+    "locais": "Locais Logísticos"
+  },
+  "header": {
+    "users": "Usuários",
+    "analytics": "Analytics",
+    "dashboard": "Dashboard",
+    "guard": "Guard",
+    "candidates": "Pt. Candidatos",
+    "logout": "Sair"
+  },
+  "popup": {
+    "addStationHere": "Add estação aqui",
+    "edit": "Editar",
+    "delete": "Excluir",
+    "streetView": "Street View",
+    "photo": "Foto",
+    "maps": "Maps",
+    "croqui": "Croqui",
+    "sv": "SV",
+    "del": "Del",
+    "addPhoto": "Adicionar foto",
+    "viewDoc": "Visualizar",
+    "addDocs": "Adicionar documentos",
+    "updateDocs": "Atualizar documentos",
+    "publicDocs": "Documentos Públicos",
+    "tpu": "TPU",
+    "authorization": "Autorização",
+    "notRegistered": "não cadastrado"
+  }
+}

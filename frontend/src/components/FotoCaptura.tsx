@@ -2,8 +2,7 @@
 // Fluxo completo: câmera → preview → upload Storage → vincula à estação
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '../lib/firebase';
+import { uploadComRetry } from '../lib/uploadUtils';
 
 interface Props {
   context: 'novo' | 'existente';
@@ -86,11 +85,7 @@ export function FotoCaptura({ context, origem = 'campo', lat, lng, estacaoId, es
         : `estacoes/temp/${ts}_novo.jpg`;
 
       setProgress('Enviando foto...');
-      const sRef = storageRef(storage, path);
-      await uploadBytes(sRef, fotoFile, { contentType: fotoFile.type || 'image/jpeg' });
-
-      setProgress('Obtendo URL...');
-      const url = await getDownloadURL(sRef);
+      const url = await uploadComRetry(fotoFile, path);
 
       setFase('done');
       setTimeout(() => {

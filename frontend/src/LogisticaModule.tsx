@@ -1,0 +1,345 @@
+import React, { useState, useEffect, useCallback } from 'react';
+
+interface Operacao {
+  id: string;
+  tipo: 'coleta' | 'entrega' | 'rebalanceamento' | 'reparo' | 'manutencao';
+  status: 'pendente' | 'em_progresso' | 'concluida' | 'cancelada';
+  prioridade: 1 | 2 | 3 | 4 | 5;
+  estacao: { nome: string; lat: number; lng: number; id: string };
+  quantidade: number;
+  descricao: string;
+  dataCriacao: Date;
+  dataVencimento: Date;
+  responsavel?: string;
+  coordenadas?: { lat: number; lng: number };
+  distancia?: number;
+}
+
+interface Slot {
+  id: string;
+  tipo: 'automatico' | 'manual';
+  horario: string;
+  tarefas: string[];
+  status: 'ativo' | 'pausado' | 'concluido';
+  repeticao: 'diaria' | 'semanal' | 'mensal' | 'unica';
+  proximaExecucao: Date;
+}
+
+interface Monitor {
+  id: string;
+  nome: string;
+  cidade: string;
+  pais: string;
+  quantidadeIdeal: number;
+  quantidadeAtual: number;
+  latitude: number;
+  longitude: number;
+  tipo: 'publica' | 'privada' | 'parceria';
+}
+
+interface Rota {
+  id: string;
+  tarefas: Operacao[];
+  distanciaTotal: number;
+  tempoEstimado: number;
+  status: 'planejamento' | 'ativa' | 'concluida';
+  prioridade: number;
+  coordenadas: { lat: number; lng: number }[];
+}
+
+interface ValidacaoCampo {
+  valido: boolean;
+  erro?: string;
+}
+
+// VALIDAÇÕES
+const validarCPF = (cpf: string): ValidacaoCampo => {
+  cpf = cpf.replace(/[^\d]/g, '');
+  if (cpf.length !== 11) return { valido: false, erro: 'CPF deve ter 11 dígitos' };
+  const regex = /^(\d)\1{10}$/;
+  if (regex.test(cpf)) return { valido: false, erro: 'CPF inválido' };
+  let soma = 0;
+  let resto = 0;
+  for (let i = 1; i <= 9; i++) soma += parseInt(cpf.substring(i - 1, i)) * (11 - i);
+  resto = (soma * 10) % 11;
+  if (resto === 10 || resto === 11) resto = 0;
+  if (resto !== parseInt(cpf.substring(9, 10))) return { valido: false, erro: 'CPF inválido' };
+  soma = 0;
+  for (let i = 1; i <= 10; i++) soma += parseInt(cpf.substring(i - 1, i)) * (12 - i);
+  resto = (soma * 10) % 11;
+  if (resto === 10 || resto === 11) resto = 0;
+  if (resto !== parseInt(cpf.substring(10, 11))) return { valido: false, erro: 'CPF inválido' };
+  return { valido: true };
+};
+
+const validarCNPJ = (cnpj: string): ValidacaoCampo => {
+  cnpj = cnpj.replace(/[^\d]/g, '');
+  if (cnpj.length !== 14) return { valido: false, erro: 'CNPJ deve ter 14 dígitos' };
+  const regex = /^(\d)\1{13}$/;
+  if (regex.test(cnpj)) return { valido: false, erro: 'CNPJ inválido' };
+  let tamanho = cnpj.length - 2;
+  let numeros = cnpj.substring(0, tamanho);
+  let digitos = cnpj.substring(tamanho);
+  let soma = 0;
+  let pos = tamanho - 7;
+  for (let i = tamanho; i >= 1; i--) {
+    soma += parseInt(numeros.charAt(tamanho - i)) * pos;
+    pos -= 1;
+    if (pos < 2) pos = 9;
+  }
+  let resultado = soma % 11 < 2 ? 0 : 11 - (soma % 11);
+  if (resultado !== parseInt(digitos.charAt(0))) return { valido: false, erro: 'CNPJ inválido' };
+  tamanho += 1;
+  numeros = cnpj.substring(0, tamanho);
+  soma = 0;
+  pos = tamanho - 7;
+  for (let i = tamanho; i >= 1; i--) {
+    soma += parseInt(numeros.charAt(tamanho - i)) * pos;
+    pos -= 1;
+    if (pos < 2) pos = 9;
+  }
+  resultado = soma % 11 < 2 ? 0 : 11 - (soma % 11);
+  if (resultado !== parseInt(digitos.charAt(1))) return { valido: false, erro: 'CNPJ inválido' };
+  return { valido: true };
+};
+
+const validarChavePix = (chave: string, tipo: string): ValidacaoCampo => {
+  if (!chave.trim()) return { valido: false, erro: 'Chave Pix obrigatória' };
+  if (tipo === 'CPF') {
+    return validarCPF(chave);
+  } else if (tipo === 'CNPJ') {
+    return validarCNPJ(chave);
+  } else if (tipo === 'EMAIL') {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(chave) ? { valido: true } : { valido: false, erro: 'Email inválido' };
+  } else if (tipo === 'TELEFONE') {
+    const telRegex = /^\d{11}$/;
+    return telRegex.test(chave.replace(/[^\d]/g, '')) ? { valido: true } : { valido: false, erro: 'Telefone inválido (11 dígitos)' };
+  }
+  return { valido: true };
+};
+
+const validarTelegram = (numero: string): ValidacaoCampo => {
+  const telegramRegex = /^\d{7,13}$/;
+  const limpo = numero.replace(/[^\d]/g, '');
+  if (!telegramRegex.test(limpo)) return { valido: false, erro: 'Telegram deve ter 7-13 dígitos' };
+  return { valido: true };
+};
+
+// ALGORITMO DE ROTA OTIMIZADA (Greedy + Haversine)
+const calcularDistancia = (lat1: number, lng1: number, lat2: number, lng2: number): number => {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.asin(Math.sqrt(a));
+};
+
+const otimizarRota = (operacoes: Operacao[], pontoPartida: { lat: number; lng: number }): Rota => {
+  const tarefasOrdenadas: Operacao[] = [];
+  let posicaoAtual = pontoPartida;
+  const tarefasRestantes = [...operacoes];
+  let distanciaTotal = 0;
+
+  while (tarefasRestantes.length > 0) {
+    let proximaTarefa = tarefasRestantes[0];
+    let menorDistancia = calcularDistancia(posicaoAtual.lat, posicaoAtual.lng,
+      proximaTarefa.estacao.lat, proximaTarefa.estacao.lng);
+
+    for (let i = 1; i < tarefasRestantes.length; i++) {
+      const dist = calcularDistancia(posicaoAtual.lat, posicaoAtual.lng,
+        tarefasRestantes[i].estacao.lat, tarefasRestantes[i].estacao.lng);
+      if (dist < menorDistancia) {
+        menorDistancia = dist;
+        proximaTarefa = tarefasRestantes[i];
+      }
+    }
+
+    tarefasOrdenadas.push(proximaTarefa);
+    distanciaTotal += menorDistancia;
+    posicaoAtual = { lat: proximaTarefa.estacao.lat, lng: proximaTarefa.estacao.lng };
+    tarefasRestantes.splice(tarefasRestantes.indexOf(proximaTarefa), 1);
+  }
+
+  return {
+    id: 'rota_' + Date.now(),
+    tarefas: tarefasOrdenadas,
+    distanciaTotal,
+    tempoEstimado: Math.ceil(distanciaTotal / 30 * 60),
+    status: 'planejamento',
+    prioridade: Math.max(...operacoes.map(o => o.prioridade)),
+    coordenadas: tarefasOrdenadas.map(t => ({ lat: t.estacao.lat, lng: t.estacao.lng }))
+  };
+};
+
+// COMPONENTE PRINCIPAL
+export default function LogisticaModule({ usuario, onFechar }: any) {
+  const [abas, setAbas] = useState<'dashboard' | 'operacoes' | 'rotas' | 'slots' | 'monitores'>('dashboard');
+  const [operacoes, setOperacoes] = useState<Operacao[]>([]);
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [monitores, setMonitores] = useState<Monitor[]>([]);
+  const [rotas, setRotas] = useState<Rota[]>([]);
+  const [novaOp, setNovaOp] = useState({ tipo: 'rebalanceamento' as any, quantidade: 10, descricao: '' });
+  const [validacoes, setValidacoes] = useState<any>({});
+
+  const inp = { width: '100%', padding: '10px 12px', borderRadius: 8, boxSizing: 'border-box' as const,
+    background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', color: '#fff', fontSize: 13, outline: 'none' };
+
+  const lbl = { display: 'block' as const, color: 'rgba(255,255,255,.45)', fontSize: 10, fontWeight: 600 as const, marginBottom: 5 };
+
+  return (
+    <div style={{
+      position: 'fixed', top: 60, right: 12, zIndex: 1400,
+      width: 520, maxHeight: '85vh', background: '#0a0f1e',
+      borderRadius: 14, border: '1px solid rgba(16, 185, 129, 0.1)',
+      boxShadow: '0 8px 32px rgba(0, 0, 0, 0.7)',
+      display: 'flex', flexDirection: 'column', overflow: 'hidden'
+    }}>
+      {/* HEADER */}
+      <div style={{
+        padding: '14px 16px', borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        background: 'rgba(16, 185, 129, 0.1)', flexShrink: 0
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: '#10b981' }}>📦 Módulo de Logística</div>
+        <button onClick={onFechar} style={{
+          background: 'none', border: 'none', color: 'rgba(255, 255, 255, 0.4)',
+          cursor: 'pointer', fontSize: 18
+        }}>✕</button>
+      </div>
+
+      {/* ABAS */}
+      <div style={{
+        display: 'flex', gap: 4, padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,.1)',
+        overflowX: 'auto', scrollbarWidth: 'none' as any
+      }}>
+        {[
+          { k: 'dashboard', l: '📊 Dashboard' },
+          { k: 'operacoes', l: '✓ Operações' },
+          { k: 'rotas', l: '🛣️ Rotas' },
+          { k: 'slots', l: '⏰ Slots' },
+          { k: 'monitores', l: '📍 Monitores' }
+        ].map(a => (
+          <button key={a.k} onClick={() => setAbas(a.k as any)} style={{
+            padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+            background: abas === a.k ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255,255,255,.04)',
+            border: `1px solid ${abas === a.k ? 'rgba(16, 185, 129, 0.4)' : 'rgba(255,255,255,.08)'}`,
+            color: abas === a.k ? '#10b981' : 'rgba(255,255,255,.4)', cursor: 'pointer',
+            whiteSpace: 'nowrap' as const
+          }}>{a.l}</button>
+        ))}
+      </div>
+
+      {/* CONTENT */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: 12, color: '#dce8ff', fontSize: 12 }}>
+
+        {/* DASHBOARD */}
+        {abas === 'dashboard' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <div style={{ padding: 12, background: 'rgba(16,185,129,.1)', borderRadius: 8, border: '1px solid rgba(16,185,129,.2)' }}>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,.5)' }}>Operações Ativas</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#10b981', marginTop: 4 }}>{operacoes.filter(o => o.status === 'em_progresso').length}</div>
+              </div>
+              <div style={{ padding: 12, background: 'rgba(59,130,246,.1)', borderRadius: 8, border: '1px solid rgba(59,130,246,.2)' }}>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,.5)' }}>Concluídas Hoje</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#3b82f6', marginTop: 4 }}>{operacoes.filter(o => o.status === 'concluida').length}</div>
+              </div>
+            </div>
+            <div style={{ padding: 12, background: 'rgba(255,255,255,.03)', borderRadius: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 8 }}>Próximas Rotas</div>
+              {rotas.slice(0, 3).map(r => (
+                <div key={r.id} style={{ fontSize: 10, padding: 4, marginBottom: 4, background: 'rgba(255,255,255,.02)', borderRadius: 4 }}>
+                  {r.tarefas.length} tarefas • {r.distanciaTotal.toFixed(1)}km • {r.tempoEstimado}min
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* OPERAÇÕES */}
+        {abas === 'operacoes' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              <label style={lbl}>CRIAR NOVA OPERAÇÃO</label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <select value={novaOp.tipo} onChange={e => setNovaOp({...novaOp, tipo: e.target.value})} style={inp as any}>
+                  <option value="rebalanceamento">Rebalanceamento</option>
+                  <option value="reparo">Reparo</option>
+                  <option value="coleta">Coleta</option>
+                  <option value="entrega">Entrega</option>
+                  <option value="manutencao">Manutenção</option>
+                </select>
+                <input type="number" placeholder="Quantidade" value={novaOp.quantidade} onChange={e => setNovaOp({...novaOp, quantidade: parseInt(e.target.value)})} style={inp}/>
+                <input type="text" placeholder="Descrição" value={novaOp.descricao} onChange={e => setNovaOp({...novaOp, descricao: e.target.value})} style={inp}/>
+                <button onClick={() => {}} style={{
+                  padding: '8px 12px', background: '#10b981', border: 'none', borderRadius: 6,
+                  color: '#fff', fontWeight: 600, cursor: 'pointer'
+                }}>+ Criar Operação</button>
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 8, color: '#10b981' }}>Operações</div>
+              {operacoes.map(o => (
+                <div key={o.id} style={{ fontSize: 10, padding: 8, marginBottom: 6, background: 'rgba(255,255,255,.02)', borderRadius: 6, border: '1px solid rgba(255,255,255,.05)' }}>
+                  <div style={{ fontWeight: 600 }}>{o.tipo} • {o.status}</div>
+                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,.5)', marginTop: 2 }}>{o.estacao.nome} • {o.quantidade} unidades</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ROTAS */}
+        {abas === 'rotas' && (
+          <div>
+            <button onClick={() => {}} style={{
+              width: '100%', padding: '8px', background: '#10b981', border: 'none', borderRadius: 6,
+              color: '#fff', fontWeight: 600, cursor: 'pointer', marginBottom: 12
+            }}>🛣️ Gerar Rota Otimizada</button>
+            {rotas.map(r => (
+              <div key={r.id} style={{ fontSize: 10, padding: 10, marginBottom: 8, background: 'rgba(255,255,255,.03)', borderRadius: 6 }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Rota {r.tarefas.length} tarefas</div>
+                <div style={{ fontSize: 9, color: 'rgba(255,255,255,.5)' }}>
+                  Distância: {r.distanciaTotal.toFixed(1)}km | Tempo: {r.tempoEstimado}min | Status: {r.status}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* SLOTS */}
+        {abas === 'slots' && (
+          <div>
+            <button onClick={() => {}} style={{
+              width: '100%', padding: '8px', background: '#10b981', border: 'none', borderRadius: 6,
+              color: '#fff', fontWeight: 600, cursor: 'pointer', marginBottom: 12
+            }}>⏰ Novo Slot</button>
+            {slots.map(s => (
+              <div key={s.id} style={{ fontSize: 10, padding: 10, marginBottom: 8, background: 'rgba(255,255,255,.03)', borderRadius: 6 }}>
+                <div style={{ fontWeight: 600 }}>{s.tipo} • {s.horario} • {s.repeticao}</div>
+                <div style={{ fontSize: 9, color: 'rgba(255,255,255,.5)', marginTop: 2 }}>{s.tarefas.length} tarefas • {s.status}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* MONITORES */}
+        {abas === 'monitores' && (
+          <div>
+            {monitores.map(m => (
+              <div key={m.id} style={{ fontSize: 10, padding: 10, marginBottom: 8, background: 'rgba(255,255,255,.03)', borderRadius: 6 }}>
+                <div style={{ fontWeight: 600 }}>{m.nome}</div>
+                <div style={{ fontSize: 9, color: 'rgba(255,255,255,.5)', marginTop: 2 }}>
+                  Atual: {m.quantidadeAtual} / Ideal: {m.quantidadeIdeal} • {m.tipo}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

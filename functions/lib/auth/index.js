@@ -38,18 +38,17 @@ exports.solicitarAcesso = solicitarAcesso;
 exports.aprovarSolicitacao = aprovarSolicitacao;
 exports.listarSolicitacoesPendentes = listarSolicitacoesPendentes;
 exports.listarUsuarios = listarUsuarios;
-// src/auth/index.ts
+// functions/src/auth/index.ts
 const admin = __importStar(require("firebase-admin"));
 const utils_1 = require("../utils");
-// ── LOGIN (valida usuário no Firestore) ──────────────────────────
+// ── GET USUÁRIO ──────────────────────────────────────────────────
 async function getUsuario(uid) {
-    const doc = await (0, utils_1.db)().collection('usuarios').doc(uid).get();
-    if (!doc.exists)
+    const docSnap = await (0, utils_1.db)().collection('usuarios').doc(uid).get();
+    if (!docSnap.exists)
         return (0, utils_1.erroResponse)('Usuário não encontrado.');
-    const data = doc.data();
+    const data = docSnap.data();
     if (!data.ativo)
         return (0, utils_1.erroResponse)('Usuário inativo.');
-    // Atualiza último acesso
     await (0, utils_1.db)().collection('usuarios').doc(uid).update({
         ultimoAcesso: admin.firestore.FieldValue.serverTimestamp()
     });
@@ -64,12 +63,12 @@ async function getUsuario(uid) {
     });
 }
 // ── SOLICITAR ACESSO ─────────────────────────────────────────────
+// roleDesejado: 'campo' | 'guard' — default 'campo'
 async function solicitarAcesso(payload) {
-    const { email, nome, paises, motivo } = payload;
+    const { email, nome, paises, motivo, roleDesejado } = payload;
     if (!email || !nome || !paises?.length) {
         return (0, utils_1.erroResponse)('Email, nome e países são obrigatórios.');
     }
-    // Verifica se já tem solicitação pendente
     const existente = await (0, utils_1.db)().collection('solicitacoes')
         .where('email', '==', email)
         .where('status', '==', 'PENDENTE')
@@ -77,22 +76,39 @@ async function solicitarAcesso(payload) {
     if (!existente.empty) {
         return (0, utils_1.erroResponse)('Já existe uma solicitação pendente para este email.');
     }
+    const rolesValidos = ['campo', 'guard'];
+    const roleValido = rolesValidos.includes(roleDesejado || '') ? roleDesejado : 'campo';
     await (0, utils_1.db)().collection('solicitacoes').add({
-        email, nome, paises,
+        email,
+        nome,
+        paises,
         motivo: motivo || '',
+        roleDesejado: roleValido,
         status: 'PENDENTE',
         criadoEm: admin.firestore.FieldValue.serverTimestamp()
     });
     return (0, utils_1.okResponse)({ mensagem: 'Solicitação enviada com sucesso.' });
 }
-// ── APROVAR SOLICITAÇÃO (gestor/admin) ───────────────────────────
-async function aprovarSolicitacao(solicitacaoId, uid, email) {
+// ── APROVAR SOLICITAÇÃO ──────────────────────────────────────────
+// roleOverride: gestor pode forçar o role na hora de aprovar
+//   'campo' → acessa TelaMapa (estações)
+//   'guard' → acessa TelaGuard (ocorrências)
+async function aprovarSolicitacao(solicitacaoId, uid, email, roleOverride) {
     const ref = (0, utils_1.db)().collection('solicitacoes').doc(solicitacaoId);
-    const doc = await ref.get();
-    if (!doc.exists)
+    const docSnap = await ref.get();
+    if (!docSnap.exists)
         return (0, utils_1.erroResponse)('Solicitação não encontrada.');
-    const sol = doc.data();
-    // Cria usuário no Auth (ou busca existente)
+    const sol = docSnap.data();
+    // Determina role final: override > roleDesejado da solicitação > fallback 'campo'
+    const rolesPermitidos = ['campo', 'guard'];
+    let roleFinal = 'campo';
+    if (roleOverride && rolesPermitidos.includes(roleOverride)) {
+        roleFinal = roleOverride;
+    }
+    else if (sol.roleDesejado && rolesPermitidos.includes(sol.roleDesejado)) {
+        roleFinal = sol.roleDesejado;
+    }
+    // Cria ou busca usuário no Firebase Auth
     let userRecord;
     try {
         userRecord = await admin.auth().getUserByEmail(sol.email);
@@ -104,35 +120,34 @@ async function aprovarSolicitacao(solicitacaoId, uid, email) {
             displayName: sol.nome
         });
     }
-    // Cria perfil no Firestore
+    // Cria / sobrescreve perfil no Firestore com role correto
     await (0, utils_1.db)().collection('usuarios').doc(userRecord.uid).set({
         uid: userRecord.uid,
         email: sol.email,
         nome: sol.nome,
-        role: 'campo',
+        role: roleFinal,
         paises: sol.paises,
         ativo: true,
         criadoEm: admin.firestore.FieldValue.serverTimestamp(),
         ultimoAcesso: null
     });
-    // Envia email de boas-vindas com link para definir senha
+    // Envia email de reset de senha para o novo usuário definir a senha
     try {
-        const WEB_API_KEY = process.env.WEB_API_KEY || '';
-        if (WEB_API_KEY) {
+        const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY || '';
+        if (FIREBASE_WEB_API_KEY) {
             const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
-            await axios.post(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${WEB_API_KEY}`, {
+            await axios.post('https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=' + FIREBASE_WEB_API_KEY, {
                 requestType: 'PASSWORD_RESET',
                 email: sol.email,
                 continueUrl: 'https://jet-os-7.web.app'
             });
-            console.log(`[aprovar] Email de reset enviado para ${sol.email}`);
+            console.log('[aprovar] Email de reset enviado para ' + sol.email);
         }
         else {
-            // Fallback: gera o link e loga (admin pode enviar manualmente)
             const link = await admin.auth().generatePasswordResetLink(sol.email, {
                 url: 'https://jet-os-7.web.app'
             });
-            console.log(`[aprovar] Link de reset para ${sol.email}: ${link}`);
+            console.log('[aprovar] Link de reset para ' + sol.email + ': ' + link);
         }
     }
     catch (e) {
@@ -143,14 +158,20 @@ async function aprovarSolicitacao(solicitacaoId, uid, email) {
     await ref.update({
         status: 'APROVADA',
         resolvidoEm: admin.firestore.FieldValue.serverTimestamp(),
-        resolvidoPor: email
+        resolvidoPor: email,
+        roleAtribuido: roleFinal
     });
     await (0, utils_1.logEvento)({
         tipo: 'STATUS_CHANGED',
-        uid, email,
-        descricao: `Solicitação aprovada: ${sol.email}`
+        uid,
+        email,
+        descricao: 'Solicitação aprovada como [' + roleFinal + ']: ' + sol.email
     });
-    return (0, utils_1.okResponse)({ uid: userRecord.uid, mensagem: 'Usuário criado com sucesso.' });
+    return (0, utils_1.okResponse)({
+        uid: userRecord.uid,
+        role: roleFinal,
+        mensagem: 'Usuário criado como ' + roleFinal + '.'
+    });
 }
 // ── LISTAR SOLICITAÇÕES PENDENTES ────────────────────────────────
 async function listarSolicitacoesPendentes() {

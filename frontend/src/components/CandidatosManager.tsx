@@ -2,7 +2,7 @@
 // Detecta esquinas candidatas para novas estações — custo zero
 // Fontes: Overpass OSM (esquinas) + Analytics (fluxo) + POIs (estratégia) + estações JET (gap)
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 // ── TIPOS ────────────────────────────────────────────────────────
 export interface Candidato {
@@ -125,6 +125,9 @@ export function CandidatosManager({
   drawerAberto = false,
   onAbrirDrawer,
   onCandidatosChange,
+  forceOpen,
+  hideButton = false,
+  topOffset = 52,
 }: {
   mapCenter: { lat: number; lng: number };
   estacoes: Estacao[];
@@ -132,6 +135,9 @@ export function CandidatosManager({
   drawerAberto?: boolean;
   onAbrirDrawer: (lat: number, lng: number) => void;
   onCandidatosChange: (candidatos: Candidato[]) => void;
+  forceOpen?: boolean;
+  hideButton?: boolean;
+  topOffset?: number;
 }) {
   const [candidatos, setCandidatos] = useState<Candidato[]>([]);
   const [loading, setLoading] = useState(false);
@@ -141,6 +147,11 @@ export function CandidatosManager({
   const [raioFluxo, setRaioFluxo] = useState(200);
   const [minScore, setMinScore] = useState(30);
   const [aberto, setAberto] = useState(false);
+
+  // Abrir/fechar via prop externa
+  useEffect(() => {
+    if (forceOpen !== undefined) setAberto(forceOpen);
+  }, [forceOpen]);
   const [selectedId, setSelectedId] = useState<string|null>(null);
   const cacheRef = useRef<Record<string,Candidato[]>>({});
 
@@ -249,7 +260,7 @@ export function CandidatosManager({
   return (
     <>
       {/* Botão trigger */}
-      <button
+      {!hideButton && <button
         onClick={() => setAberto(v => !v)}
         style={{
           display:'flex', alignItems:'center', gap:6,
@@ -261,12 +272,12 @@ export function CandidatosManager({
         }}
       >
         🎯 Pt. Candidatos{candidatos.length>0?` (${candidatos.length})`:''}
-      </button>
+      </button>}
 
       {/* Painel */}
       {aberto && (
         <div style={{
-          position:'fixed', right: drawerAberto ? 344 : 0, top:0, bottom:0, width:300,
+          position:'fixed', right: drawerAberto ? 400 : 0, top: topOffset, bottom:0, width:320,
           background:'#0c1018', borderLeft:'1px solid #1c2535',
           zIndex:800, display:'flex', flexDirection:'column',
           fontFamily:"'DM Sans',sans-serif",

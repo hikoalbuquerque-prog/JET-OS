@@ -1,41 +1,59 @@
-// src/lib/firebase.ts
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentSingleTabManager,
+  CACHE_SIZE_UNLIMITED,
+} from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getStorage } from 'firebase/storage';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 const firebaseConfig = {
-  apiKey:            import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId:             import.meta.env.VITE_FIREBASE_APP_ID
+  apiKey: "AIzaSyAPBQfV2wq4GD6AZxqmzTZ_rvFHjbWepMk",
+  authDomain: "jet-os-1.firebaseapp.com",
+  projectId: "jet-os-1",
+  databaseURL: "https://jet-os-1-default-rtdb.firebaseio.com/",
+  storageBucket: "jet-os-1.firebasestorage.app",
+  messagingSenderId: "727065543526",
+  appId: "1:727065543526:web:ac0d6831f4350f08d07ea7"
 };
 
 const app = initializeApp(firebaseConfig);
 
-export const auth      = getAuth(app);
-export const db        = getFirestore(app);
-export const storage   = getStorage(app);
-export const functions = getFunctions(app, 'southamerica-east1');
+export const auth    = getAuth(app);
+export const storage = getStorage(app);
 
-// ── CLOUD FUNCTIONS ──────────────────────────────────────────────
-export const fnAddEstacao         = () => httpsCallable(functions, 'addEstacaoFn');
-export const fnEditarEstacao      = () => httpsCallable(functions, 'editarEstacaoFn');
-export const fnExcluirEstacao     = () => httpsCallable(functions, 'excluirEstacaoFn');
-export const fnGetEstacoes        = () => httpsCallable(functions, 'getEstacoesFn');
-export const fnGerarStreetView    = () => httpsCallable(functions, 'gerarStreetViewFn');
-export const fnAnalisarCalcada    = () => httpsCallable(functions, 'analisarCalcadaFn');
-export const fnSvEstatisticas     = () => httpsCallable(functions, 'svEstatisticasFn');
-export const fnGetUsuario         = () => httpsCallable(functions, 'getUsuarioFn');
-export const fnReverseGeocode     = () => httpsCallable(functions, 'reverseGeocodeFn');
-export const fnSolicitarAcesso    = () => httpsCallable(functions, 'solicitarAcessoFn');
-export const fnAprovarSolicitacao = () => httpsCallable(functions, 'aprovarSolicitacaoFn');
-export const fnListarSolicitacoes = () => httpsCallable(functions, 'listarSolicitacoesFn');
-export const fnListarUsuarios      = () => httpsCallable(functions, 'listarUsuariosFn');
-export const fnNormalizarEstacoes  = () => httpsCallable(functions, 'normalizarEstacoesFn');
-export const fnGerarCroqui        = () => httpsCallable(functions, 'gerarCroquiFn');
-export const fnBuscarPOIs          = () => httpsCallable(functions, 'buscarPOIsFn');
-export const fnGerarCroquisLote   = () => httpsCallable(functions, 'gerarCroquisLoteFn');
+// Firestore com persistência offline (IndexedDB multi-tab)
+// Elimina o erro "client is offline" no onAuthStateChanged
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    cacheSizeBytes: CACHE_SIZE_UNLIMITED,
+    tabManager: persistentSingleTabManager({}),
+  }),
+});
+
+const fns = getFunctions(app, 'southamerica-east1');
+
+// Cloud Functions
+export const fnGerarCroqui          = () => httpsCallable(fns, 'gerarCroquiFn');
+export const fnGerarStreetView      = () => httpsCallable(fns, 'gerarStreetViewFn');
+export const fnAnalisarCalcada      = () => httpsCallable(fns, 'analisarCalcadaFn');
+export const fnAddEstacao           = () => httpsCallable(fns, 'addEstacaoFn');
+export const fnBuscarPOIs           = () => httpsCallable(fns, 'buscarPOIsFn');
+export const fnGeocodeForward       = () => httpsCallable(fns, 'geocodeForwardFn');
+export const fnGetUsuario           = () => httpsCallable(fns, 'getUsuario');
+export const fnGerarCroquisLote     = () => httpsCallable(fns, 'gerarCroquisLoteFn');
+export const fnSvEstatisticas       = () => httpsCallable(fns, 'svEstatisticasFn');
+export const fnAceitarSlot          = () => httpsCallable(fns, 'aceitarSlot');
+export const fnNotificarOcorrencia  = () => httpsCallable(fns, 'notificarOcorrencia');
+export const fnNotificarTarefa      = () => httpsCallable(fns, 'notificarTarefa');
+export const fnRegistrarTelegramId  = () => httpsCallable(fns, 'registrarTelegramChatId');
+export const fnUpdatePrestadorPosition = () => httpsCallable(fns, 'updatePrestadorPositionFn');
+export const fnGerarSlotsManual        = () => httpsCallable(fns, 'gerarSlotsManualFn');
+export const fnScraperGoJetManual      = () => httpsCallable(fns, 'scraperGoJetManual');
+export const fnExportarHistoricoParking = () => httpsCallable(fns, 'exportarHistoricoParking');
+
+if (typeof window !== 'undefined') {
+  (window as any).__fnNotificarOcorrencia = httpsCallable(fns, 'notificarOcorrencia');
+}

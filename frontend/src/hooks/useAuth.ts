@@ -4,7 +4,8 @@ import {
   onAuthStateChanged, signInWithEmailAndPassword,
   signOut, User
 } from 'firebase/auth';
-import { auth, fnGetUsuario } from '../lib/firebase';
+import { auth, db } from '../lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 
 export interface Usuario {
   uid: string; email: string; nome: string;
@@ -40,14 +41,24 @@ function _start() {
   onAuthStateChanged(auth, async (user) => {
     if (user) {
       try {
-        const res = await fnGetUsuario()({});
-        const d = res.data as { ok: boolean; usuario: Usuario };
-        _set(d.ok
-          ? { user, usuario: d.usuario, loading: false, erro: null }
-          : { user: null, usuario: null, loading: false, erro: 'Perfil não encontrado.' }
-        );
+        const docRef = doc(db, 'usuarios', user.uid);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          const usuario: Usuario = {
+            uid: user.uid,
+            email: user.email || '',
+            nome: data.nome || '',
+            role: data.role || 'viewer',
+            paises: data.paises || []
+          };
+          _set({ user, usuario, loading: false, erro: null });
+          console.log('[auth] usuário carregado:', usuario);
+        } else {
+          _set({ user: null, usuario: null, loading: false, erro: 'Perfil não encontrado.' });
+        }
       } catch(e) {
-        console.error('[auth]', e);
+        console.error('[auth] erro ao carregar perfil:', e);
         _set({ user: null, usuario: null, loading: false, erro: 'Erro ao carregar perfil.' });
       }
     } else {

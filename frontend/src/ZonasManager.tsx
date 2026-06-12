@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { collection, onSnapshot, query, where, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import L from 'leaflet';
+import JSZip from 'jszip';
 
 interface Zona {
   id: string;
@@ -308,6 +309,9 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
   const [novosPontos,  setNovosPontos]  = useState<{lat:number;lng:number}[]>([]);
   const drawLayerRef   = useRef<L.LayerGroup | null>(null);
   const drawPolyRef    = useRef<L.Polygon | null>(null);
+  const [importando,   setImportando]   = useState(false);
+  const [importLog,    setImportLog]    = useState<string[]>([]);
+  const kmzInputRef = useRef<HTMLInputElement>(null);
 
   // Firestore listener
   useEffect(() => {
@@ -317,6 +321,92 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
       setZonas(snap.docs.map(d => ({ id: d.id, ...d.data() } as Zona)));
     });
   }, [cidade]);
+
+  // ── Importar KMZ/KML ─────────────────────────────────────────────────────
+  const importarKMZ = async (file: File) => {
+    setImportando(true);
+    setImportLog(['📂 Lendo arquivo...']);
+    const log = (msg: string) => setImportLog(prev => [...prev, msg]);
+
+    try {
+      let kmlText = '';
+
+      if (file.name.toLowerCase().endsWith('.kmz')) {
+        // KMZ = ZIP com doc.kml dentro
+        const zip = await JSZip.loadAsync(file);
+        const kmlFile = Object.keys(zip.files).find(n => n.endsWith('.kml'));
+        if (!kmlFile) throw new Error('Nenhum .kml encontrado no KMZ');
+        kmlText = await zip.files[kmlFile].async('text');
+        log(`✅ KMZ extraído: ${kmlFile}`);
+      } else {
+        kmlText = await file.text();
+        log('✅ KML lido');
+      }
+
+      const parser = new DOMParser();
+      const doc    = parser.parseFromString(kmlText, 'text/xml');
+
+      // Extrai só Placemarks com Polygon (ignora Points = estações)
+      const placemarks = Array.from(doc.querySelectorAll('Placemark'));
+      const zonasPMs   = placemarks.filter(pm => pm.querySelector('Polygon'));
+      log(`📍 ${zonasPMs.length} zonas encontradas (${placemarks.length - zonasPMs.length} estações ignoradas)`);
+
+      // Mapeia cores dos estilos
+      const styles: Record<string, string> = {};
+      doc.querySelectorAll('Style').forEach(s => {
+        const id  = s.getAttribute('id') ?? '';
+        const cor = s.querySelector('PolyStyle > color')?.textContent ?? '';
+        if (id && cor && cor.length === 8) {
+          // KML: aabbggrr → #rrggbb
+          const r = cor.slice(6, 8), g = cor.slice(4, 6), b = cor.slice(2, 4);
+          styles[id] = `#${r}${g}${b}`;
+        }
+      });
+
+      let criadas = 0;
+      for (const pm of zonasPMs) {
+        const nome = pm.querySelector('name')?.textContent?.trim() ?? 'Zona importada';
+        const styleUrl = pm.querySelector('styleUrl')?.textContent?.trim().replace('#','') ?? '';
+        const cor = styles[styleUrl + '-normal'] ?? styles[styleUrl] ?? '#7c3aed';
+
+        const coordsEl = pm.querySelector('Polygon coordinates, outerBoundaryIs coordinates');
+        if (!coordsEl?.textContent) continue;
+
+        const pontos = coordsEl.textContent.trim().split(/\s+/).map(c => {
+          const [lng, lat] = c.split(',').map(Number);
+          return { lat, lng };
+        }).filter(p => isFinite(p.lat) && isFinite(p.lng));
+
+        if (pontos.length < 3) continue;
+
+        const { addDoc, collection: col } = await import('firebase/firestore');
+        const { serverTimestamp } = await import('firebase/firestore');
+        await addDoc(col(db, 'poligonos'), {
+          nome,
+          cidade,
+          pais,
+          cor,
+          grupo: 'importado',
+          fase: 'operacao',
+          prioridade: 1,
+          ativo: true,
+          poligono: pontos,
+          criadoEm: serverTimestamp(),
+          importadoDe: file.name,
+        });
+        criadas++;
+        log(`  ✅ ${nome} (${pontos.length} pontos)`);
+      }
+
+      log(`
+🎉 ${criadas} zonas importadas com sucesso!`);
+      if (onMapRefresh) onMapRefresh();
+    } catch (e: any) {
+      setImportLog(prev => [...prev, `❌ Erro: ${e.message}`]);
+    } finally {
+      setImportando(false);
+    }
+  };
 
   // Modo desenho nova zona
   useEffect(() => {
@@ -551,12 +641,47 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
                   }}>Cancelar desenho</button>
                 </div>
               ) : (
-                <button onClick={() => setDesenhando(true)} style={{
-                  width: '100%', padding: 12,
-                  background: 'linear-gradient(135deg,#7c3aed,#a855f7)',
-                  border: 'none', borderRadius: 10, color: '#fff',
-                  fontSize: 13, fontWeight: 600, cursor: 'pointer'
-                }}>+ Desenhar nova zona</button>
+                <>
+                  <input ref={kmzInputRef} type="file" accept=".kmz,.kml"
+                    style={{ display: 'none' }}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) importarKMZ(f); e.target.value = ''; }} />
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                    <button onClick={() => setDesenhando(true)} style={{
+                      flex: 2, padding: 12,
+                      background: 'linear-gradient(135deg,#7c3aed,#a855f7)',
+                      border: 'none', borderRadius: 10, color: '#fff',
+                      fontSize: 13, fontWeight: 600, cursor: 'pointer'
+                    }}>+ Desenhar nova zona</button>
+                    <button onClick={() => kmzInputRef.current?.click()} style={{
+                      flex: 1, padding: 12,
+                      background: 'rgba(168,85,247,.1)',
+                      border: '1px solid rgba(168,85,247,.3)',
+                      borderRadius: 10, color: '#c084fc',
+                      fontSize: 11, fontWeight: 600, cursor: 'pointer'
+                    }}>📂 KMZ</button>
+                  </div>
+                </>
+              )}
+
+              {/* Log de importação */}
+              {importLog.length > 0 && (
+                <div style={{
+                  marginTop: 8, padding: 10, background: 'rgba(0,0,0,.3)',
+                  border: '1px solid rgba(168,85,247,.2)', borderRadius: 8,
+                  maxHeight: 180, overflowY: 'auto', fontSize: 11,
+                  fontFamily: 'monospace', color: '#c084fc',
+                }}>
+                  {importLog.map((l, i) => (
+                    <div key={i} style={{ marginBottom: 2 }}>{l}</div>
+                  ))}
+                  {!importando && (
+                    <button onClick={() => setImportLog([])} style={{
+                      marginTop: 6, width: '100%', padding: '5px',
+                      background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.1)',
+                      borderRadius: 6, color: 'rgba(255,255,255,.4)', fontSize: 10, cursor: 'pointer'
+                    }}>Fechar log</button>
+                  )}
+                </div>
               )}
             </div>
           </>
