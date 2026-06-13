@@ -768,7 +768,7 @@ async function executarMotorSlots() {
                         tarefas: tarefasCharger,
                     });
                     await logDecisao({ zona: cfg.zonaNome, cidade, tipoSlot: 'charger', bikesEncontradas: patinetesAlvo.length, bikesAlvo: batThresholdPct, climaStatus, regraAplicada: `charger_${batThresholdPct}pct (${tarefasCharger.length} clusters)`, slotCriado: true, slotId });
-                    // Gravar alerta de bateria crítica no histórico
+                    // Gravar alerta de bateria crítica no histórico + push FCM para gestores da cidade
                     const criticas = patinetesAlvo.filter(b => (b.battery_percent ?? 1) < 0.10);
                     if (criticas.length > 0) {
                         await db.collection('monitor_alertas').add({
@@ -780,6 +780,40 @@ async function executarMotorSlots() {
                             slotId: slotId ?? null,
                             ts: admin.firestore.FieldValue.serverTimestamp(),
                         });
+                        // Push FCM para gestores logística da cidade
+                        try {
+                            const gestoresSnap = await db.collection('usuarios')
+                                .where('role', 'in', ['admin', 'gestor', 'supergestor', 'gestor_log'])
+                                .get();
+                            const uidsGestores = gestoresSnap.docs
+                                .filter(d => {
+                                const data = d.data();
+                                const cidades = data.cidadesGerenciaLog || data.cidadesPermitidas || [];
+                                return cidades.length === 0 || cidades.includes(cidade);
+                            })
+                                .map(d => d.id);
+                            if (uidsGestores.length > 0) {
+                                const tokenSnaps = await Promise.all(uidsGestores.map(uid => db.collection('fcm_tokens').doc(uid).get()));
+                                const tokens = tokenSnaps
+                                    .filter(s => s.exists && s.data()?.token)
+                                    .map(s => s.data().token);
+                                if (tokens.length > 0) {
+                                    const batMin = Math.round(Math.min(...criticas.map(b => b.battery_percent ?? 0)) * 100);
+                                    await admin.messaging().sendEachForMulticast({
+                                        tokens,
+                                        notification: {
+                                            title: `🔋 Bateria crítica — ${cfg.zonaNome}`,
+                                            body: `${criticas.length} patinete(s) abaixo de 10% (mín ${batMin}%) em ${cidade}`,
+                                        },
+                                        data: { tipo: 'bateria_critica', cidade, zona: cfg.zonaNome },
+                                        android: { priority: 'high' },
+                                    });
+                                }
+                            }
+                        }
+                        catch (fcmErr) {
+                            v2_1.logger.warn('[monitor-alertas] FCM push falhou:', fcmErr);
+                        }
                     }
                     if (cfg.notificarGestor && diretoriaChatId) {
                         const wText = workers.length > 0 ? workers.map(w => w.nome).join(', ') : 'Aberto para aceite';

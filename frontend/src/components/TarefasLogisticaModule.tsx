@@ -644,7 +644,7 @@ function KanbanBoard({ tarefas, loading, fullscreen, onAbrirTarefa, agentes }: {
       {/* Linha 2: agente + prazo vencido */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
         <select value={filtroAgente} onChange={e => setFiltroAgente(e.target.value)}
-          style={{ ...S.inp, width: 'auto', flex: 1, minWidth: 140, marginBottom: 0 }}>
+          style={{ ...S.inp, width: 'auto', flex: 1, minWidth: 140, marginBottom: 0, colorScheme: 'dark', appearance: 'none' as const }}>
           <option value="">👤 Todos os agentes</option>
           <option value="__sem__">Sem agente</option>
           {agentes.map(a => <option key={a.uid} value={a.uid}>{a.nome}</option>)}
@@ -1869,21 +1869,21 @@ function Historico({ tarefas, agentes }: {
         <input value={busca} onChange={e => { setBusca(e.target.value); setPagina(0); }}
           placeholder="🔍 Buscar..."
           style={{ ...S.inp, flex: 2, minWidth: 120 }} />
-        <select style={{ ...S.inp, flex: 1, minWidth: 100, appearance: 'none' as const }}
+        <select style={{ ...S.inp, flex: 1, minWidth: 100, appearance: 'none' as const, colorScheme: 'dark' }}
           value={filtroStatus} onChange={e => { setFiltroStatus(e.target.value as any); setPagina(0); }}>
           <option value="todas">Todos status</option>
           {(Object.keys(STATUS) as TarefaStatus[]).map(s => (
             <option key={s} value={s}>{STATUS[s].label}</option>
           ))}
         </select>
-        <select style={{ ...S.inp, flex: 1, minWidth: 100, appearance: 'none' as const }}
+        <select style={{ ...S.inp, flex: 1, minWidth: 100, appearance: 'none' as const, colorScheme: 'dark' }}
           value={filtroKind} onChange={e => { setFiltroKind(e.target.value as any); setPagina(0); }}>
           <option value="todas">Todos tipos</option>
           {(Object.keys(KIND) as TarefaKind[]).map(k => (
             <option key={k} value={k}>{KIND[k].icon} {KIND[k].label}</option>
           ))}
         </select>
-        <select style={{ ...S.inp, flex: 1, minWidth: 120, appearance: 'none' as const }}
+        <select style={{ ...S.inp, flex: 1, minWidth: 120, appearance: 'none' as const, colorScheme: 'dark' }}
           value={filtroAgente} onChange={e => { setFiltroAgente(e.target.value); setPagina(0); }}>
           <option value="">Todos agentes</option>
           {agentes.map(a => <option key={a.uid} value={a.uid}>{a.nome}</option>)}

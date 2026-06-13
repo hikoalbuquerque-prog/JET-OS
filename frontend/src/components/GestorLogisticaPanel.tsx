@@ -198,7 +198,7 @@ function CidadeSelector({
       <select
         value={cidadeAtiva}
         onChange={e => onChange(e.target.value)}
-        style={{...S.inpSm, width:'auto', minWidth:140, marginBottom:0}}
+        style={{...S.inpSm, width:'auto', minWidth:140, marginBottom:0, colorScheme:'dark', appearance:'none' as const}}
       >
         {isAdmin && <option value="">Todas as cidades</option>}
         {cidadesDisponiveis.map(c => (

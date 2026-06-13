@@ -371,7 +371,7 @@ export default function UsuariosManager({
   const executarRemocaoAcesso = async (usuario: UsuarioAtivo) => {
     setRemovendoAcesso(true);
     try {
-      const fn = httpsCallable(getFunctions(), 'revogarAcesso');
+      const fn = httpsCallable(getFunctions(undefined, 'southamerica-east1'), 'revogarAcesso');
       await fn({ uid: usuario.uid });
       showMsg('✅ Acesso revogado. Usuário não conseguirá mais entrar.');
       setUsuarios(prev => prev.filter(u => u.uid !== usuario.uid));
