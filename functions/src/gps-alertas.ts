@@ -511,6 +511,77 @@ export const verificarAtrasos = onSchedule(
       });
     }
 
+    // ── 4. Operadores com SLOT ativo mas sem GPS por X min ───────────────────
+    // Complementa seção 3 (tarefas) — cobre chargers/scalts sem tarefas atribuídas
+    try {
+      const COOLDOWN_SLOT_GPS_MS = 20 * 60_000; // 20 min cooldown por worker
+      const slotsAtivosSnap = await db.collection('slots')
+        .where('status', '==', 'em_andamento')
+        .get();
+
+      const workersPorSlot = new Map<string, { nome: string; cidade: string; slotId: string }>();
+      for (const sDoc of slotsAtivosSnap.docs) {
+        const s = sDoc.data();
+        if (s.aceitoPor && !workersPorSlot.has(s.aceitoPor)) {
+          workersPorSlot.set(s.aceitoPor, {
+            nome:   s.aceitoPorNome ?? s.aceitoPor,
+            cidade: s.cidade ?? '',
+            slotId: sDoc.id,
+          });
+        }
+      }
+
+      // Remove workers que já foram cobertos na seção 3 (têm tarefas ativas)
+      for (const uid of operadoresAtivos.keys()) workersPorSlot.delete(uid);
+
+      for (const [uid, info] of workersPorSlot) {
+        const gpsSnap = await db.collection('gps_logistica')
+          .where('uid', '==', uid)
+          .orderBy('criadoEm', 'desc')
+          .limit(1)
+          .get();
+
+        if (gpsSnap.empty) continue;
+        const ultGPS    = gpsSnap.docs[0].data();
+        const ultEnvio  = ultGPS.criadoEm?.toDate?.();
+        if (!ultEnvio || ultEnvio > limiteGPS) continue;
+
+        const opRef     = db.collection('usuarios').doc(uid);
+        const opSnap    = await opRef.get();
+        const ultimoAlerta = opSnap.data()?.alertaGPSSlotEm?.toDate?.()?.getTime?.() ?? 0;
+        if (agora - ultimoAlerta < COOLDOWN_SLOT_GPS_MS) continue;
+
+        const minSem = Math.round((agora - ultEnvio.getTime()) / 60_000);
+        const chatId = await getChatId(info.cidade);
+        if (!chatId) continue;
+
+        await telegram(tgCfg.token, chatId, [
+          `📡 <b>GPS perdido — turno ativo</b>`,
+          ``,
+          `👤 ${info.nome}`,
+          `🏙 ${info.cidade}`,
+          `⏱ Sem GPS há ${minSem} min`,
+          `🔑 Slot: ${info.slotId.slice(-6)}`,
+          `📱 Verificar se o app está aberto e com localização ativada`,
+        ].join('\n'));
+
+        await db.collection('monitor_alertas').add({
+          tipo:    'gps_ausente_slot',
+          uid,
+          nome:    info.nome,
+          cidade:  info.cidade,
+          minSem,
+          ts:      admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        await opRef.update({
+          alertaGPSSlotEm: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (e) {
+      functions.logger.error('[verificarAtrasos] Erro na seção 4 (slots GPS):', e);
+    }
+
     functions.logger.info(`[verificarAtrasos] concluído`);
   }
 );

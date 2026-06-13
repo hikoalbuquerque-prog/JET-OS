@@ -2236,20 +2236,35 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
           <button onClick={onFechar} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.4)', cursor: 'pointer', fontSize: 20 }}>✕</button>
         </div>
 
-        {/* GPS STATUS */}
-        {gpsStats && (
+        {/* GPS STATUS — banner proeminente se sem sinal, sutil se ok */}
+        {gpsStats && gpsStats.ultimoErro ? (
+          <div style={{
+            padding: '10px 14px', flexShrink: 0,
+            background: 'rgba(239,68,68,.18)',
+            borderBottom: '1px solid rgba(239,68,68,.35)',
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <span style={{ fontSize: 20 }}>📵</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 700, fontSize: 12, color: '#fca5a5' }}>GPS sem sinal</div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,.5)', marginTop: 2 }}>
+                Ative a localização nas configurações do celular
+              </div>
+            </div>
+          </div>
+        ) : gpsStats ? (
           <div style={{
             padding: '6px 14px', flexShrink: 0,
-            background: gpsStats.ultimoErro ? 'rgba(239,68,68,.12)' : 'rgba(16,185,129,.08)',
-            borderBottom: `1px solid ${gpsStats.ultimoErro ? 'rgba(239,68,68,.2)' : 'rgba(16,185,129,.15)'}`,
+            background: 'rgba(16,185,129,.08)',
+            borderBottom: '1px solid rgba(16,185,129,.15)',
             display: 'flex', alignItems: 'center', gap: 8, fontSize: 10,
           }}>
-            <span style={{ color: gpsStats.ultimoErro ? '#ef4444' : '#10b981' }}>{gpsStats.ultimoErro ? '⚠️' : '📡'}</span>
+            <span style={{ color: '#10b981' }}>📡</span>
             <span style={{ color: 'rgba(255,255,255,.6)', flex: 1 }}>GPS {gpsStats.estrategia}</span>
             <span style={{ color: 'rgba(255,255,255,.4)' }}>{gpsStats.pontoEnviados} pts</span>
             {gpsStats.filaOffline > 0 && <span style={{ color: '#f59e0b' }}>{gpsStats.filaOffline} offline</span>}
           </div>
-        )}
+        ) : null}
 
         {/* ABAS */}
         <div style={S.tabBar}>

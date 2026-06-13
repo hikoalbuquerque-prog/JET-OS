@@ -14,15 +14,21 @@ import { uploadComRetry } from '../lib/uploadUtils';
 
 // GPS background — importado dinamicamente para não quebrar se Capacitor não disponível
 let _gpsStarted = false;
+let _gpsErroSetter: ((msg: string | null) => void) | null = null;
 
-async function startGPSTracking(uid: string): Promise<void> {
+async function startGPSTracking(
+  uid: string,
+  onErroSet?: (msg: string | null) => void,
+): Promise<void> {
+  _gpsErroSetter = onErroSet ?? null;
   if (_gpsStarted) return;
   try {
     const { gpsBackground } = await import('../lib/gps-background');
     await gpsBackground.iniciar({
       uid,
       slotId: null,
-      onErro: (msg: string) => console.warn('[GPS]', msg),
+      onErro:   (msg) => { _gpsErroSetter?.(msg); console.warn('[GPS]', msg); },
+      onPosicao: ()  => { _gpsErroSetter?.(null); },
     });
     _gpsStarted = true;
   } catch { /* gps-background não disponível */ }
@@ -372,9 +378,10 @@ function WorkerHome({ tarefas, usuario, onAbrirTarefa }: {
     return v ? new Date(v) : null;
   });
   const [elapsed, setElapsed] = useState('');
+  const [gpsErro, setGpsErro] = useState<string | null>(null);
 
   useEffect(() => {
-    if (trabalhando) void startGPSTracking(usuario.uid);
+    if (trabalhando) void startGPSTracking(usuario.uid, setGpsErro);
     return () => { /* não para GPS ao desmontar — continua em background */ };
   }, []); // eslint-disable-line
 
@@ -430,12 +437,12 @@ function WorkerHome({ tarefas, usuario, onAbrirTarefa }: {
       localStorage.setItem('jet:worker-foto-turno', url);
       setFotoTurno(url);
       setTrabalhando(true);
-      void startGPSTracking(usuario.uid);
+      void startGPSTracking(usuario.uid, setGpsErro);
     } catch (e: any) {
       localStorage.setItem('jet:worker-status', 'working');
       localStorage.setItem('jet:worker-started-at', agora.toISOString());
       setTrabalhando(true);
-      void startGPSTracking(usuario.uid);
+      void startGPSTracking(usuario.uid, setGpsErro);
     } finally {
       setUploadingFoto(false);
     }
@@ -446,6 +453,23 @@ function WorkerHome({ tarefas, usuario, onAbrirTarefa }: {
 
   return (
     <div style={{ padding: 16 }}>
+
+      {/* Banner GPS sem sinal */}
+      {trabalhando && gpsErro && (
+        <div style={{
+          background: 'rgba(239,68,68,.18)', border: '1px solid rgba(239,68,68,.35)',
+          borderRadius: 10, padding: '10px 14px', marginBottom: 12,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <span style={{ fontSize: 22 }}>📵</span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 12, color: '#fca5a5' }}>GPS sem sinal</div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,.5)', marginTop: 2 }}>
+              Ative a localização nas configurações do celular
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Status card */}
       <div style={{ background: '#111827', borderRadius: 12, padding: 20,

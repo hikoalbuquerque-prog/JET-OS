@@ -296,6 +296,8 @@ async function desativarWakeLock() {
 
 // ─── SERVIÇO PRINCIPAL ────────────────────────────────────────────────────────
 
+const WATCHDOG_MS = 3 * 60_000; // 3 min sem posição → alerta
+
 class GPSBackgroundService {
   private ativo = false;
   private opcoes: TrackingOpcoes | null = null;
@@ -303,6 +305,7 @@ class GPSBackgroundService {
 
   private watcherId: string | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private watchdog: ReturnType<typeof setTimeout> | null = null;
   private segundoPlano = false;
   private netListener: (() => void) | null = null;
 
@@ -338,6 +341,7 @@ class GPSBackgroundService {
       await this._iniciarPWA();
     }
 
+    this._reiniciarWatchdog();
     this._emitirStats();
     console.log(`[GPS-BG] iniciado — estratégia: ${this.estrategia}`);
   }
@@ -470,8 +474,17 @@ class GPSBackgroundService {
     });
   }
 
+  private _reiniciarWatchdog() {
+    if (this.watchdog) clearTimeout(this.watchdog);
+    if (!this.ativo) return;
+    this.watchdog = setTimeout(() => {
+      this._erro('GPS sem sinal — verifique se a localização está ativada');
+    }, WATCHDOG_MS);
+  }
+
   async parar() {
     this.ativo = false;
+    if (this.watchdog) { clearTimeout(this.watchdog); this.watchdog = null; }
 
     if (this.watcherId) {
       try { await BackgroundGeolocation.removeWatcher({ id: this.watcherId }); }
@@ -500,6 +513,8 @@ class GPSBackgroundService {
       this.stats.ultimaLat     = ponto.lat;
       this.stats.ultimaLng     = ponto.lng;
       this.stats.ultimoEnvioEm = new Date();
+      this.stats.ultimoErro    = null; // GPS voltou — limpa erro
+      this._reiniciarWatchdog();       // reset timer de 3 min
     } else {
       this.stats.pontosFalha++;
     }
