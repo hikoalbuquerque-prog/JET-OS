@@ -5,6 +5,7 @@
 // Todos precisam de notificações.
 
 import { useState, useEffect, useCallback } from 'react';
+import { registerPlugin } from '@capacitor/core';
 
 type PermStatus = 'checking' | 'granted' | 'denied' | 'prompt' | 'limited';
 
@@ -12,7 +13,14 @@ interface PermState {
   locForeground: PermStatus;
   locBackground: PermStatus;
   notifications: PermStatus;
+  battery: 'granted' | 'prompt';
 }
+
+// Plugin nativo para isenção de otimização de bateria
+const BatteryOpt = registerPlugin<{
+  isIgnoring: () => Promise<{ value: boolean }>;
+  requestIgnoring: () => Promise<void>;
+}>('BatteryOptimization');
 
 interface Props {
   role: string;
@@ -26,11 +34,19 @@ function isNativeAndroid(): boolean {
 
 const FIELD_ROLES = ['logistica', 'campo', 'charger', 'scalt', 'promotor'];
 
+async function checkBattery(): Promise<'granted' | 'prompt'> {
+  try {
+    const { value } = await BatteryOpt.isIgnoring();
+    return value ? 'granted' : 'prompt';
+  } catch { return 'granted'; } // web/iOS: ignorar
+}
+
 async function checkPermissions(needsLocation: boolean): Promise<PermState> {
   const state: PermState = {
     locForeground: 'prompt',
     locBackground: 'prompt',
     notifications: 'prompt',
+    battery: await checkBattery(),
   };
 
   try {
@@ -74,6 +90,15 @@ async function requestLocation(): Promise<PermStatus> {
       : fine === 'denied' || coarse === 'denied' ? 'denied'
       : 'prompt';
   } catch { return 'denied'; }
+}
+
+async function requestBattery(): Promise<'granted' | 'prompt'> {
+  try {
+    await BatteryOpt.requestIgnoring();
+    // Pequena espera para o usuário interagir com o diálogo do sistema
+    await new Promise(r => setTimeout(r, 1500));
+    return checkBattery();
+  } catch { return 'prompt'; }
 }
 
 async function abrirConfiguracoes() {
@@ -166,10 +191,11 @@ function PermRow({
 
 export default function AndroidPermissionGate({ role, onReady }: Props) {
   const needsLocation = FIELD_ROLES.includes(role);
-  const [perms, setPerms]       = useState<PermState | null>(null);
+  const [perms, setPerms]             = useState<PermState | null>(null);
   const [loadingLoc, setLoadingLoc]   = useState(false);
   const [loadingPush, setLoadingPush] = useState(false);
-  const [skipped, setSkipped]   = useState(false);
+  const [loadingBat, setLoadingBat]   = useState(false);
+  const [skipped, setSkipped]         = useState(false);
 
   // Se não for APK Android, passa direto
   useEffect(() => {
@@ -187,12 +213,12 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
     return () => { handle?.remove(); };
   }, [needsLocation]);
 
-  // Quando todas as permissões necessárias estão ok, passa direto
+  // Quando localização + notificações ok, passa direto (bateria é opcional mas recomendada)
   useEffect(() => {
     if (!perms) return;
-    const locOk = !needsLocation || perms.locForeground === 'granted';
+    const locOk  = !needsLocation || perms.locForeground === 'granted';
     const pushOk = perms.notifications === 'granted';
-    if (locOk && pushOk) onReady();
+    if (locOk && pushOk && perms.battery === 'granted') onReady();
   }, [perms, needsLocation]);
 
   const handleLocation = useCallback(async () => {
@@ -209,11 +235,19 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
     setLoadingPush(false);
   }, []);
 
+  const handleBattery = useCallback(async () => {
+    setLoadingBat(true);
+    const result = await requestBattery();
+    setPerms(prev => prev ? { ...prev, battery: result } : prev);
+    setLoadingBat(false);
+  }, []);
+
   if (skipped || !perms) return null;
 
   const locOk  = !needsLocation || perms.locForeground === 'granted';
   const pushOk = perms.notifications === 'granted';
-  if (locOk && pushOk) return null;
+  const batOk  = perms.battery === 'granted';
+  if (locOk && pushOk && batOk) return null;
 
   return (
     <div style={S.overlay}>
@@ -249,6 +283,16 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
           loading={loadingPush}
         />
 
+        {/* Isenção de otimização de bateria */}
+        <PermRow
+          icon="🔋"
+          title="Executar em segundo plano"
+          desc="Mantém o GPS ativo com a tela bloqueada. Sem isso o rastreamento para quando o celular dormir."
+          status={perms.battery}
+          onRequest={handleBattery}
+          loading={loadingBat}
+        />
+
         {/* Aviso se localização negada */}
         {perms.locForeground === 'denied' && (
           <div style={{ background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.2)',
@@ -268,10 +312,10 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
           </div>
         )}
 
-        {/* Botão continuar (habilitado quando tudo ok ou quando há denied — não pode fazer mais nada) */}
+        {/* Botão continuar */}
         {(locOk && pushOk) || (perms.locForeground === 'denied' || perms.notifications === 'denied') ? (
           <button onClick={onReady} style={{ ...S.btn(true), width: '100%', padding: 14 }}>
-            {locOk && pushOk ? '✓ Continuar' : 'Continuar mesmo assim'}
+            {locOk && pushOk && batOk ? '✓ Continuar' : 'Continuar mesmo assim'}
           </button>
         ) : null}
 
