@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.jet.os",
+    "sha256_cert_fingerprints": [
+      "EC:08:DE:CD:C8:51:F0:BB:02:4D:2E:C5:73:7B:9D:7E:3E:10:38:48:6B:6F:93:C7:85:08:8F:7A:4B:7E:4C:55"
+    ]
+  }
+}]
