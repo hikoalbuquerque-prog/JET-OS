@@ -134,14 +134,18 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
   const [chatIdAtual, setChatIdAtual] = useState<string | null>(null);
 
   const isPrestador = usuario.tipoCadastro === 'prestador';
-  const nomeBot = '@jet_os_bot'; // Substituir pelo @ real do bot
+  const [nomeBot, setNomeBot] = useState('@jet_os_bot');
 
-  // Carrega chatId atual se já vinculado
+  // Carrega chatId atual + nome real do bot do Firestore
   useEffect(() => {
     getDoc(doc(db, 'usuarios', usuario.uid)).then(snap => {
       const id = snap.data()?.telegramChatId;
       if (id) { setChatIdAtual(id); setEtapa('ok'); }
     });
+    getDoc(doc(db, 'telegram_config', 'global')).then(snap => {
+      const username = snap.data()?.botUsername;
+      if (username) setNomeBot(username.startsWith('@') ? username : `@${username}`);
+    }).catch(() => {});
   }, [usuario.uid]);
 
   // ── Validar código (Cloud Function) ──

@@ -7,7 +7,7 @@
 //   - Clique voa para a posição no mapa Leaflet
 //   - Mostra tarefa ativa do operador se houver
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   collection, query, where, orderBy, onSnapshot,
   Timestamp, getDocs, limit,
@@ -67,8 +67,35 @@ function workerIcon(uid: string, cor: string): L.DivIcon {
 
 export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Props) {
   const [workers, setWorkers] = useState<GPS[]>([]);
-  const layerRef = React.useRef<L.LayerGroup | null>(null);
-  const markersRef = React.useRef<Map<string, L.Marker>>(new Map());
+  const [nomes, setNomes] = useState<Map<string, string>>(new Map());
+  const [tick, setTick] = useState(0); // força rerender a cada 15s para atualizar cores/tempos
+  const layerRef = useRef<L.LayerGroup | null>(null);
+  const markersRef = useRef<Map<string, L.Marker>>(new Map());
+
+  // Tick a cada 15s para atualizar status de cor e tempo em tempo real
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 15_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Busca nomes de usuários para todos os uids visíveis
+  useEffect(() => {
+    if (workers.length === 0) return;
+    const uidsComNome = workers.filter(w => !w.nome).map(w => w.uid);
+    if (uidsComNome.length === 0) return;
+    getDocs(query(collection(db, 'usuarios'), where('__name__', 'in', uidsComNome.slice(0, 10))))
+      .then(snap => {
+        setNomes(prev => {
+          const next = new Map(prev);
+          snap.docs.forEach(d => {
+            const data = d.data();
+            const nome = [data.nome, data.sobrenome].filter(Boolean).join(' ') || data.nome || d.id.slice(0, 8);
+            next.set(d.id, nome);
+          });
+          return next;
+        });
+      }).catch(() => {});
+  }, [workers]);
 
   // Realtime GPS
   useEffect(() => {
@@ -123,30 +150,35 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
 
     for (const w of workers) {
       if (!Number.isFinite(w.lat) || !Number.isFinite(w.lng)) continue;
-      const s  = statusCor(w.criadoEm);
+      const s    = statusCor(w.criadoEm);
       const idade = fmtIdade(w.criadoEm);
-      const nome  = w.nome ?? w.uid.slice(0, 8);
+      const nome  = w.nome || nomes.get(w.uid) || w.uid.slice(0, 8);
 
       if (markers.has(w.uid)) {
         markers.get(w.uid)!.setLatLng([w.lat, w.lng]);
         markers.get(w.uid)!.setIcon(workerIcon(w.uid, s.dot));
-      } else {
-        const m = L.marker([w.lat, w.lng], {
-          icon: workerIcon(w.uid, s.dot),
-          zIndexOffset: 500,
-        });
-        m.bindPopup(`
+        markers.get(w.uid)!.getPopup()?.setContent(`
           <div style="font-family:Inter,sans-serif;font-size:12px;min-width:160px">
-            <div style="font-weight:700;font-size:13px;color:#0d0d1a;margin-bottom:4px">
-              👤 ${nome}
-            </div>
+            <div style="font-weight:700;font-size:13px;color:#0d0d1a;margin-bottom:4px">👤 ${nome}</div>
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
               <div style="width:8px;height:8px;border-radius:50%;background:${s.dot}"></div>
-              <span style="color:#374151">${s.label} · ${idade}</span>
+              <span style="color:#374151">${s.label}</span>
             </div>
+            <div style="font-size:10px;color:#6b7280">Última att: ${idade}</div>
             ${w.accuracy ? `<div style="font-size:10px;color:#9ca3af">±${Math.round(w.accuracy)}m</div>` : ''}
-          </div>
-        `, { maxWidth: 200 });
+          </div>`);
+      } else {
+        const m = L.marker([w.lat, w.lng], { icon: workerIcon(w.uid, s.dot), zIndexOffset: 500 });
+        m.bindPopup(`
+          <div style="font-family:Inter,sans-serif;font-size:12px;min-width:160px">
+            <div style="font-weight:700;font-size:13px;color:#0d0d1a;margin-bottom:4px">👤 ${nome}</div>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+              <div style="width:8px;height:8px;border-radius:50%;background:${s.dot}"></div>
+              <span style="color:#374151">${s.label}</span>
+            </div>
+            <div style="font-size:10px;color:#6b7280">Última att: ${idade}</div>
+            ${w.accuracy ? `<div style="font-size:10px;color:#9ca3af">±${Math.round(w.accuracy)}m</div>` : ''}
+          </div>`, { maxWidth: 200 });
         layer.addLayer(m);
         markers.set(w.uid, m);
       }
@@ -159,7 +191,7 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
         markersRef.current.clear();
       }
     };
-  }, [mapa, visivel, workers]);
+  }, [mapa, visivel, workers, nomes, tick]);
 
   if (!visivel) return null;
 
@@ -189,7 +221,7 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
           .sort((a, b) => (b.criadoEm?.seconds ?? 0) - (a.criadoEm?.seconds ?? 0))
           .map(w => {
             const s    = statusCor(w.criadoEm);
-            const nome = (w.nome ?? w.uid.slice(0,8)).split(' ')[0];
+            const nome = w.nome || nomes.get(w.uid) || w.uid.slice(0, 8);
             return (
               <button
                 key={w.uid}
@@ -208,7 +240,7 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
                     {nome}
                   </div>
                   <div style={{ fontSize: 9, color: 'rgba(255,255,255,.3)' }}>
-                    {s.label} · {fmtIdade(w.criadoEm)}
+                    {s.label} · última att {fmtIdade(w.criadoEm)}
                   </div>
                 </div>
                 <span style={{ fontSize: 10, color: 'rgba(255,255,255,.25)' }}>›</span>

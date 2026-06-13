@@ -56,6 +56,7 @@ interface CidadeConfig {
 
 interface ConfigGlobal {
   botToken: string;
+  botUsername?: string;
   diretoria: GestorRef[];
   regionais: GestorRef[];
   relatoriosChatId?: string;
@@ -699,6 +700,20 @@ export default function TelegramConfigPanel({ onFechar, inline }: Props) {
         />
         <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', marginTop: 4 }}>
           Obtenha em @BotFather no Telegram
+        </div>
+      </div>
+
+      {/* Username do bot */}
+      <div style={{ marginBottom: 20 }}>
+        <label style={S.lbl}>Username do bot (ex: @jet_os_bot)</label>
+        <input
+          style={S.inp}
+          value={global.botUsername ?? ''}
+          onChange={e => setGlobal(prev => ({ ...prev, botUsername: e.target.value.trim() }))}
+          placeholder="@jet_os_bot"
+        />
+        <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', marginTop: 4 }}>
+          Usado no link de vinculação dos operadores
         </div>
       </div>
 

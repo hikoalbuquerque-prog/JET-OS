@@ -978,6 +978,13 @@ export function SplashScreen() {
 export function OnboardingWizard({ usuario, onConcluir }: { usuario: Usuario; onConcluir: () => void }) {
   const { t, i18n } = useTranslation();
   const [passo, setPasso] = useState(0);
+  const [lang, setLang] = useState<'pt'|'en'|'es'|'ru'>((i18n.language?.slice(0,2) as any) || 'pt');
+
+  const trocarIdioma = (c: 'pt'|'en'|'es'|'ru') => {
+    i18n.changeLanguage(c);
+    localStorage.setItem('appLang', c);
+    setLang(c);
+  };
 
   const PASSOS = [
     {
@@ -986,13 +993,13 @@ export function OnboardingWizard({ usuario, onConcluir }: { usuario: Usuario; on
       desc:   { pt:'O JET OS está disponível em 4 idiomas. Você pode trocar a qualquer momento no botão de bandeira no header.', en:'JET OS is available in 4 languages. You can change it anytime using the flag button in the header.', es:'JET OS está disponible en 4 idiomas. Puedes cambiarlo en cualquier momento con el botón de bandera.', ru:'JET OS доступен на 4 языках. Вы можете изменить его в любое время с помощью кнопки флага в шапке.' },
       conteudo: () => (
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-          {[['pt','🇧🇷 Português'],['en','🇺🇸 English'],['es','🇲🇽 Español'],['ru','🇷🇺 Русский']].map(([c,l]) => (
-            <button key={c} onClick={() => { i18n.changeLanguage(c); localStorage.setItem('appLang', c); }}
+          {([['pt','🇧🇷 Português'],['en','🇺🇸 English'],['es','🇲🇽 Español'],['ru','🇷🇺 Русский']] as [string,string][]).map(([c,l]) => (
+            <button key={c} onClick={() => trocarIdioma(c as any)}
               style={{ padding:'12px', borderRadius:10, cursor:'pointer', fontSize:13,
-                background: i18n.language.slice(0,2)===c ? 'rgba(26,111,212,.2)' : 'rgba(255,255,255,.05)',
-                border:`1px solid ${i18n.language.slice(0,2)===c ? 'rgba(26,111,212,.5)' : 'rgba(255,255,255,.1)'}`,
-                color: i18n.language.slice(0,2)===c ? '#60a5fa' : 'rgba(255,255,255,.6)',
-                fontWeight: i18n.language.slice(0,2)===c ? 700 : 400 }}>
+                background: lang===c ? 'rgba(26,111,212,.2)' : 'rgba(255,255,255,.05)',
+                border:`1px solid ${lang===c ? 'rgba(26,111,212,.5)' : 'rgba(255,255,255,.1)'}`,
+                color: lang===c ? '#60a5fa' : 'rgba(255,255,255,.6)',
+                fontWeight: lang===c ? 700 : 400 }}>
               {l}
             </button>
           ))}
@@ -1065,7 +1072,6 @@ export function OnboardingWizard({ usuario, onConcluir }: { usuario: Usuario; on
     },
   ];
 
-  const lang = i18n.language?.slice(0,2) as 'pt'|'en'|'es'|'ru' || 'pt';
   const passoAtual = PASSOS[passo];
 
   return (
