@@ -32,6 +32,27 @@ const CFG = DEFAULT_CFG;
 
 // ─── Geo ──────────────────────────────────────────────────────────────────────
 
+// Alias haversine (mesma lógica que distM, nomeado para clareza interna)
+function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// Point-in-polygon (ray casting) — equivalente a pontoNoPoli de app-utils.ts
+function pontoNoPoli(lat: number, lng: number, pontos: {lat: number; lng: number}[]): boolean {
+  let inside = false;
+  for (let i = 0, j = pontos.length - 1; i < pontos.length; j = i++) {
+    const xi = pontos[i].lat, yi = pontos[i].lng;
+    const xj = pontos[j].lat, yj = pontos[j].lng;
+    if (((yi > lng) !== (yj > lng)) && (lat < (xj - xi) * (lng - yi) / (yj - yi) + xi))
+      inside = !inside;
+  }
+  return inside;
+}
+
 function distM(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371000;
   const dL = (lat2 - lat1) * Math.PI / 180;
@@ -108,8 +129,6 @@ export const verificarChegadaPonto = onDocumentCreated(
       .where('status', '==', 'em_execucao')
       .get();
 
-    if (tarefasSnap.empty) return;
-
     const batch = db.batch();
     let atualizou = false;
 
@@ -133,6 +152,189 @@ export const verificarChegadaPonto = onDocumentCreated(
     }
 
     if (atualizou) await batch.commit();
+
+    // ── FEATURE 1: Detecção de teleporte ────────────────────────────────────
+    try {
+      const TELEPORTE_MAX_MS = 10 * 60 * 1000;       // ignora gap > 10 min (offline)
+      const TELEPORTE_VEL_MS = 150;                   // 150 m/s = 540 km/h
+      const TELEPORTE_COOLDOWN_MS = 10 * 60 * 1000;  // cooldown 10 min por uid
+
+      const doisPontosSnap = await db.collection('gps_logistica')
+        .where('uid', '==', uid)
+        .orderBy('criadoEm', 'desc')
+        .limit(2)
+        .get();
+
+      if (doisPontosSnap.docs.length >= 2) {
+        const pontoNovo = doisPontosSnap.docs[0].data();
+        const pontoAnt  = doisPontosSnap.docs[1].data();
+
+        const tsNovo = pontoNovo.criadoEm?.toMillis?.() ?? pontoNovo.criadoEm?.getTime?.() ?? Date.now();
+        const tsAnt  = pontoAnt.criadoEm?.toMillis?.()  ?? pontoAnt.criadoEm?.getTime?.()  ?? 0;
+        const deltaMs = tsNovo - tsAnt;
+
+        if (deltaMs > 0 && deltaMs <= TELEPORTE_MAX_MS) {
+          const distancia = haversineM(pontoAnt.lat, pontoAnt.lng, pontoNovo.lat, pontoNovo.lng);
+          const velocidadeMs = distancia / (deltaMs / 1000);
+
+          if (velocidadeMs > TELEPORTE_VEL_MS) {
+            // Verifica cooldown no doc do usuário
+            const opRef  = db.collection('usuarios').doc(uid);
+            const opSnap = await opRef.get();
+            const opData = opSnap.data() ?? {};
+            const ultimoAlerta = opData.alertaTeleporteEm?.toMillis?.() ?? 0;
+            const agora = Date.now();
+
+            if (agora - ultimoAlerta >= TELEPORTE_COOLDOWN_MS) {
+              const velocidadeKmh = Math.round(velocidadeMs * 3.6);
+              const distanciaM    = Math.round(distancia);
+              const segundos      = Math.round(deltaMs / 1000);
+              const nome = opData.nome ?? opData.email ?? uid;
+              const mapsLink = `https://www.google.com/maps?q=${lat},${lng}`;
+
+              // Grava alerta
+              await db.collection('monitor_alertas').add({
+                tipo: 'teleporte',
+                uid,
+                nome,
+                lat,
+                lng,
+                velocidadeKmh,
+                distanciaM,
+                ts: admin.firestore.FieldValue.serverTimestamp(),
+              });
+
+              // Marca o ponto GPS como teleporte
+              if (event.data?.ref) {
+                await event.data.ref.update({ isTeleporte: true });
+              }
+
+              // Envia Telegram
+              const tgCfg = await getTgConfig();
+              if (tgCfg?.token) {
+                const cidade = opData.cidade ?? '';
+                const chatId = await getChatId(cidade);
+                if (chatId) {
+                  await sendTelegramWithRetry(
+                    tgCfg.token,
+                    chatId,
+                    [
+                      `⚡ <b>Teleporte detectado!</b>`,
+                      `👤 <b>${nome}</b>`,
+                      `📏 ${distanciaM}m em ${segundos}s (${velocidadeKmh} km/h)`,
+                      `📍 <a href="${mapsLink}">Ver no Google Maps</a>`,
+                    ].join('\n'),
+                  );
+                }
+              }
+
+              // Atualiza cooldown
+              await opRef.update({
+                alertaTeleporteEm: admin.firestore.FieldValue.serverTimestamp(),
+              });
+
+              functions.logger.warn(`[gps-alertas] Teleporte detectado: ${nome} (${uid}) ${distanciaM}m em ${segundos}s`);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      functions.logger.error('[gps-alertas] Erro na detecção de teleporte:', e);
+    }
+
+    // ── FEATURE 2: Geofencing — alerta ao sair da zona ──────────────────────
+    try {
+      const GEOFENCE_COOLDOWN_MS = 15 * 60 * 1000; // cooldown 15 min por uid
+
+      const opRef  = db.collection('usuarios').doc(uid);
+      const opSnap = await opRef.get();
+      const opData = opSnap.data() ?? {};
+      const nome   = opData.nome ?? opData.email ?? uid;
+
+      // Determina quais zonas estão atribuídas ao usuário
+      // Suporta zonasPermitidas: string[] (array de IDs) ou zonaId: string (único ID)
+      let zonaIds: string[] = [];
+      if (Array.isArray(opData.zonasPermitidas) && opData.zonasPermitidas.length > 0) {
+        zonaIds = opData.zonasPermitidas;
+      } else if (typeof opData.zonaId === 'string' && opData.zonaId) {
+        zonaIds = [opData.zonaId];
+      }
+
+      if (zonaIds.length === 0) {
+        // Sem zona atribuída — não alertar
+        return;
+      }
+
+      // Busca polígonos das zonas (coleção 'poligonos', campo 'poligono')
+      const zonaSnaps = await Promise.all(
+        zonaIds.map(id => db.collection('poligonos').doc(id).get())
+      );
+
+      const zonasComPoligono = zonaSnaps
+        .filter(s => s.exists)
+        .map(s => ({ id: s.id, ...(s.data()!) })) as {
+          id: string;
+          nome?: string;
+          poligono?: {lat: number; lng: number}[];
+        }[];
+
+      if (zonasComPoligono.length === 0) return;
+
+      // Verifica se o ponto está dentro de ao menos uma zona
+      const dentroDeAlgumaZona = zonasComPoligono.some(z =>
+        z.poligono && z.poligono.length >= 3 && pontoNoPoli(lat, lng, z.poligono)
+      );
+
+      if (!dentroDeAlgumaZona) {
+        const agora = Date.now();
+        const ultimoAlerta = opData.alertaGeofenceEm?.toMillis?.() ?? 0;
+
+        if (agora - ultimoAlerta >= GEOFENCE_COOLDOWN_MS) {
+          const nomesZonas = zonasComPoligono.map(z => z.nome ?? z.id);
+          const mapsLink   = `https://www.google.com/maps?q=${lat},${lng}`;
+
+          // Grava alerta
+          await db.collection('monitor_alertas').add({
+            tipo:  'fora_zona',
+            uid,
+            nome,
+            lat,
+            lng,
+            zonas: nomesZonas,
+            ts:    admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          // Envia Telegram
+          const tgCfg = await getTgConfig();
+          if (tgCfg?.token) {
+            const cidade = opData.cidade ?? '';
+            const chatId = await getChatId(cidade);
+            if (chatId) {
+              await sendTelegramWithRetry(
+                tgCfg.token,
+                chatId,
+                [
+                  `🚨 <b>Fora da zona!</b>`,
+                  `👤 <b>${nome}</b> está fora da(s) zona(s) atribuída(s)`,
+                  `📍 Posição: ${lat},${lng}`,
+                  `🗺 Zonas: ${nomesZonas.join(', ')}`,
+                  `<a href="${mapsLink}">Ver no Google Maps</a>`,
+                ].join('\n'),
+              );
+            }
+          }
+
+          // Atualiza cooldown
+          await opRef.update({
+            alertaGeofenceEm: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          functions.logger.warn(`[gps-alertas] Geofence: ${nome} (${uid}) fora das zonas [${nomesZonas.join(', ')}]`);
+        }
+      }
+    } catch (e) {
+      functions.logger.error('[gps-alertas] Erro no geofencing:', e);
+    }
   }
 );
 
