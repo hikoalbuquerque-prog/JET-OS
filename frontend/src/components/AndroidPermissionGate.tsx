@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
-type PermStatus = 'checking' | 'granted' | 'denied' | 'prompt';
+type PermStatus = 'checking' | 'granted' | 'denied' | 'prompt' | 'limited';
 
 interface PermState {
   locForeground: PermStatus;
@@ -37,8 +37,16 @@ async function checkPermissions(needsLocation: boolean): Promise<PermState> {
     if (needsLocation) {
       const { Geolocation } = await import('@capacitor/geolocation');
       const geo = await Geolocation.checkPermissions();
-      state.locForeground = (geo.location as PermStatus) ?? 'prompt';
-      state.locBackground = (geo.coarseLocation as PermStatus) ?? state.locForeground;
+      // `location` = ACCESS_FINE_LOCATION; `coarseLocation` = ACCESS_COARSE_LOCATION
+      // Se qualquer um for granted, o foreground está ok
+      const fine   = geo.location    as PermStatus;
+      const coarse = geo.coarseLocation as PermStatus;
+      state.locForeground = fine === 'granted' || coarse === 'granted' ? 'granted'
+        : fine === 'denied'   || coarse === 'denied'   ? 'denied'
+        : 'prompt';
+      // Background considera o mesmo — plugin não expõe ACCESS_BACKGROUND_LOCATION
+      // diretamente; se foreground ok, o foreground service já pode rodar
+      state.locBackground = state.locForeground;
     } else {
       state.locForeground = 'granted';
       state.locBackground = 'granted';
@@ -148,6 +156,16 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
   useEffect(() => {
     if (!isNativeAndroid()) { onReady(); return; }
     checkPermissions(needsLocation).then(setPerms);
+
+    // Re-verifica quando o usuário volta ao app após ir em Configurações
+    let handle: { remove: () => void } | null = null;
+    import('@capacitor/app').then(({ App }) => {
+      App.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) checkPermissions(needsLocation).then(setPerms);
+      }).then(h => { handle = h; });
+    }).catch(() => {});
+
+    return () => { handle?.remove(); };
   }, [needsLocation]);
 
   // Quando todas as permissões necessárias estão ok, passa direto
@@ -219,6 +237,14 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
             lineHeight: 1.5 }}>
             ⚠️ Permissões negadas precisam ser reativadas manualmente:<br />
             <b style={{ color: '#fbbf24' }}>Configurações → Apps → Jet OS → Permissões</b>
+            <br /><br />
+            <button
+              onClick={() => checkPermissions(needsLocation).then(setPerms)}
+              style={{ background: 'rgba(251,191,36,.15)', border: '1px solid rgba(251,191,36,.3)',
+                color: '#fbbf24', borderRadius: 8, padding: '6px 12px',
+                fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
+              Já concedi → verificar novamente
+            </button>
           </div>
         )}
 
