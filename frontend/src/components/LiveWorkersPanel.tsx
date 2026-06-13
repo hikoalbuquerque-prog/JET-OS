@@ -78,23 +78,26 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
     return () => clearInterval(id);
   }, []);
 
-  // Busca nomes de usuários para todos os uids visíveis
+  // Busca nomes de usuários para todos os uids visíveis (batches de 30)
   useEffect(() => {
     if (workers.length === 0) return;
-    const uidsComNome = workers.filter(w => !w.nome).map(w => w.uid);
+    const uidsComNome = workers.filter(w => !w.nome && !nomes.has(w.uid)).map(w => w.uid);
     if (uidsComNome.length === 0) return;
-    getDocs(query(collection(db, 'usuarios'), where('__name__', 'in', uidsComNome.slice(0, 10))))
-      .then(snap => {
-        setNomes(prev => {
-          const next = new Map(prev);
-          snap.docs.forEach(d => {
-            const data = d.data();
-            const nome = [data.nome, data.sobrenome].filter(Boolean).join(' ') || data.nome || d.id.slice(0, 8);
-            next.set(d.id, nome);
-          });
-          return next;
+    const batches: string[][] = [];
+    for (let i = 0; i < uidsComNome.length; i += 30) batches.push(uidsComNome.slice(i, i + 30));
+    Promise.all(batches.map(batch =>
+      getDocs(query(collection(db, 'usuarios'), where('__name__', 'in', batch)))
+    )).then(snaps => {
+      setNomes(prev => {
+        const next = new Map(prev);
+        snaps.flatMap(s => s.docs).forEach(d => {
+          const data = d.data();
+          const nome = [data.nome, data.sobrenome].filter(Boolean).join(' ') || d.id.slice(0, 8);
+          next.set(d.id, nome);
         });
-      }).catch(() => {});
+        return next;
+      });
+    }).catch(() => {});
   }, [workers]);
 
   // Realtime GPS
@@ -128,20 +131,31 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
     return unsub;
   }, [visivel, cidade]);
 
-  // Renderiza no mapa
+  // Cria/destrói o LayerGroup apenas quando o mapa muda — evita recriar markers a cada tick
   useEffect(() => {
     if (!mapa) return;
-    if (!layerRef.current) {
-      layerRef.current = L.layerGroup();
-    }
+    const layer = L.layerGroup();
+    layerRef.current = layer;
+    return () => {
+      if (mapa.hasLayer(layer)) mapa.removeLayer(layer);
+      layerRef.current = null;
+      markersRef.current.clear();
+    };
+  }, [mapa]);
+
+  // Mostra/esconde layer quando visível muda
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer || !mapa) return;
+    if (visivel) { if (!mapa.hasLayer(layer)) layer.addTo(mapa); }
+    else         { if (mapa.hasLayer(layer))  mapa.removeLayer(layer); }
+  }, [mapa, visivel]);
+
+  // Atualiza markers sem recriar o layer (roda a cada tick/workers/nomes)
+  useEffect(() => {
     const layer   = layerRef.current;
     const markers = markersRef.current;
-
-    if (!visivel) {
-      if (mapa.hasLayer(layer)) mapa.removeLayer(layer);
-      return;
-    }
-    if (!mapa.hasLayer(layer)) layer.addTo(mapa);
+    if (!layer || !mapa || !visivel) return;
 
     const activeUids = new Set(workers.map(w => w.uid));
     for (const [uid, m] of markers) {
@@ -150,47 +164,32 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
 
     for (const w of workers) {
       if (!Number.isFinite(w.lat) || !Number.isFinite(w.lng)) continue;
-      const s    = statusCor(w.criadoEm);
+      const s     = statusCor(w.criadoEm);
       const idade = fmtIdade(w.criadoEm);
       const nome  = w.nome || nomes.get(w.uid) || w.uid.slice(0, 8);
+      const popup = `
+        <div style="font-family:Inter,sans-serif;font-size:12px;min-width:160px">
+          <div style="font-weight:700;font-size:13px;color:#0d0d1a;margin-bottom:4px">👤 ${nome}</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+            <div style="width:8px;height:8px;border-radius:50%;background:${s.dot}"></div>
+            <span style="color:#374151">${s.label}</span>
+          </div>
+          <div style="font-size:10px;color:#6b7280">Última att: ${idade}</div>
+          ${w.accuracy ? `<div style="font-size:10px;color:#9ca3af">±${Math.round(w.accuracy)}m</div>` : ''}
+        </div>`;
 
       if (markers.has(w.uid)) {
-        markers.get(w.uid)!.setLatLng([w.lat, w.lng]);
-        markers.get(w.uid)!.setIcon(workerIcon(w.uid, s.dot));
-        markers.get(w.uid)!.getPopup()?.setContent(`
-          <div style="font-family:Inter,sans-serif;font-size:12px;min-width:160px">
-            <div style="font-weight:700;font-size:13px;color:#0d0d1a;margin-bottom:4px">👤 ${nome}</div>
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-              <div style="width:8px;height:8px;border-radius:50%;background:${s.dot}"></div>
-              <span style="color:#374151">${s.label}</span>
-            </div>
-            <div style="font-size:10px;color:#6b7280">Última att: ${idade}</div>
-            ${w.accuracy ? `<div style="font-size:10px;color:#9ca3af">±${Math.round(w.accuracy)}m</div>` : ''}
-          </div>`);
+        const mk = markers.get(w.uid)!;
+        mk.setLatLng([w.lat, w.lng]);
+        mk.setIcon(workerIcon(w.uid, s.dot));
+        mk.getPopup()?.setContent(popup);
       } else {
-        const m = L.marker([w.lat, w.lng], { icon: workerIcon(w.uid, s.dot), zIndexOffset: 500 });
-        m.bindPopup(`
-          <div style="font-family:Inter,sans-serif;font-size:12px;min-width:160px">
-            <div style="font-weight:700;font-size:13px;color:#0d0d1a;margin-bottom:4px">👤 ${nome}</div>
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-              <div style="width:8px;height:8px;border-radius:50%;background:${s.dot}"></div>
-              <span style="color:#374151">${s.label}</span>
-            </div>
-            <div style="font-size:10px;color:#6b7280">Última att: ${idade}</div>
-            ${w.accuracy ? `<div style="font-size:10px;color:#9ca3af">±${Math.round(w.accuracy)}m</div>` : ''}
-          </div>`, { maxWidth: 200 });
-        layer.addLayer(m);
-        markers.set(w.uid, m);
+        const mk = L.marker([w.lat, w.lng], { icon: workerIcon(w.uid, s.dot), zIndexOffset: 500 });
+        mk.bindPopup(popup, { maxWidth: 200 });
+        layer.addLayer(mk);
+        markers.set(w.uid, mk);
       }
     }
-
-    return () => {
-      if (layerRef.current && mapa.hasLayer(layerRef.current)) {
-        mapa.removeLayer(layerRef.current);
-        layerRef.current = null;
-        markersRef.current.clear();
-      }
-    };
   }, [mapa, visivel, workers, nomes, tick]);
 
   if (!visivel) return null;
