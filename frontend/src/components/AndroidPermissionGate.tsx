@@ -65,9 +65,28 @@ async function checkPermissions(needsLocation: boolean): Promise<PermState> {
 async function requestLocation(): Promise<PermStatus> {
   try {
     const { Geolocation } = await import('@capacitor/geolocation');
+    // requestPermissions retorna 'granted' imediatamente se já concedido (sem mostrar diálogo)
+    // Isso resolve o caso onde checkPermissions() retorna 'denied' stale após concessão manual
     const res = await Geolocation.requestPermissions({ permissions: ['location', 'coarseLocation'] });
-    return (res.location as PermStatus) ?? 'denied';
+    const fine   = res.location      as PermStatus;
+    const coarse = res.coarseLocation as PermStatus;
+    return fine === 'granted' || coarse === 'granted' ? 'granted'
+      : fine === 'denied' || coarse === 'denied' ? 'denied'
+      : 'prompt';
   } catch { return 'denied'; }
+}
+
+async function abrirConfiguracoes() {
+  try {
+    // Tenta abrir as configurações de permissão do app diretamente
+    const { App } = await import('@capacitor/app');
+    await (App as any).openUrl({ url: 'app-settings:' });
+  } catch {
+    try {
+      // Fallback Android via intent
+      window.open('android.settings.APPLICATION_DETAILS_SETTINGS', '_system');
+    } catch { /* nada */ }
+  }
 }
 
 async function requestNotifications(): Promise<PermStatus> {
@@ -130,17 +149,17 @@ function PermRow({
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', lineHeight: 1.4 }}>{desc}</div>
         {denied && (
           <div style={{ fontSize: 10, color: '#f87171', marginTop: 4 }}>
-            Negado. Ative em Configurações → Aplicativos → Jet OS
+            Negado. Vá em Configurações → Apps → JET OS → Permissões → Localização → "Permitir o tempo todo"
           </div>
         )}
       </div>
-      {!granted && !denied && (
+      {/* Mostra "Permitir" quando prompt, e "Tentar novamente" quando denied */}
+      {!granted && (
         <button onClick={onRequest} disabled={loading} style={S.btn(!loading)}>
-          {loading ? '...' : 'Permitir'}
+          {loading ? '...' : denied ? '🔄' : 'Permitir'}
         </button>
       )}
       {granted && <span style={{ fontSize: 20, flexShrink: 0 }}>✅</span>}
-      {denied  && <span style={{ fontSize: 20, flexShrink: 0 }}>🚫</span>}
     </div>
   );
 }
@@ -230,20 +249,21 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
           loading={loadingPush}
         />
 
-        {/* Aviso se alguma foi negada */}
-        {(perms.locForeground === 'denied' || perms.notifications === 'denied') && (
+        {/* Aviso se localização negada */}
+        {perms.locForeground === 'denied' && (
           <div style={{ background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.2)',
             borderRadius: 10, padding: '12px 14px', fontSize: 11, color: 'rgba(255,255,255,.5)',
-            lineHeight: 1.5 }}>
-            ⚠️ Permissões negadas precisam ser reativadas manualmente:<br />
-            <b style={{ color: '#fbbf24' }}>Configurações → Apps → Jet OS → Permissões</b>
-            <br /><br />
+            lineHeight: 1.5, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div>
+              ⚠️ Toque em 🔄 acima após conceder.<br />
+              Ou abra as configurações diretamente:
+            </div>
             <button
-              onClick={() => checkPermissions(needsLocation).then(setPerms)}
-              style={{ background: 'rgba(251,191,36,.15)', border: '1px solid rgba(251,191,36,.3)',
-                color: '#fbbf24', borderRadius: 8, padding: '6px 12px',
+              onClick={abrirConfiguracoes}
+              style={{ background: 'rgba(99,102,241,.2)', border: '1px solid rgba(99,102,241,.4)',
+                color: '#a5b4fc', borderRadius: 8, padding: '8px 12px',
                 fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
-              Já concedi → verificar novamente
+              ⚙️ Abrir configurações do app
             </button>
           </div>
         )}
