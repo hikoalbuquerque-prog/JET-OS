@@ -30,6 +30,7 @@ import { Preferences } from '@capacitor/preferences';
 import {
   addDoc, collection, doc, updateDoc, serverTimestamp,
 } from 'firebase/firestore';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db } from './firebase';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -189,6 +190,36 @@ async function uploadPonto(ponto: PontoGPS): Promise<boolean> {
       ...ponto,
       criadoEm: serverTimestamp(),
     });
+
+    // Item 1 — grava também no histórico permanente (best-effort, evita cold start da CF)
+    try {
+      await addDoc(collection(db, 'gps_logistica_hist', ponto.uid, 'pontos'), {
+        uid:        ponto.uid,
+        lat:        ponto.lat,
+        lng:        ponto.lng,
+        accuracy:   ponto.accuracy,
+        capturedAt: ponto.capturedAt,
+        criadoEm:   serverTimestamp(),
+      });
+    } catch (histErr: any) {
+      console.warn('[GPS-BG] hist write falhou (best-effort):', histErr?.code);
+    }
+
+    // Item 2 — alerta backend quando mock GPS detectado (best-effort)
+    if (ponto.isMock) {
+      try {
+        const fns = getFunctions(undefined, 'southamerica-east1');
+        const alertarMock = httpsCallable(fns, 'alertarMockGPS');
+        alertarMock({
+          uid:        ponto.uid,
+          lat:        ponto.lat,
+          lng:        ponto.lng,
+          capturedAt: ponto.capturedAt,
+        }).catch(() => { /* best-effort */ });
+      } catch (mockErr: any) {
+        console.warn('[GPS-BG] alertarMockGPS falhou (best-effort):', mockErr?.code);
+      }
+    }
 
     // Fire-and-forget: falha não compromete o registro do ponto
     updateDoc(doc(db, 'usuarios', ponto.uid), {

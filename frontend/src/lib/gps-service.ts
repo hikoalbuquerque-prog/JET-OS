@@ -143,6 +143,20 @@ async function enviarPontoFirestore(ponto: PontoGPS, tentativa = 0): Promise<boo
       criadoEm: serverTimestamp(),
     });
 
+    // Item 1 — grava também no histórico permanente (best-effort, evita cold start da CF)
+    try {
+      await addDoc(collection(db, 'gps_logistica_hist', ponto.uid, 'pontos'), {
+        uid:        ponto.uid,
+        lat:        ponto.lat,
+        lng:        ponto.lng,
+        accuracy:   ponto.accuracy,
+        capturedAt: ponto.capturedAt,
+        criadoEm:   serverTimestamp(),
+      });
+    } catch (histErr: any) {
+      console.warn('[GPS] hist write falhou (best-effort):', histErr?.code);
+    }
+
     // Atualiza última posição no doc do usuário (para admin ver no mapa)
     await updateDoc(doc(db, 'usuarios', ponto.uid), {
       ultimaLat:        ponto.lat,

@@ -10,6 +10,8 @@ import {
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db } from '../lib/firebase';
+import LiveTrackingMap from './LiveTrackingMap';
+import GpsHeatmapPanel from './GpsHeatmapPanel';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -20,7 +22,7 @@ interface Usuario {
 interface Props {
   usuario: Usuario; onFechar: () => void; cidade?: string;
 }
-type AbaId = 'dashboard'|'presenca'|'operadores'|'slots'|'tarefas'|'desempenho'|'meis'|'clt'|'inventario'|'telegram'|'config'|'gojet_config'|'alertas';
+type AbaId = 'dashboard'|'presenca'|'operadores'|'slots'|'tarefas'|'desempenho'|'meis'|'clt'|'inventario'|'telegram'|'config'|'gojet_config'|'alertas'|'rastreamento'|'heatmap';
 
 interface Funcionario {
   id?: string; nome: string; cpf: string; cargo: string; turno: string;
@@ -151,7 +153,9 @@ const ABAS_ALL:{id:AbaId;label:string;soAdmin?:boolean}[]=[
   {id:'inventario',  label:'📦 Inventário' },{id:'telegram',     label:'📱 Telegram',   soAdmin:true},
   {id:'alertas',     label:'🔔 Alertas',   soAdmin:true},
   {id:'config',      label:'⚙️ Config',    soAdmin:true},
-  {id:'gojet_config',label:'🛴 GoJet',     soAdmin:true},
+  {id:'gojet_config',  label:'🛴 GoJet',        soAdmin:true},
+  {id:'rastreamento',  label:'📍 Rastreamento', soAdmin:false},
+  {id:'heatmap',       label:'🔥 Heatmap',      soAdmin:true},
 ];
 
 // ─── Hook: cidades disponíveis para o usuário ──────────────────────────────────
@@ -274,21 +278,28 @@ export default function GestorLogisticaPanel({usuario, onFechar, cidade: cidadeI
       )}
 
       {/* Conteúdo */}
-      <div style={S.body}>
-        {aba==='dashboard'  &&<AbaDashboard  {...ctx}/>}
-        {aba==='presenca'   &&<AbaPresenca   {...ctx}/>}
-        {aba==='operadores' &&<AbaOperadores {...ctx}/>}
-        {aba==='slots'      &&<AbaSlots      {...ctx}/>}
-        {aba==='tarefas'    &&<AbaTarefas    {...ctx}/>}
-        {aba==='desempenho' &&<AbaDesempenho {...ctx}/>}
-        {aba==='meis'       &&<AbaMEIs       {...ctx}/>}
-        {aba==='clt'        &&<AbaCLT        {...ctx}/>}
-        {aba==='inventario' &&<AbaInventario {...ctx}/>}
-        {aba==='alertas'      &&<AbaAlertas      {...ctx}/>}
-        {aba==='telegram'     &&<AbaTelegram     {...ctx}/>}
-        {aba==='config'       &&<AbaConfig       {...ctx}/>}
-        {aba==='gojet_config' &&<AbaGoJetConfig  {...ctx}/>}
-      </div>
+      {(aba==='rastreamento'||aba==='heatmap') ? (
+        <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',minHeight:0}}>
+          {aba==='rastreamento' &&<LiveTrackingMap cidade={cidadeAtiva} usuario={usuario}/>}
+          {aba==='heatmap'      &&<div style={{...S.body}}><GpsHeatmapPanel cidade={cidadeAtiva}/></div>}
+        </div>
+      ) : (
+        <div style={S.body}>
+          {aba==='dashboard'  &&<AbaDashboard  {...ctx}/>}
+          {aba==='presenca'   &&<AbaPresenca   {...ctx}/>}
+          {aba==='operadores' &&<AbaOperadores {...ctx}/>}
+          {aba==='slots'      &&<AbaSlots      {...ctx}/>}
+          {aba==='tarefas'    &&<AbaTarefas    {...ctx}/>}
+          {aba==='desempenho' &&<AbaDesempenho {...ctx}/>}
+          {aba==='meis'       &&<AbaMEIs       {...ctx}/>}
+          {aba==='clt'        &&<AbaCLT        {...ctx}/>}
+          {aba==='inventario' &&<AbaInventario {...ctx}/>}
+          {aba==='alertas'      &&<AbaAlertas      {...ctx}/>}
+          {aba==='telegram'     &&<AbaTelegram     {...ctx}/>}
+          {aba==='config'       &&<AbaConfig       {...ctx}/>}
+          {aba==='gojet_config' &&<AbaGoJetConfig  {...ctx}/>}
+        </div>
+      )}
     </div>
   );
 }

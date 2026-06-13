@@ -44,19 +44,23 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.verificarAtrasos = exports.verificarChegadaPonto = void 0;
+exports.alertarMockGPS = exports.verificarAtrasos = exports.verificarChegadaPonto = void 0;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions"));
 const firestore_1 = require("firebase-functions/v2/firestore");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
+const https_1 = require("firebase-functions/v2/https");
 const db = admin.firestore();
-const CFG = {
+// Item 6 — defaults hard-coded (podem ser sobrescritos via Firestore: monitor_config/gps)
+const DEFAULT_CFG = {
     raioChegadaMetros: 100, // chegou se < 100m do ponto
     minutosParaChegar: 20, // alerta se não chegar em 20min
     minutesSemGPS: 10, // alerta GPS parado durante turno
     minutosAtrasoTarefa: 30, // alerta tarefa em andamento > X min
-    cooldownAlertaMin: 30, // não reanvia alerta antes de 30min
+    cooldownAlertaMin: 30, // não reenvia alerta antes de 30min
 };
+// Usado pelo trigger verificarChegadaPonto (não carrega Firestore para não atrasar trigger)
+const CFG = DEFAULT_CFG;
 // ─── Geo ──────────────────────────────────────────────────────────────────────
 function distM(lat1, lng1, lat2, lng2) {
     const R = 6371000;
@@ -67,17 +71,32 @@ function distM(lat1, lng1, lat2, lng2) {
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 // ─── Telegram ─────────────────────────────────────────────────────────────────
+// Item 3 — retry automático até maxTentativas com delay de 1s entre tentativas
+async function sendTelegramWithRetry(botToken, chatId, text, maxTentativas = 3) {
+    for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
+        try {
+            const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+            });
+            if (resp.ok)
+                return;
+            const body = await resp.text().catch(() => '');
+            functions.logger.warn(`[gps-alertas] telegram tentativa ${tentativa} falhou (${resp.status}):`, body);
+        }
+        catch (e) {
+            functions.logger.warn(`[gps-alertas] telegram tentativa ${tentativa} erro:`, e);
+        }
+        if (tentativa < maxTentativas) {
+            await new Promise(r => setTimeout(r, 1000));
+        }
+    }
+    functions.logger.error('[gps-alertas] telegram: esgotou tentativas para chatId', chatId);
+}
+// Alias para compatibilidade interna
 async function telegram(token, chatId, texto) {
-    try {
-        await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text: texto, parse_mode: 'HTML' }),
-        });
-    }
-    catch (e) {
-        functions.logger.warn('[gps-alertas] telegram erro:', e);
-    }
+    return sendTelegramWithRetry(token, chatId, texto);
 }
 async function getTgConfig() {
     try {
@@ -143,6 +162,15 @@ exports.verificarAtrasos = (0, scheduler_1.onSchedule)({
     memory: '256MiB',
 }, async () => {
     const agora = Date.now();
+    // Item 6 — carrega parâmetros configuráveis via Firestore, merge com defaults
+    let CFG = DEFAULT_CFG;
+    try {
+        const cfgSnap = await db.collection('monitor_config').doc('gps').get();
+        CFG = { ...DEFAULT_CFG, ...(cfgSnap.data() ?? {}) };
+    }
+    catch (e) {
+        functions.logger.warn('[verificarAtrasos] Falha ao carregar monitor_config/gps, usando defaults:', e);
+    }
     const tgCfg = await getTgConfig();
     if (!tgCfg?.token) {
         functions.logger.warn('[verificarAtrasos] Telegram não configurado');
@@ -281,5 +309,49 @@ exports.verificarAtrasos = (0, scheduler_1.onSchedule)({
         });
     }
     functions.logger.info(`[verificarAtrasos] concluído`);
+});
+// ─── Item 5 — callable: alerta de GPS falso (mock) ───────────────────────────
+exports.alertarMockGPS = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+    const { uid, lat, lng, capturedAt } = (request.data ?? {});
+    if (!uid || lat == null || lng == null) {
+        throw new Error('alertarMockGPS: uid, lat e lng são obrigatórios');
+    }
+    // 1. Busca nome do prestador
+    let nome = uid;
+    try {
+        const userSnap = await db.collection('usuarios').doc(uid).get();
+        nome = userSnap.data()?.nome ?? userSnap.data()?.email ?? uid;
+    }
+    catch { /* best-effort */ }
+    // 2. Busca config Telegram (botToken + chatIds)
+    const tgCfg = await getTgConfig();
+    // 3. Envia alerta para cada chatId configurado (ou ao menos o primeiro)
+    if (tgCfg?.token) {
+        const chatIds = Object.values(tgCfg.chatIds);
+        const chatIdAlvo = chatIds[0];
+        if (chatIdAlvo) {
+            const dataHora = capturedAt
+                ? new Date(capturedAt).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+                : new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+            await sendTelegramWithRetry(tgCfg.token, chatIdAlvo, [
+                `⚠️ <b>GPS FALSO detectado!</b>`,
+                `👤 <b>${nome}</b>`,
+                `📍 Lat: ${lat}, Lng: ${lng}`,
+                `🕐 ${dataHora}`,
+            ].join('\n'));
+        }
+    }
+    // 4. Grava em monitor_alertas
+    await db.collection('monitor_alertas').add({
+        tipo: 'mock_gps',
+        uid,
+        nome,
+        lat,
+        lng,
+        capturedAt: capturedAt ?? null,
+        ts: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    functions.logger.warn(`[alertarMockGPS] Mock GPS detectado para ${nome} (${uid}) em lat=${lat} lng=${lng}`);
+    return { ok: true };
 });
 //# sourceMappingURL=gps-alertas.js.map
