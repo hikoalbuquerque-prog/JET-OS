@@ -261,6 +261,15 @@ async function drenarFila(): Promise<number> {
 // ─── Leitura de bateria ───────────────────────────────────────────────────────
 
 async function lerBateria(): Promise<number | null> {
+  // Capacitor Device — funciona no APK Android (WebView não tem Battery API)
+  if (isAndroidCapacitor()) {
+    try {
+      const { Device } = await import('@capacitor/device');
+      const info = await Device.getBatteryInfo();
+      if (info.batteryLevel !== undefined) return Math.round(info.batteryLevel * 100);
+    } catch { /* plugin não disponível */ }
+  }
+  // Fallback browser Battery API (PWA/desktop)
   try {
     const nav = navigator as any;
     if (nav.getBattery) {
@@ -367,8 +376,14 @@ class GPSBackgroundService {
           if (err) { this._erro(err.message ?? 'Erro GPS Android'); return; }
           if (!loc) return;
 
+          // Tolerância de idade alta de propósito: quando o app está minimizado o JS
+          // é suspenso e o plugin entrega vários fixes em lote ao retomar. Com o limite
+          // antigo de 30s, todos os pontos do período em segundo plano eram descartados
+          // (parecia que o GPS "parou"). 3 min alinha com o watchdog e preserva esses
+          // pontos. Mantém o corte só para rejeitar fix de cold-start realmente antigo.
           const ageMsLoc = Date.now() - (loc.time ?? 0);
-          if (ageMsLoc > 30_000) return;
+          if (ageMsLoc > 180_000) return;
+          if (loc.accuracy > 500) return;
 
           const isMock = detectarMock(loc.speed, loc.accuracy, loc.isMock);
           const bateria = await lerBateria();
@@ -583,6 +598,28 @@ export async function capturarPosicaoUnica(): Promise<{
       { enableHighAccuracy: true, timeout: 7000, maximumAge: 10000 }
     );
   });
+}
+
+// ─── Verificação de permissão GPS ────────────────────────────────────────────
+
+export async function verificarPermissaoGPS(): Promise<
+  'granted' | 'denied' | 'prompt' | 'unavailable'
+> {
+  if (isAndroidCapacitor()) {
+    try {
+      const { Geolocation } = await import('@capacitor/geolocation');
+      const status = await Geolocation.checkPermissions();
+      return status.location === 'granted' ? 'granted'
+        : status.location === 'denied' ? 'denied' : 'prompt';
+    } catch { return 'unavailable'; }
+  }
+  if (!navigator.geolocation) return 'unavailable';
+  try {
+    const p = await navigator.permissions.query({ name: 'geolocation' });
+    return p.state as 'granted' | 'denied' | 'prompt';
+  } catch {
+    return 'prompt';
+  }
 }
 
 // ─── Helpers de distância ─────────────────────────────────────────────────────

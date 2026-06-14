@@ -53,10 +53,13 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
 
-        <service
-            android:name="com.equimodos.backgroundgeolocation.BackgroundGeolocationService"
-            android:foregroundServiceType="location"
-            android:exported="false"
-        />
+        <!--
+            NÃO declarar o BackgroundGeolocationService aqui.
+            O plugin @capacitor-community/background-geolocation já declara o serviço
+            correto (com.equimaps.capacitor_background_geolocation.BackgroundGeolocationService,
+            foregroundServiceType="location") via seu próprio AndroidManifest, que é
+            mesclado automaticamente no APK final. A declaração manual anterior apontava
+            para uma classe inexistente (com.equimodos...) — era código morto e enganoso.
+        -->
     </application>
 </manifest>

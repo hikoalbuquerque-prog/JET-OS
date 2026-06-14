@@ -16,10 +16,11 @@ interface PermState {
   battery: 'granted' | 'prompt';
 }
 
-// Plugin nativo para isenção de otimização de bateria
+// Plugin nativo para isenção de otimização de bateria + checagem de background location
 const BatteryOpt = registerPlugin<{
   isIgnoring: () => Promise<{ value: boolean }>;
   requestIgnoring: () => Promise<void>;
+  checkBackgroundLocation: () => Promise<{ value: boolean }>;
 }>('BatteryOptimization');
 
 interface Props {
@@ -41,6 +42,13 @@ async function checkBattery(): Promise<'granted' | 'prompt'> {
   } catch { return 'granted'; } // web/iOS: ignorar
 }
 
+async function checkBackgroundLocation(): Promise<'granted' | 'prompt'> {
+  try {
+    const { value } = await BatteryOpt.checkBackgroundLocation();
+    return value ? 'granted' : 'prompt';
+  } catch { return 'granted'; } // web/iOS/Android<10: ignorar
+}
+
 async function checkPermissions(needsLocation: boolean): Promise<PermState> {
   const state: PermState = {
     locForeground: 'prompt',
@@ -60,9 +68,12 @@ async function checkPermissions(needsLocation: boolean): Promise<PermState> {
       state.locForeground = fine === 'granted' || coarse === 'granted' ? 'granted'
         : fine === 'denied'   || coarse === 'denied'   ? 'denied'
         : 'prompt';
-      // Background considera o mesmo — plugin não expõe ACCESS_BACKGROUND_LOCATION
-      // diretamente; se foreground ok, o foreground service já pode rodar
-      state.locBackground = state.locForeground;
+      // Background ("Permitir o tempo todo" / ACCESS_BACKGROUND_LOCATION): checado
+      // nativamente via BatteryPlugin. Só faz sentido após o foreground ser concedido.
+      // Sem ele, o GPS para de retomar quando o app fica minimizado por mais tempo.
+      state.locBackground = state.locForeground === 'granted'
+        ? await checkBackgroundLocation()
+        : 'prompt';
     } else {
       state.locForeground = 'granted';
       state.locBackground = 'granted';
@@ -217,15 +228,23 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
   useEffect(() => {
     if (!perms) return;
     const locOk  = !needsLocation || perms.locForeground === 'granted';
+    const bgOk   = !needsLocation || perms.locBackground === 'granted';
     const pushOk = perms.notifications === 'granted';
-    if (locOk && pushOk && perms.battery === 'granted') onReady();
+    if (locOk && bgOk && pushOk && perms.battery === 'granted') onReady();
   }, [perms, needsLocation]);
 
   const handleLocation = useCallback(async () => {
     setLoadingLoc(true);
     const result = await requestLocation();
-    setPerms(prev => prev ? { ...prev, locForeground: result, locBackground: result } : prev);
+    const bg = result === 'granted' ? await checkBackgroundLocation() : 'prompt';
+    setPerms(prev => prev ? { ...prev, locForeground: result, locBackground: bg } : prev);
     setLoadingLoc(false);
+  }, []);
+
+  // Background ("Permitir o tempo todo") não pode ser concedido por diálogo no
+  // Android 11+ — só nas Configurações do app. Abre a tela e re-checa ao voltar.
+  const handleBackgroundLocation = useCallback(async () => {
+    await abrirConfiguracoes();
   }, []);
 
   const handleNotifications = useCallback(async () => {
@@ -245,9 +264,10 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
   if (skipped || !perms) return null;
 
   const locOk  = !needsLocation || perms.locForeground === 'granted';
+  const bgOk   = !needsLocation || perms.locBackground === 'granted';
   const pushOk = perms.notifications === 'granted';
   const batOk  = perms.battery === 'granted';
-  if (locOk && pushOk && batOk) return null;
+  if (locOk && bgOk && pushOk && batOk) return null;
 
   return (
     <div style={S.overlay}>
@@ -270,6 +290,18 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
             status={perms.locForeground}
             onRequest={handleLocation}
             loading={loadingLoc}
+          />
+        )}
+
+        {/* Localização em segundo plano ("Permitir o tempo todo") — só após foreground ok */}
+        {needsLocation && perms.locForeground === 'granted' && perms.locBackground !== 'granted' && (
+          <PermRow
+            icon="🛰️"
+            title="Localização o tempo todo"
+            desc='Em Configurações → Localização, escolha "Permitir o tempo todo". Sem isso o GPS para quando o app fica minimizado.'
+            status={perms.locBackground}
+            onRequest={handleBackgroundLocation}
+            loading={false}
           />
         )}
 
@@ -315,7 +347,7 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
         {/* Botão continuar */}
         {(locOk && pushOk) || (perms.locForeground === 'denied' || perms.notifications === 'denied') ? (
           <button onClick={onReady} style={{ ...S.btn(true), width: '100%', padding: 14 }}>
-            {locOk && pushOk && batOk ? '✓ Continuar' : 'Continuar mesmo assim'}
+            {locOk && bgOk && pushOk && batOk ? '✓ Continuar' : 'Continuar mesmo assim'}
           </button>
         ) : null}
 
