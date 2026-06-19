@@ -66,6 +66,16 @@ service cloud.firestore {
       allow read:  if isGestor();
     }
 
+    // ── CONSENTIMENTOS LGPD ───────────────────────────────────────────
+    // Registro auditável e IMUTÁVEL do aceite de rastreamento (segurança jurídica).
+    // id = "{uid}_v{versao}". Cada usuário só cria/lê o próprio; gestão lê todos.
+    match /consentimentos_lgpd/{id} {
+      allow get:    if isAuth(); // usuário consulta o próprio aceite (id contém o uid)
+      allow list:   if isGestorSeg();
+      allow create: if isAuth() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false; // imutável — prova do consentimento
+    }
+
     // ── ESTAÇÕES ──────────────────────────────────────────────────────
     match /estacoes/{id} {
       allow read:   if isAtivo();
