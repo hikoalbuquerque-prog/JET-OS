@@ -233,19 +233,29 @@ async function _gerarTarefasMonitor(parkings, turno) {
         console.log(`[tarefasMonitor] ${criadas} tarefas criadas`);
 }
 // ─── FUNCTION: gerarSlotsAgendado (todo dia 21h) ─────────────────────────────
+//
+// 🚫 DESLIGADO no cutover de Slots para o Supabase (17/06/2026). A geração de slots
+// agora roda no Supabase (Edge Function `gerar-slots` + pg_cron às 00:00 UTC = 21h SP),
+// e o app lê via VITE_ANALYTICS_PROVIDER=supabase. Manter este gerador ATIVO duplicaria
+// os slots nos dois sistemas. Mantido como no-op (em vez de remover o export) para um
+// redeploy parar a geração na hora, sem depender de `firebase functions:delete`.
+// _gerarSlots / gerarSlotsManualFn seguem disponíveis como fallback manual.
+// Para reativar: restaurar o corpo abaixo (e desligar o pg_cron no Supabase).
 exports.gerarSlotsAgendado = (0, scheduler_1.onSchedule)({
     schedule: '0 21 * * *',
     timeZone: 'America/Sao_Paulo',
     region: 'southamerica-east1',
     memory: '256MiB',
 }, async () => {
-    const cfgSnap = await db.collection('slot_config').doc('global').get();
-    if (!cfgSnap.exists)
-        return;
-    const cfg = cfgSnap.data();
-    const dados = await fetchGoJet();
-    const statsZonas = dados ? calcularStatsZonas(dados.parkings) : {};
-    await _gerarSlots(cfg, statsZonas);
+    console.log('[gerarSlotsAgendado] DESLIGADO — geração migrada p/ Supabase (Edge Fn gerar-slots). No-op.');
+    return;
+    // --- corpo original (desativado no cutover) ---
+    // const cfgSnap = await db.collection('slot_config').doc('global').get();
+    // if (!cfgSnap.exists) return;
+    // const cfg = cfgSnap.data() as SlotConfigGlobal;
+    // const dados = await fetchGoJet();
+    // const statsZonas = dados ? calcularStatsZonas(dados.parkings) : {};
+    // await _gerarSlots(cfg, statsZonas);
 });
 // ─── Core: gerar slots ────────────────────────────────────────────────────────
 async function _gerarSlots(cfg, statsZonas) {

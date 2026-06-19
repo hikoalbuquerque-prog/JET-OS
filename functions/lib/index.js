@@ -367,9 +367,11 @@ __exportStar(require("./auth"), exports); // getUsuario, criarSlotAuth, listarSl
 __exportStar(require("./automacao"), exports); // limpezaSnapshots, notificarOcorrencia, notificarTarefa, etc.
 __exportStar(require("./automacao-gojet-scraper"), exports); // scraperGoJet (paginação completa, multi-cidade), scraperGoJetManual
 __exportStar(require("./gps-alertas"), exports); // verificarAtrasos, verificarChegadaPonto
+__exportStar(require("./gps-ingest"), exports); // ingestGps — upload nativo de GPS (app fechado)
 __exportStar(require("./automacao-tarefas"), exports); // gerarTarefasGoJetFn, gerarTarefasAgendado, gerarSlotsAgendado, etc.
 __exportStar(require("./relatorios"), exports); // enviarRelatorioManual, relatorioGuardSemanal, relatorioPerdasDiario, relatorioPerdasSemanal
 __exportStar(require("./notificacoes-prestador"), exports); // notificarGestorNovaSolicitacao
+__exportStar(require("./mirror-ocorrencias"), exports); // espelharOcorrenciaSupabase — dual-write Guard -> Supabase (DEBRIEF §16)
 // ══════════════════════════════════════════════════════════════════
 // REVOGAR ACESSO — desativa usuário no Auth + Firestore
 // ══════════════════════════════════════════════════════════════════
