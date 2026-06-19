@@ -44,6 +44,7 @@ const REPORT_TR: Record<string, Record<string, string>> = {
   pdf_footer:        { pt:'📎 _PDF executivo completo em anexo_', en:'📎 _Full executive PDF attached_',  es:'📎 _PDF ejecutivo completo adjunto_', ru:'📎 _PDF с деталями в приложении_'   },
   robberies:         { pt:'roubos',                              en:'robberies',                          es:'robos',                               ru:'краж'                               },
   vandalisms:        { pt:'vandalismos',                         en:'vandalisms',                         es:'vandalismos',                         ru:'вандализм'                          },
+  losses:            { pt:'perdas',                              en:'losses',                             es:'pérdidas',                            ru:'потерь'                             },
   open_since:        { pt:'ocorr.',                              en:'inc.',                               es:'ocurr.',                              ru:'инц.'                               },
   pdf_exec_report:   { pt:'Relatório Executivo',                 en:'Executive Report',                   es:'Informe Ejecutivo',                   ru:'Исполнительный отчёт'               },
   pdf_ref_date:      { pt:'Data de referência',                  en:'Reference date',                     es:'Fecha de referencia',                 ru:'Дата отчёта'                        },
@@ -125,6 +126,20 @@ interface OcorrenciaRaw {
   lng_inicial?: number;
 }
 
+// Resumo de perdas (BRPD) — agora data-driven: agrega ocorrências tipo 'Perda' do
+// Supabase (histórico importado + novas via mirror). Shape compatível com PERDAS_ACUM
+// (filiais[].{filial,regiao,resp,patins,bikes,brpd}) + extras (baterias, 24h/7d).
+interface PerdasFilial {
+  filial: string; regiao: string; resp: string;
+  patins: number; bikes: number; baterias: number; brpd: number;
+}
+interface PerdasResumo {
+  totalBRPD: number; totalPatins: number; totalBikes: number; totalBaterias: number;
+  perdas24h: number; perdas7d: number;
+  filiais: PerdasFilial[];
+  fonte: 'supabase' | 'fallback';
+}
+
 interface RelatorioGuard {
   data:             string;
   semana:           string;
@@ -136,6 +151,7 @@ interface RelatorioGuard {
   altaPrioridade:   number;
   comBO:            number;
   ocorrencias:      any[];
+  perdas:           PerdasResumo;
 }
 
 // Dados acumulados das planilhas (atualizar periodicamente)
@@ -188,6 +204,78 @@ async function buscarDadosDinamicosFiliais(): Promise<Record<string, {
     });
     return mapa;
   } catch { return {}; }
+}
+
+// ── PERDAS (BRPD) DATA-DRIVEN DO SUPABASE ──────────────────────────────────
+// Agrega ocorrências tipo 'Perda' (histórico importado + novas via mirror). Mesmos
+// segredos do trigger (mirror-ocorrencias.ts). Se não configurado: fallback PERDAS_ACUM.
+const SUPABASE_URL_REL          = process.env.SUPABASE_URL          ?? '';
+const SUPABASE_SERVICE_ROLE_REL = process.env.SUPABASE_SERVICE_ROLE ?? '';
+
+function perdasFallback(): PerdasResumo {
+  const filiais = PERDAS_ACUM.filiais.map(f => ({
+    filial: f.filial, regiao: f.regiao, resp: f.resp,
+    patins: f.patins, bikes: f.bikes, baterias: 0, brpd: f.brpd,
+  })).sort((a, b) => b.brpd - a.brpd);
+  return {
+    totalBRPD: PERDAS_ACUM.totalBRPD, totalPatins: PERDAS_ACUM.totalPatins,
+    totalBikes: PERDAS_ACUM.totalBikes, totalBaterias: 0,
+    perdas24h: 0, perdas7d: 0, filiais, fonte: 'fallback',
+  };
+}
+
+async function buscarPerdasSupabase(dataRef: Date): Promise<PerdasResumo> {
+  if (!SUPABASE_URL_REL || !SUPABASE_SERVICE_ROLE_REL) return perdasFallback();
+  try {
+    const rows: Array<{ ativo_tipo: string | null; cidade: string | null; criado_em: string | null }> = [];
+    const PAGE = 1000;
+    for (let from = 0; ; from += PAGE) {
+      const resp = await fetch(
+        `${SUPABASE_URL_REL}/rest/v1/ocorrencias?tipo=eq.Perda&select=ativo_tipo,cidade,criado_em`,
+        {
+          headers: {
+            apikey: SUPABASE_SERVICE_ROLE_REL,
+            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_REL}`,
+            Range: `${from}-${from + PAGE - 1}`,
+          },
+        },
+      );
+      if (!resp.ok) { if (from === 0) return perdasFallback(); break; }
+      const part = (await resp.json()) as typeof rows;
+      rows.push(...part);
+      if (part.length < PAGE) break;
+    }
+
+    const lim24 = dataRef.getTime() - 86400000;
+    const lim7d = dataRef.getTime() - 7 * 86400000;
+    const fim   = dataRef.getTime() + 86400000; // inclui o próprio dia do relatório
+    const fil = new Map<string, PerdasFilial>();
+    let totalPatins = 0, totalBikes = 0, totalBaterias = 0, perdas24h = 0, perdas7d = 0;
+
+    for (const r of rows) {
+      const cidade = (r.cidade || 'Sem info').trim();
+      if (!fil.has(cidade)) fil.set(cidade, { filial: cidade, regiao: '', resp: '', patins: 0, bikes: 0, baterias: 0, brpd: 0 });
+      const f = fil.get(cidade)!;
+      const a = (r.ativo_tipo || '').toLowerCase();
+      if (a.startsWith('bicicl') || a.startsWith('bike')) { f.bikes++; totalBikes++; }
+      else if (a.startsWith('bateri')) { f.baterias++; totalBaterias++; }
+      else { f.patins++; totalPatins++; } // patinete (default)
+      f.brpd++;
+      const t = r.criado_em ? Date.parse(r.criado_em) : NaN;
+      if (isFinite(t) && t < fim) {
+        if (t >= lim24) perdas24h++;
+        if (t >= lim7d) perdas7d++;
+      }
+    }
+    return {
+      totalBRPD: totalPatins + totalBikes + totalBaterias,
+      totalPatins, totalBikes, totalBaterias, perdas24h, perdas7d,
+      filiais: [...fil.values()].sort((a, b) => b.brpd - a.brpd),
+      fonte: 'supabase',
+    };
+  } catch {
+    return perdasFallback();
+  }
 }
 
 // ── HELPERS ────────────────────────────────────────────────────────────────
@@ -282,6 +370,8 @@ export async function gerarRelatorioGuard(dataStr?: string): Promise<RelatorioGu
     if (o.bo_numero) comBO++;
   }
 
+  const perdas = await buscarPerdasSupabase(dataRef);
+
   return {
     data: dataRef.toISOString().slice(0, 10),
     semana: faixaSemana(dataRef),
@@ -289,6 +379,7 @@ export async function gerarRelatorioGuard(dataStr?: string): Promise<RelatorioGu
     porTipo, porStatus, porCidade, porTurno,
     altaPrioridade, comBO,
     ocorrencias: docs,
+    perdas,
   };
 }
 
@@ -401,13 +492,17 @@ function buildMensagem(lang: string, r: RelatorioGuard, ocs24h: OcorrenciaRaw[],
   txt += `📅 ${tr(lang,'yesterday')} (${ontemFmt}): *${roubos24h}* ${tr(lang,'robberies')} | *${vand24h}* ${tr(lang,'vandalisms')}\n`;
   txt += `📅 ${tr(lang,'last7d')}: *${roubos7d}* ${tr(lang,'robberies')}\n`;
   txt += `📅 (${mesFmt}): acum. abaixo\n`;
-  txt += `📉 ${tr(lang,'brpd')} ${acumFmt}: *${PERDAS_ACUM.totalBRPD}* (🛴${PERDAS_ACUM.totalPatins} 🚲${PERDAS_ACUM.totalBikes})\n`;
+  const p = r.perdas;
+  txt += `📉 ${tr(lang,'brpd')} ${acumFmt}: *${p.totalBRPD}* (🛴${p.totalPatins} 🚲${p.totalBikes} 🔋${p.totalBaterias})\n`;
+  txt += `📅 ${tr(lang,'yesterday')} (${ontemFmt}): *${p.perdas24h}* ${tr(lang,'losses')} | ${tr(lang,'last7d')}: *${p.perdas7d}* ${tr(lang,'losses')}\n`;
   txt += `\n`;
 
-  const top3 = PERDAS_ACUM.filiais.sort((a,b)=>b.brpd-a.brpd).slice(0,3);
-  txt += `*${tr(lang,'top_branches')}:* `;
-  txt += top3.map((f,i) => `${i+1}.${f.filial.split('(')[0].trim()}: *${f.brpd}*`).join(' · ') + `\n`;
-  txt += `\n`;
+  const top3 = p.filiais.slice(0, 3);
+  if (top3.length) {
+    txt += `*${tr(lang,'top_branches')}:* `;
+    txt += top3.map((f,i) => `${i+1}.${f.filial.split('(')[0].trim()}: *${f.brpd}*`).join(' · ') + `\n`;
+    txt += `\n`;
+  }
 
   const guardsCont: Record<string, {n:number; cargo:string}> = {};
   ocs.forEach(o => {
