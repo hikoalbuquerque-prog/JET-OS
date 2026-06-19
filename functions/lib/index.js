@@ -319,12 +319,11 @@ exports.gerarStreetViewFn = (0, https_1.onCall)({ timeoutSeconds: 120, memory: '
 });
 // ══════════════════════════════════════════════════════════════════
 // RELATÓRIOS GUARD — diário + manual + semanal
-// relatorioGuardDiarioFn: scheduler diário 10h (seg-sáb)
+// relatorioGuardDiarioFn: scheduler diário 7h (ter-dom, reporta o dia anterior)
 // relatorioGuardManualFn: callable para botão no DashboardManager
-// relatorioGuardSemanal: scheduler toda segunda 10h (já em relatorios.ts)
+// relatorioGuardSemanal: scheduler toda segunda 7h (já em relatorios.ts)
 // ══════════════════════════════════════════════════════════════════
 const relatorio_1 = require("./relatorio");
-// Diário — seg a sáb às 10h (Brasília)
 // Diário — 7h, terça a domingo (reporta o dia anterior)
 // Segunda-feira envia o semanal no lugar
 exports.relatorioGuardDiarioFn = (0, scheduler_1.onSchedule)({ schedule: '0 7 * * 2-7', timeZone: 'America/Sao_Paulo', memory: '256MiB', timeoutSeconds: 120 }, async () => {

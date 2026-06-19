@@ -238,14 +238,13 @@ export const gerarStreetViewFn = onCall(
 
 // ══════════════════════════════════════════════════════════════════
 // RELATÓRIOS GUARD — diário + manual + semanal
-// relatorioGuardDiarioFn: scheduler diário 10h (seg-sáb)
+// relatorioGuardDiarioFn: scheduler diário 7h (ter-dom, reporta o dia anterior)
 // relatorioGuardManualFn: callable para botão no DashboardManager
-// relatorioGuardSemanal: scheduler toda segunda 10h (já em relatorios.ts)
+// relatorioGuardSemanal: scheduler toda segunda 7h (já em relatorios.ts)
 // ══════════════════════════════════════════════════════════════════
 
 import { gerarRelatorioGuard, enviarRelatorioTelegram } from './relatorio';
 
-// Diário — seg a sáb às 10h (Brasília)
 // Diário — 7h, terça a domingo (reporta o dia anterior)
 // Segunda-feira envia o semanal no lugar
 export const relatorioGuardDiarioFn = onSchedule(
