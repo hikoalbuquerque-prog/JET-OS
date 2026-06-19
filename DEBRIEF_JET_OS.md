@@ -1983,3 +1983,30 @@ Com a base estável e dados fluindo:
 - **5b (ADIADO):** relatório Guard por cidade → grupos Telegram específicos — fazer junto com **turnos/escala dos seguranças**, em outro momento.
 - **NFS-e:** próximos passos do módulo (verificarProcuracoes, emissão) — campos do perfil já prontos.
 - **Supabase:** seguir o roadmap da Seção 14.
+
+## 17.6 Atualização — fim do dia 19/06 (deploys + portão GPS) + PONTO DE RETOMADA
+
+**Commits adicionais desta leva:** `0df9802` (esta Seção 17), `7fa722f` (5c Telegram 1-toque),
+`15e586a`/migration `0024` (blindagem do `ingest_gps`). Total da sessão: ~21 commits.
+
+**Feito no ambiente hoje:**
+- ✅ **Item 1 deployado** (relatórios de perdas standalone deletados + relatórios Guard redeployados → perdas data-driven no ar).
+- ✅ **Edge functions deployadas** (Supabase, projeto `ducdbrupxpzqcblfreqn`): `ingest-gps`, `auth-login`, `gerar-slots`. Segredo `FIREBASE_API_KEY` setado (`npx supabase secrets set`).
+- ✅ **`botUsername = JetOs_Bot`** gravado em `telegram_config/global` (destrava o 5c 1-toque). Falta deployar `iniciarVinculoTelegram` + `telegramWebhook`.
+- ✅ **Migration `0024`** (cast de slotId tolerante a uuid inválido) aplicada — via SQL Editor **e** `npx supabase db push --linked` (idempotente; agora no `schema_migrations`).
+- ✅ **Portão GPS revisado** (ingest-gps × RPC `ingest_gps` × `GpsTrackerService.java` × `GpsTokenManager`): campos batem, headers ok (`apikey` no supabase), **rotação do refresh token Supabase persistida** (não morre após ~1h), `auth-login` retorna sessão no formato certo. Veredito: cadeia sólida.
+
+> ⚠️ `npx supabase db push` usa `--linked` (NÃO `--project-ref`). `functions deploy`/`secrets set` usam `--project-ref`.
+> ⚠️ CLI via `npx` baixa a versão mais nova — mas aceita o formato sequencial `0024_...` (a suspeita de que rejeitava estava errada).
+
+**PONTO DE RETOMADA — validar o PORTÃO GPS em campo (Fase 1):**
+1. **Pré-provisionar o usuário de teste** no Supabase (senão `auth-login` → 403):
+   `supabase/scripts > node preprovision-auth.mjs` (env: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`=serviceAccountKey-jet-os-1.json, `ONLY_ACTIVE=true`).
+2. **Gerar o APK de teste** com `VITE_GPS_PROVIDER=supabase` no `frontend/.env.local` → `npm run build` + `npx cap sync android` (já feitos) → **build do APK**:
+   - `frontend/android > set JAVA_HOME=C:\Program Files\Android\Android Studio\jbr` então `gradlew.bat assembleRelease`
+   - (ou Android Studio → Build → Build APK(s). O `gradlew` falhou por `JAVA_HOME` não setado — o JDK fica no `jbr` do Android Studio.)
+   - Saída assinada: `frontend/android/app/build/outputs/apk/release/app-release.apk` (conferir data = hoje; os APKs de 13/16-jun são antigos e postam no Firebase).
+3. **Deploy do 5c** (pode junto): `firebase deploy --only functions:iniciarVinculoTelegram,functions:telegramWebhook`.
+4. **Campo:** instalar APK → logar (cria sessão via `auth-login`) → iniciar turno → **minimizar/fechar/travar tela/reiniciar** → conferir pontos em `gps_locations` no Supabase **sem buracos**. Passou o portão = pode planejar o cutover; depois Fase 2 (Auth/Usuários, §14.6).
+
+**Pendências que seguem abertas:** cap `maxInstances` nas ~44 funções restantes (§17.4); 5b (relatório por cidade, com turnos dos seguranças); migração do Firebase Storage (fotos das ocorrências — hoje só as URLs vieram pro Supabase, arquivos seguem no Firebase, §16).
