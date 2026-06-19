@@ -202,6 +202,18 @@ function perdasFallback() {
         perdas24h: 0, perdas7d: 0, filiais, fonte: 'fallback',
     };
 }
+// Região (Norte/Centro/Sul) inferida do rótulo da filial/cidade (as perdas históricas
+// guardam cidade = filial). Degrada para '' em cidades desconhecidas (perdas novas do app).
+function regiaoDaFilial(cidade) {
+    const c = cidade.toLowerCase();
+    if (/bel[ée]m|minas|\(bh\)|fortaleza|cear|recife|pernambuc|aracaj|sergipe|salvador|bahia|vila velha|esp[íi]rito|natal|rg norte/.test(c))
+        return 'Norte';
+    if (/sp capital|sp litoral|sp estado|campinas|s[ãa]o paulo/.test(c))
+        return 'Centro';
+    if (/bras[íi]lia|distr|santa catarina|paran[áa]|londrina|rg sul|porto alegre|gramado|tramanda/.test(c))
+        return 'Sul';
+    return '';
+}
 async function buscarPerdasSupabase(dataRef) {
     if (!SUPABASE_URL_REL || !SUPABASE_SERVICE_ROLE_REL)
         return perdasFallback();
@@ -234,7 +246,7 @@ async function buscarPerdasSupabase(dataRef) {
         for (const r of rows) {
             const cidade = (r.cidade || 'Sem info').trim();
             if (!fil.has(cidade))
-                fil.set(cidade, { filial: cidade, regiao: '', resp: '', patins: 0, bikes: 0, baterias: 0, brpd: 0 });
+                fil.set(cidade, { filial: cidade, regiao: regiaoDaFilial(cidade), resp: '', patins: 0, bikes: 0, baterias: 0, brpd: 0 });
             const f = fil.get(cidade);
             const a = (r.ativo_tipo || '').toLowerCase();
             if (a.startsWith('bicicl') || a.startsWith('bike')) {
@@ -787,12 +799,11 @@ async function gerarPdfHtml(r, ocs24h, ocs7d, ocsMes, ocsAcum, lang = 'pt') {
     const chartJson = JSON.stringify(chartData);
     const trJson = JSON.stringify(REPORT_TR).replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
     // Tabela perdas acumuladas com colunas dinâmicas (vand 24h, não enc, status)
-    const filiaisOrdenadas = [...PERDAS_ACUM.filiais].sort((a, b) => b.brpd - a.brpd);
+    const filiaisOrdenadas = r.perdas.filiais.filter(f => f.brpd > 0);
     const perdasRows = filiaisOrdenadas
-        .filter(f => f.brpd > 0)
         .map((f, i) => {
         const d = dadosDinamicos[f.filial] || {};
-        const pctTotal = pct(f.brpd, PERDAS_ACUM.totalBRPD);
+        const pctTotal = pct(f.brpd, r.perdas.totalBRPD || 1);
         const barW = Math.max(4, Math.round((f.brpd / (filiaisOrdenadas[0].brpd || 1)) * 100));
         const corBar = f.brpd > 100 ? '#c0392b' : f.brpd > 20 ? '#e67e22' : '#2980b9';
         // Vandalismo 24h
@@ -815,6 +826,7 @@ async function gerarPdfHtml(r, ocs24h, ocs7d, ocsMes, ocsAcum, lang = 'pt') {
         <td><b style="font-size:10px">${f.filial}</b><br><span style="font-size:8px;color:#999">${f.resp}</span></td>
         <td class="n">${f.patins || 0}</td>
         <td class="n">${f.bikes || 0}</td>
+        <td class="n">${f.baterias || 0}</td>
         <td class="n" style="font-weight:800;color:#c0392b;font-size:12px">${f.brpd}</td>
         <td style="padding:4px 8px"><svg width="110" height="14" style="vertical-align:middle">
           <rect width="${barW}" height="12" fill="${corBar}" rx="3" opacity="0.8" y="1"/>
@@ -1502,12 +1514,13 @@ ${svgCidades ? `<div class="chart-full">${svgCidades}</div>` : ''}
   <div class="sec-title">📉 <span data-lk="pdf_losses">${tr(lang, 'pdf_losses')}</span> — BRPD <span data-lk="pdf_accum">${tr(lang, 'pdf_accum')}</span> (${acumLabel})</div>
   <div class="perdas-box">
     <div class="perdas-total">
-      <div class="ptotal"><div class="ptv">${PERDAS_ACUM.totalBRPD}</div><div class="ptl" data-lk="pdf_total_col">${tr(lang, 'pdf_total_col')} BRPD</div></div>
-      <div class="ptotal"><div class="ptv" style="color:#e67e22">${PERDAS_ACUM.totalPatins}</div><div class="ptl">🛴 <span data-lk="pdf_scooters">${tr(lang, 'pdf_scooters')}</span></div></div>
-      <div class="ptotal"><div class="ptv" style="color:#f39c12">${PERDAS_ACUM.totalBikes}</div><div class="ptl">🚲 <span data-lk="pdf_bikes">${tr(lang, 'pdf_bikes')}</span></div></div>
+      <div class="ptotal"><div class="ptv">${r.perdas.totalBRPD}</div><div class="ptl" data-lk="pdf_total_col">${tr(lang, 'pdf_total_col')} BRPD</div></div>
+      <div class="ptotal"><div class="ptv" style="color:#e67e22">${r.perdas.totalPatins}</div><div class="ptl">🛴 <span data-lk="pdf_scooters">${tr(lang, 'pdf_scooters')}</span></div></div>
+      <div class="ptotal"><div class="ptv" style="color:#f39c12">${r.perdas.totalBikes}</div><div class="ptl">🚲 <span data-lk="pdf_bikes">${tr(lang, 'pdf_bikes')}</span></div></div>
+      <div class="ptotal"><div class="ptv" style="color:#8e44ad">${r.perdas.totalBaterias}</div><div class="ptl">🔋 Baterias</div></div>
       <div class="ptotal" style="border-color:#f0ad4e">
-        <div class="ptv" style="color:#e67e22;font-size:13px">${PERDAS_ACUM.atualizadoEm}</div>
-        <div class="ptl">Ref. planilha</div>
+        <div class="ptv" style="color:#27ae60;font-size:12px">${r.perdas.fonte === 'supabase' ? 'Supabase' : 'Planilha'}</div>
+        <div class="ptl">Fonte (ao vivo)</div>
       </div>
     </div>
     <div style="overflow-x:auto">
@@ -1519,6 +1532,7 @@ ${svgCidades ? `<div class="chart-full">${svgCidades}</div>` : ''}
           <th rowspan="2"><span data-lk="pdf_branch">${tr(lang, 'pdf_branch')}</span> / <span data-lk="pdf_resp">${tr(lang, 'pdf_resp')}</span></th>
           <th class="n" rowspan="2">🛴 <span data-lk="pdf_scooters">${tr(lang, 'pdf_scooters')}</span></th>
           <th class="n" rowspan="2">🚲 <span data-lk="pdf_bikes">${tr(lang, 'pdf_bikes')}</span></th>
+          <th class="n" rowspan="2">🔋 Baterias</th>
           <th class="n" rowspan="2">BRPD</th>
           <th class="n" rowspan="2">% Brasil</th>
           <th class="n" colspan="3" style="background:#e67e22;text-align:center">⚡ <span data-lk="pdf_vandalism_ttl">${tr(lang, 'pdf_vandalism_ttl')}</span> 24h</th>
