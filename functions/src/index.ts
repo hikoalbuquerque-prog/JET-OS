@@ -312,6 +312,7 @@ export * from './gps-ingest';     // ingestGps — upload nativo de GPS (app fec
 export * from './automacao-tarefas'; // gerarTarefasGoJetFn, gerarTarefasAgendado, gerarSlotsAgendado, etc.
 export * from './relatorios';     // enviarRelatorioManual, relatorioGuardSemanal, relatorioPerdasDiario, relatorioPerdasSemanal
 export * from './notificacoes-prestador'; // notificarGestorNovaSolicitacao
+export * from './mirror-ocorrencias'; // espelharOcorrenciaSupabase — dual-write Guard -> Supabase (DEBRIEF §16)
 
 // ══════════════════════════════════════════════════════════════════
 // REVOGAR ACESSO — desativa usuário no Auth + Firestore

@@ -8,6 +8,7 @@ import {
   doc, getDoc, setDoc, updateDoc, serverTimestamp, limit,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { analyticsProviderSupabase, fetchOcorrenciasRegional } from '../lib/analytics-supabase';
 import L from 'leaflet';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -928,12 +929,40 @@ export default function PainelRoubos({ visivel, onFechar, mapa, cidade, roleUsua
     return rows.sort((a, b) => a.regiao.localeCompare(b.regiao) || a.filial.localeCompare(b.filial));
   }, [filtradas, regiaoMap, sortDash]);
 
-  const totalGeral = dashboardRows.reduce((s, r) => s + r.total + r.recuperados, 0);
-  const totalPatinetes = dashboardRows.reduce((s, r) => s + r.patinetes, 0);
-  const totalBicicletas = dashboardRows.reduce((s, r) => s + r.bicicletas, 0);
-  const totalBaterias = dashboardRows.reduce((s, r) => s + r.baterias, 0);
-  const totalOutros = dashboardRows.reduce((s, r) => s + r.outros, 0);
-  const totalRecup = dashboardRows.reduce((s, r) => s + r.recuperados, 0);
+  // ── Migração #3: dashboard via RPC do Supabase (dual-run, flag VITE_ANALYTICS_PROVIDER) ──
+  // A RPC retorna `total` = todas as ocorrências; o cliente usa `total` = não-recuperados.
+  // Normalizamos (total - recuperados) para casar com a renderização existente.
+  // Map/lista/CSV continuam no Firestore (`filtradas`). `busca` não filtra a tabela via RPC.
+  const supabaseAnalytics = analyticsProviderSupabase();
+  const [supaRows, setSupaRows] = useState<RegionalRow[]>([]);
+  useEffect(() => {
+    if (!visivel || !supabaseAnalytics) return;
+    let alive = true;
+    fetchOcorrenciasRegional({
+      periodo,
+      tipo: tipoFiltro !== 'todos' ? tipoFiltro : null,
+      status: statusFiltro !== 'todos' ? statusFiltro : null,
+      cidade: cidade || null,
+    })
+      .then(rows => { if (alive) setSupaRows(rows.map(r => ({ ...r, total: Math.max(0, r.total - r.recuperados) }))); })
+      .catch(e => console.warn('[analytics] RPC Supabase falhou, mantendo cálculo do cliente:', e.message));
+    return () => { alive = false; };
+  }, [visivel, supabaseAnalytics, periodo, tipoFiltro, statusFiltro, cidade]);
+
+  const rowsToShow = useMemo((): RegionalRow[] => {
+    if (!(supabaseAnalytics && supaRows.length)) return dashboardRows;
+    const rows = [...supaRows];
+    if (sortDash === 'total') return rows.sort((a, b) => b.total - a.total);
+    if (sortDash === 'filial') return rows.sort((a, b) => a.filial.localeCompare(b.filial));
+    return rows.sort((a, b) => a.regiao.localeCompare(b.regiao) || a.filial.localeCompare(b.filial));
+  }, [supabaseAnalytics, supaRows, dashboardRows, sortDash]);
+
+  const totalGeral = rowsToShow.reduce((s, r) => s + r.total + r.recuperados, 0);
+  const totalPatinetes = rowsToShow.reduce((s, r) => s + r.patinetes, 0);
+  const totalBicicletas = rowsToShow.reduce((s, r) => s + r.bicicletas, 0);
+  const totalBaterias = rowsToShow.reduce((s, r) => s + r.baterias, 0);
+  const totalOutros = rowsToShow.reduce((s, r) => s + r.outros, 0);
+  const totalRecup = rowsToShow.reduce((s, r) => s + r.recuperados, 0);
 
   // Export CSV
   const exportCSV = useCallback(() => {
@@ -1080,12 +1109,12 @@ export default function PainelRoubos({ visivel, onFechar, mapa, cidade, roleUsua
                     </tr>
                   </thead>
                   <tbody>
-                    {dashboardRows.length === 0 && (
+                    {rowsToShow.length === 0 && (
                       <tr><td colSpan={9} style={{ ...S.td, textAlign: 'center', padding: 40, color: T.dim }}>
                         Nenhuma ocorrência no período
                       </td></tr>
                     )}
-                    {dashboardRows.map((r, i) => (
+                    {rowsToShow.map((r, i) => (
                       <tr key={i} style={{ cursor: 'pointer' }}
                         onClick={() => { setAba('lista'); setCidadeFiltro(''); }}>
                         <td style={S.td}>
@@ -1104,7 +1133,7 @@ export default function PainelRoubos({ visivel, onFechar, mapa, cidade, roleUsua
                       </tr>
                     ))}
                     {/* Total geral */}
-                    {dashboardRows.length > 0 && (
+                    {rowsToShow.length > 0 && (
                       <tr style={{ background: 'rgba(255,255,255,.03)' }}>
                         <td colSpan={2} style={{ ...S.td, fontWeight: 800, color: T.txt }}>TOTAL GERAL</td>
                         <td style={{ ...S.tdNum, fontWeight: 800, color: T.red }}>{totalPatinetes}</td>

@@ -6,6 +6,7 @@ import {
 } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { estabelecerSessaoSupabase, encerrarSessaoSupabase } from '../lib/supabase-auth';
 
 export interface Usuario {
   uid: string; email: string; nome: string;
@@ -78,6 +79,7 @@ function useGlobalAuth(): AuthState {
   return _state;
 }
 
+// Migração (strangler): dual-auth via helper compartilhado (ver lib/supabase-auth.ts).
 async function login(email: string, senha: string) {
   _set({ erro: null });
   try {
@@ -86,9 +88,11 @@ async function login(email: string, senha: string) {
     _set({ loading: false, erro: 'E-mail ou senha incorretos.' });
     throw new Error('Login falhou');
   }
+  await estabelecerSessaoSupabase(email, senha); // não-fatal
 }
 
 async function logout() {
+  await encerrarSessaoSupabase(); // para GPS nativo + signOut Supabase (não-fatal)
   await signOut(auth);
 }
 

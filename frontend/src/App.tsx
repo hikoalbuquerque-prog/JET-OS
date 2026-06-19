@@ -3,8 +3,10 @@ import { useState, useEffect } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, User } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './lib/firebase';
+import { estabelecerSessaoSupabase, encerrarSessaoSupabase } from './lib/supabase-auth';
 import TelaGuard from './TelaGuard';
 import AndroidPermissionGate from './components/AndroidPermissionGate';
+import LgpdConsentGate, { ROLES_RASTREADOS } from './components/LgpdConsentGate';
 import TelaMapa from './views/TelaMapa';
 import {
   TelaLogin,
@@ -29,6 +31,7 @@ export default function App() {
   const [usuario,    setUsuario]    = useState<Usuario | null>(null);
   const [onboarding, setOnboarding] = useState(false);
   const [permGateOk, setPermGateOk] = useState(false);
+  const [lgpdOk,     setLgpdOk]     = useState(false);
 
   useEffect(() => {
     // Listener para navegação para Guard via FAB
@@ -114,15 +117,40 @@ export default function App() {
   }, []);
 
   const handleLogin = async (email: string, senha: string): Promise<string | null> => {
-    try { await signInWithEmailAndPassword(auth, email, senha); return null; }
+    try { await signInWithEmailAndPassword(auth, email, senha); }
     catch { return 'E-mail ou senha incorretos.'; }
+    // dual-auth (migração): estabelece a sessão Supabase com o mesmo e-mail/senha.
+    // Não-fatal — se falhar, o login Firebase segue valendo.
+    await estabelecerSessaoSupabase(email, senha);
+    return null;
+  };
+
+  // Logout único: para o GPS nativo + encerra a sessão Supabase ANTES do signOut Firebase.
+  const handleLogout = async () => {
+    await encerrarSessaoSupabase();
+    await signOut(auth);
   };
 
   if (tela === 'loading') return <SplashScreen />;
 
   if (tela === 'login') return <TelaLogin onLogin={handleLogin} />;
 
-  if (tela === 'prestador-pendente' && usuario) return <TelaPrestadorPendente usuario={usuario} onLogout={() => signOut(auth)} />;
+  if (tela === 'prestador-pendente' && usuario) return <TelaPrestadorPendente usuario={usuario} onLogout={() => handleLogout()} />;
+
+  // Consentimento LGPD — para perfis rastreados, antes do permission gate (web e APK)
+  if (
+    usuario && (tela === 'mapa' || tela === 'guard') &&
+    ROLES_RASTREADOS.includes(usuario.role) && !lgpdOk
+  ) return (
+    <LgpdConsentGate
+      uid={usuario.uid}
+      email={usuario.email}
+      nome={usuario.nome}
+      role={usuario.role}
+      onAceito={() => setLgpdOk(true)}
+      onRecusado={() => { handleLogout(); setTela('login'); }}
+    />
+  );
 
   // Permission gate — Android APK, antes de mostrar qualquer tela de app
   if (usuario && (tela === 'mapa' || tela === 'guard') && !permGateOk) return (
@@ -132,7 +160,7 @@ export default function App() {
   // Onboarding — sobreposto ao mapa
   if (onboarding && usuario && tela === 'mapa') return (
     <>
-      <TelaMapa usuario={usuario!} onLogout={() => signOut(auth)} />
+      <TelaMapa usuario={usuario!} onLogout={() => handleLogout()} />
       <OnboardingWizard
         usuario={usuario}
         onConcluir={() => {
@@ -148,12 +176,12 @@ export default function App() {
     setTimeout(() => setTela('mapa'), 0);
     return null;
   }
-  if (tela === 'guard') return <TelaGuard usuario={usuario!} onLogout={() => signOut(auth)} onVoltarMapa={() => setTela('mapa')} />;
+  if (tela === 'guard') return <TelaGuard usuario={usuario!} onLogout={() => handleLogout()} onVoltarMapa={() => setTela('mapa')} />;
   if (tela === 'trocar-senha') return (
     <TelaTrocarSenha
       onConcluido={() => setTela(usuario?.role === 'guard' ? 'guard' : 'mapa')}
-      onLogout={() => { signOut(auth); setTela('login'); }}
+      onLogout={() => { handleLogout(); setTela('login'); }}
     />
   );
-  return <TelaMapa usuario={usuario!} onLogout={() => signOut(auth)} />;
+  return <TelaMapa usuario={usuario!} onLogout={() => handleLogout()} />;
 }

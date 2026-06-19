@@ -13,6 +13,7 @@ import { doc, getDoc, collection, query, where, getDocs, orderBy, limit } from '
 import { db } from '../lib/firebase';
 import { fnExportarHistoricoParking } from '../lib/firebase';
 import { classifyBike, BIKE_STATUS_HEX, BIKE_STATUS_LABEL, BikeForClassify, BikeStatus } from '../lib/bike-classify';
+import { analyticsProviderSupabase, fetchGojetSnapshot } from '../lib/analytics-supabase';
 import { colorForParking, PARKING_COLOR_HEX, ParkingColor } from '../lib/parking-colors';
 import {
   computeZoneAnalytics, ZoneStats, ZonePolygon, ParkingPoint, BikePoint,
@@ -91,18 +92,24 @@ export default function GoJetAnalyticsPanel({ visivel, onFechar, cidade }: Props
     if (!cidade) return;
     setCarregando(true);
     try {
-      const [pList, bList] = await Promise.all([
-        lerSnapshotDoc(`latest_${cidade}`, 'parkings'),
-        lerSnapshotDoc(`bikes_latest_${cidade}`, 'bikes'),
-      ]);
-      setParkings(pList);
-      setBikes(bList);
-
-      // Snapshot age
-      const snap = await getDoc(doc(db, 'gojet_snapshots', `latest_${cidade}`));
-      if (snap.exists()) {
-        const ts = snap.data()?.savedAt?.toMillis?.() ?? null;
-        setSnapshotAge(ts ? Math.round((Date.now() - ts) / 60000) : null);
+      // Migração: lê parkings/bikes do Postgres (scrape-gojet) quando o flag está ligado.
+      if (analyticsProviderSupabase()) {
+        const r = await fetchGojetSnapshot(cidade);
+        setParkings(r.parkings as any);
+        setBikes(r.bikes as any);
+        setSnapshotAge(r.savedAtMs ? Math.round((Date.now() - r.savedAtMs) / 60000) : null);
+      } else {
+        const [pList, bList] = await Promise.all([
+          lerSnapshotDoc(`latest_${cidade}`, 'parkings'),
+          lerSnapshotDoc(`bikes_latest_${cidade}`, 'bikes'),
+        ]);
+        setParkings(pList);
+        setBikes(bList);
+        const snap = await getDoc(doc(db, 'gojet_snapshots', `latest_${cidade}`));
+        if (snap.exists()) {
+          const ts = snap.data()?.savedAt?.toMillis?.() ?? null;
+          setSnapshotAge(ts ? Math.round((Date.now() - ts) / 60000) : null);
+        }
       }
 
       // Zonas (poligonos collection)

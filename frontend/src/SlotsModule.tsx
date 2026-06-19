@@ -16,6 +16,10 @@ import type {
   TipoSlot, TipoGeracao, SlotPrioridade, ConfigZonaAuto, FaixaHorario,
 } from './lib/slots-schema';
 import { salvarConfigZona, buscarConfigZonas } from './lib/slots-schema';
+import {
+  slotsProviderSupabase, subscribeSlots,
+  aceitarSlotSupa, checkInSlotSupa, checkOutSlotSupa, cancelarSlotSupa, reatribuirSlotSupa,
+} from './lib/slots-supabase';
 
 // ─── Geo helpers ─────────────────────────────────────────────────────────────
 
@@ -2076,6 +2080,13 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
   useEffect(() => {
     if (aba !== 'slots') return;
     setLoading(true);
+    // Migração: lê slots do Supabase (polling) quando o flag está ligado.
+    if (slotsProviderSupabase()) {
+      return subscribeSlots(
+        { cidade, isAdmin, cargo: usuario.cargoPrestador },
+        s => { setSlots(s as Slot[]); setLoading(false); },
+      );
+    }
     let q;
     if (isAdmin) {
       q = query(collection(db, 'slots'), where('cidade', '==', cidade), where('pais', '==', pais), orderBy('criadoEm', 'desc'));
@@ -2128,6 +2139,7 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
   // ── Handlers ──
   const aceitarSlot = useCallback(async (slot: Slot) => {
     if (!slot.id) return;
+    if (slotsProviderSupabase()) { await aceitarSlotSupa(slot.id); return; }
     await updateDoc(doc(db, 'slots', slot.id), {
       status: 'aceito', aceitoPor: usuario.uid, aceitoPorNome: usuario.nome,
       aceitoEm: serverTimestamp(), atualizadoEm: serverTimestamp(),
@@ -2138,11 +2150,15 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
   const checkIn = useCallback(async (slot: Slot) => {
     if (!slot.id) return;
     const pos = await capturarPosicaoUnica().catch(() => null);
-    await updateDoc(doc(db, 'slots', slot.id), {
-      status: 'em_andamento', checkInEm: serverTimestamp(),
-      checkInLat: pos?.lat ?? null, checkInLng: pos?.lng ?? null,
-      checkInAccuracy: pos?.accuracy ?? null, atualizadoEm: serverTimestamp(),
-    });
+    if (slotsProviderSupabase()) {
+      await checkInSlotSupa(slot.id, pos?.lat, pos?.lng, pos?.accuracy);
+    } else {
+      await updateDoc(doc(db, 'slots', slot.id), {
+        status: 'em_andamento', checkInEm: serverTimestamp(),
+        checkInLat: pos?.lat ?? null, checkInLng: pos?.lng ?? null,
+        checkInAccuracy: pos?.accuracy ?? null, atualizadoEm: serverTimestamp(),
+      });
+    }
     setSlotAtivo(slot);
     await gpsBackground.iniciar({
       uid: usuario.uid, slotId: slot.id,
@@ -2154,22 +2170,28 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
     if (!slot.id) return;
     await gpsBackground.parar();
     setSlotAtivo(null); setGpsStats(null);
+    if (slotsProviderSupabase()) { await checkOutSlotSupa(slot.id); return; }
     await updateDoc(doc(db, 'slots', slot.id), { status: 'concluido', checkOutEm: serverTimestamp(), atualizadoEm: serverTimestamp() });
     await updateDoc(doc(db, 'usuarios', usuario.uid), { slotAtualId: null, ultimaAtividade: serverTimestamp() }).catch(() => {});
   }, [usuario.uid]);
 
   const cancelarSlot = useCallback(async (slot: Slot) => {
     if (!slot.id || !window.confirm('Cancelar este slot?')) return;
+    if (slotsProviderSupabase()) { await cancelarSlotSupa(slot.id); return; }
     await updateDoc(doc(db, 'slots', slot.id), { status: 'cancelado', canceladoPor: usuario.uid, atualizadoEm: serverTimestamp() });
   }, [usuario.uid]);
 
   const reatribuirSlot = useCallback(async (slot: Slot, novoUid: string, novoNome: string) => {
     if (!slot.id) return;
-    await updateDoc(doc(db, 'slots', slot.id), {
-      aceitoPor: novoUid, aceitoPorNome: novoNome,
-      status: slot.status === 'aberto' ? 'aceito' : slot.status,
-      aceitoEm: serverTimestamp(), atualizadoEm: serverTimestamp(),
-    });
+    if (slotsProviderSupabase()) {
+      await reatribuirSlotSupa(slot.id, novoUid);
+    } else {
+      await updateDoc(doc(db, 'slots', slot.id), {
+        aceitoPor: novoUid, aceitoPorNome: novoNome,
+        status: slot.status === 'aberto' ? 'aceito' : slot.status,
+        aceitoEm: serverTimestamp(), atualizadoEm: serverTimestamp(),
+      });
+    }
     // Notificar novo worker via push + Telegram
     try {
       await fnNotificarTarefa()({
@@ -2261,7 +2283,13 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
           }}>
             <span style={{ color: '#10b981' }}>📡</span>
             <span style={{ color: 'rgba(255,255,255,.6)', flex: 1 }}>GPS {gpsStats.estrategia}</span>
-            <span style={{ color: 'rgba(255,255,255,.4)' }}>{gpsStats.pontoEnviados} pts</span>
+            {/* No serviço nativo o upload roda fora do JS — o contador "pts" não atualiza.
+                Mostra "rastreando em 2º plano" para não confundir o operador (ver DEBRIEF §8). */}
+            {gpsStats.estrategia.toLowerCase().includes('nativo') ? (
+              <span style={{ color: 'rgba(255,255,255,.4)' }}>rastreando em 2º plano</span>
+            ) : (
+              <span style={{ color: 'rgba(255,255,255,.4)' }}>{gpsStats.pontoEnviados} pts</span>
+            )}
             {gpsStats.filaOffline > 0 && <span style={{ color: '#f59e0b' }}>{gpsStats.filaOffline} offline</span>}
           </div>
         ) : null}

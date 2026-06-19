@@ -25,6 +25,7 @@ interface GPS {
   slotId?: string;
   cidade?: string;
   role?: string;
+  isMock?: boolean;
 }
 
 interface Props {
@@ -53,15 +54,16 @@ function statusCor(ts: any): { dot: string; label: string } {
   return { dot: '#ef4444', label: 'parado' };
 }
 
-function workerIcon(uid: string, cor: string): L.DivIcon {
+function workerIcon(uid: string, cor: string, isMock?: boolean): L.DivIcon {
+  const border = isMock ? '2.5px solid #f97316' : `2.5px solid ${cor}`;
+  const bg     = isMock ? '#f9731622' : `${cor}22`;
+  const badge  = isMock ? `<div style="position:absolute;top:-4px;right:-4px;background:#f97316;border-radius:50%;width:12px;height:12px;font-size:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700">!</div>` : '';
   return L.divIcon({
     className: '', iconSize: [28, 28], iconAnchor: [14, 14],
-    html: `<div style="
-      width:28px;height:28px;border-radius:50%;
-      background:${cor}22;border:2.5px solid ${cor};
-      display:flex;align-items:center;justify-content:center;
-      font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,.5);
-    ">👤</div>`,
+    html: `<div style="position:relative;width:28px;height:28px">
+      <div style="width:28px;height:28px;border-radius:50%;background:${bg};border:${border};display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,.5);">👤</div>
+      ${badge}
+    </div>`,
   });
 }
 
@@ -167,6 +169,9 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
       const s     = statusCor(w.criadoEm);
       const idade = fmtIdade(w.criadoEm);
       const nome  = w.nome || nomes.get(w.uid) || w.uid.slice(0, 8);
+      const mockBanner = w.isMock
+        ? `<div style="margin-top:4px;padding:3px 6px;background:#f9731620;border:1px solid #f97316;border-radius:4px;font-size:10px;color:#f97316;font-weight:600">⚠️ GPS FALSO DETECTADO</div>`
+        : '';
       const popup = `
         <div style="font-family:Inter,sans-serif;font-size:12px;min-width:160px">
           <div style="font-weight:700;font-size:13px;color:#0d0d1a;margin-bottom:4px">👤 ${nome}</div>
@@ -176,15 +181,16 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
           </div>
           <div style="font-size:10px;color:#6b7280">Última att: ${idade}</div>
           ${w.accuracy ? `<div style="font-size:10px;color:#9ca3af">±${Math.round(w.accuracy)}m</div>` : ''}
+          ${mockBanner}
         </div>`;
 
       if (markers.has(w.uid)) {
         const mk = markers.get(w.uid)!;
         mk.setLatLng([w.lat, w.lng]);
-        mk.setIcon(workerIcon(w.uid, s.dot));
+        mk.setIcon(workerIcon(w.uid, s.dot, w.isMock));
         mk.getPopup()?.setContent(popup);
       } else {
-        const mk = L.marker([w.lat, w.lng], { icon: workerIcon(w.uid, s.dot), zIndexOffset: 500 });
+        const mk = L.marker([w.lat, w.lng], { icon: workerIcon(w.uid, s.dot, w.isMock), zIndexOffset: 500 });
         mk.bindPopup(popup, { maxWidth: 200 });
         layer.addLayer(mk);
         markers.set(w.uid, mk);
@@ -234,9 +240,18 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
                 <div style={{ width: 8, height: 8, borderRadius: '50%',
                   background: s.dot, flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#dce8ff',
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {nome}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#dce8ff',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {nome}
+                    </div>
+                    {w.isMock && (
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, color: '#f97316',
+                        background: '#f9731618', border: '1px solid #f97316',
+                        borderRadius: 3, padding: '0 4px', flexShrink: 0,
+                      }}>MOCK</span>
+                    )}
                   </div>
                   <div style={{ fontSize: 9, color: 'rgba(255,255,255,.3)' }}>
                     {s.label} · última att {fmtIdade(w.criadoEm)}

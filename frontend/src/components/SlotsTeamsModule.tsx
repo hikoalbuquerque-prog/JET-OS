@@ -12,6 +12,12 @@ import {
   serverTimestamp, Timestamp, setDoc,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import {
+  escalaProviderSupabase, subscribeEscala, criarSlotsEscala, salvarDisponibilidade, fetchDisponibilidades,
+  salvarDisponibilidadeForm, delDisponibilidade, salvarEscalaConfig, addFeriado, delFeriado, fetchEscala,
+  fetchPrestadores, fetchPenalidadesList, salvarPenalidade, fetchDemandaGojet, logEscalaAudit,
+  aceitarEscala, fetchMetricasEscala,
+} from '../lib/escala-supabase';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -57,6 +63,7 @@ interface Penalidade {
 interface EscalaConfig {
   id?: string; cidade: string;
   diasAntecedencia: number; // quantos dias antes gerar escala automatica
+  tetoVagas?: number; // guardrail: máximo de vagas por slot gerado
   turnosConfig: Record<string, { horaIni: string; horaFim: string; qtdPadrao: number }>;
   respeitarPreferencias: boolean;
   respeitarFeriados: boolean;
@@ -214,8 +221,25 @@ function AbaEscala({usuario,cidade}:AbaProps){
   const [diasAhead,    setDiasAhead   ]=useState(3);
   const [previa,       setPrevia      ]=useState<any[]>([]);
   const [showPrevia,   setShowPrevia  ]=useState(false);
+  // Fase 1 (convergência): demanda GoJet → bônus de vagas p/ funções de campo.
+  const [demanda,      setDemanda     ]=useState<{bonus:number;zonasCriticas:string[]}>({bonus:0,zonasCriticas:[]});
+  // Fase 3 (inteligência): prestadores p/ priorizar alocação por confiabilidade.
+  const [prests,       setPrests      ]=useState<any[]>([]);
+  // Fase 2 (métricas): previsibilidade da escala (RPC analytics_escala).
+  const [metricas,     setMetricas    ]=useState<any>(null);
 
   useEffect(()=>{
+    // Migração: lê a escala do Supabase (polling) quando o flag está ligado.
+    if (escalaProviderSupabase()) {
+      fetchDemandaGojet(cidade).then(setDemanda).catch(()=>{});
+      fetchPrestadores(cidade).then(setPrests).catch(()=>{});
+      fetchMetricasEscala(cidade).then(setMetricas).catch(()=>{});
+      return subscribeEscala(cidade, d => {
+        setSlots(d.slots as any); setAceites(d.aceites as any);
+        setDisps(d.disponibilidades as any); setFeriados(d.feriados as any);
+        if (d.cfg) setCfg(d.cfg as any);
+      });
+    }
     const hojeDate = new Date(); hojeDate.setHours(0,0,0,0);
     const limDate  = new Date(hojeDate.getTime()+7*86400000);
     const hojeStr  = hojeDate.toLocaleDateString('pt-BR');
@@ -235,6 +259,8 @@ function AbaEscala({usuario,cidade}:AbaProps){
   const gerarPrevia = useCallback(()=>{
     const gerado: any[] = [];
     const hoje = new Date(); hoje.setHours(0,0,0,0);
+    const teto = cfg?.tetoVagas || 10; // guardrail (Fase 2)
+    const pontosMap: Record<string,number> = Object.fromEntries(prests.map((p:any)=>[p.uid, p.pontos||0])); // Fase 3
 
     for(let d=1;d<=diasAhead;d++){
       const dataD = new Date(hoje.getTime()+d*86400000);
@@ -255,8 +281,9 @@ function AbaEscala({usuario,cidade}:AbaProps){
 
           if(disponiveis.length===0) continue;
 
-          // Qtd padrão do config ou 2
-          const qtd = cfg?.turnosConfig?.[turno]?.qtdPadrao || 2;
+          // Qtd: base + bônus de demanda GoJet (campo), com TETO (guardrail Fase 2)
+          const ehCampo = funcao==='Charger'||funcao==='Scout'||funcao==='Scalt';
+          const qtd = Math.min(teto, (cfg?.turnosConfig?.[turno]?.qtdPadrao || 2) + (ehCampo ? demanda.bonus : 0));
           const horaIni = cfg?.turnosConfig?.[turno]?.horaIni || (turno==='T1'?'07:00':turno==='T2'?'15:00':'23:00');
           const horaFim = cfg?.turnosConfig?.[turno]?.horaFim || (turno==='T1'?'15:00':turno==='T2'?'23:00':'07:00');
 
@@ -264,14 +291,12 @@ function AbaEscala({usuario,cidade}:AbaProps){
           const jaExiste = slots.some(sl=>sl.dataSlot===dataStr&&sl.turno===turno&&sl.tipo===funcao);
           if(jaExiste) continue;
 
-          // Priorizar por nivel/pontos
+          // Fase 3: prioriza por CONFIABILIDADE (pontos do prestador), desc.
           const candidatos = disponiveis
-            .sort((a,b)=>{
-              const pa = disponibilidades.find(d=>d.uid===a.uid);
-              const pb = disponibilidades.find(d=>d.uid===b.uid);
-              return 0; // seria ordenado por pontos do prestador
-            })
+            .slice()
+            .sort((a,b)=>(pontosMap[b.uid!]||0)-(pontosMap[a.uid!]||0))
             .slice(0,qtd*2); // pool de candidatos
+          const sugeridos = candidatos.slice(0,qtd).map(c=>({uid:c.uid,nome:c.nome,pontos:pontosMap[c.uid!]||0}));
 
           gerado.push({
             turno, horaIni, horaFim, tipo:funcao,
@@ -280,6 +305,7 @@ function AbaEscala({usuario,cidade}:AbaProps){
             isFeriado,
             qtdPessoas: qtd,
             candidatos: candidatos.length,
+            sugeridos,
             cidade: cidade||'SP',
             status:'preview',
           });
@@ -288,12 +314,21 @@ function AbaEscala({usuario,cidade}:AbaProps){
     }
     setPrevia(gerado);
     setShowPrevia(true);
-  },[diasAhead,disponibilidades,slots,feriados,cfg,cidade]);
+  },[diasAhead,disponibilidades,slots,feriados,cfg,cidade,demanda,prests]);
 
   // Cria os slots da prévia no Firestore
   const confirmarEscala = async()=>{
     if(!previa.length){toast('Nenhum slot para criar','erro');return;}
     setGerando(true);
+    if (escalaProviderSupabase()) {
+      try {
+        const n = await criarSlotsEscala(previa, usuario, cfg);
+        await logEscalaAudit('geracao_escala', { dias: diasAhead, slots: n, demandaBonus: demanda.bonus }, usuario.uid, cidade);
+        toast(`${n} slots criados automaticamente`);
+      }
+      catch(e:any){ toast(e?.message||'Erro ao criar','erro'); }
+      setGerando(false); setShowPrevia(false); setPrevia([]); return;
+    }
     let criados=0;
     for(const p of previa){
       await addDoc(collection(db,'slots'),{
@@ -402,6 +437,14 @@ function AbaEscala({usuario,cidade}:AbaProps){
         </div>
       )}
 
+      {/* Métricas de previsibilidade (analytics_escala) */}
+      {metricas&&(
+        <div style={{...S.card(),padding:'8px 12px',marginBottom:8,display:'flex',gap:14,flexWrap:'wrap',fontSize:11,color:T.dim}}>
+          <span>📊 <b style={{color:T.txt}}>{metricas.slots||0}</b> slots · <b style={{color:T.txt}}>{metricas.vagas||0}</b> vagas · <b style={{color:T.txt}}>{metricas.gerado_auto||0}</b> auto (7d)</span>
+          {metricas.por_funcao&&Object.entries(metricas.por_funcao).map(([f,n]:any)=><span key={f}>{f}: <b style={{color:T.bluel}}>{n}</b></span>)}
+        </div>
+      )}
+
       {/* Calendario slots 7 dias */}
       <div style={S.card()}>
         <div style={S.sec}>📅 Slots dos próximos 7 dias</div>
@@ -430,6 +473,10 @@ function AbaEscala({usuario,cidade}:AbaProps){
                         <span style={S.chip(slAb>0?T.yellow:T.green)}>{slAc}/{sl.qtdPessoas}</span>
                         {sl.geradoAuto&&<span style={{...S.chip(T.dim),marginLeft:4,fontSize:9}}>AUTO</span>}
                       </div>
+                      {escalaProviderSupabase()&&slAb>0&&sl.status!=='Preenchido'&&(
+                        <button onClick={async()=>{try{const r:any=await aceitarEscala(sl.id);toast(r?.jaAceito?'Você já aceitou':'Aceito! ✓');}catch(e:any){toast(e?.message||'Erro','erro');}}}
+                          style={{...S.btn(T.green),padding:'3px 8px',fontSize:10,marginTop:5,width:'100%'}}>✓ Aceitar</button>
+                      )}
                     </div>
                   );
                 })}
@@ -506,6 +553,17 @@ function AbaDisponibilidade({usuario,cidade}:AbaProps){
   const [salvandoMinha,setSalvandoMinha]=useState(false);
 
   useEffect(()=>{
+    // Migração: disponibilidades do Supabase (polling) quando o flag está ligado.
+    if (escalaProviderSupabase()) {
+      let vivo=true;
+      const aplicar=(all:Disponibilidade[])=>{
+        if(!vivo)return; setLista(all);
+        if(isCampo){ const meu=all.find(d=>d.uid===usuario.uid)||null; setMinha(meu); if(meu) setMinhaForm({...meu}); }
+      };
+      const run=()=>fetchDisponibilidades(cidade).then(a=>aplicar(a as any)).catch(e=>console.warn('[escala-supa]',e?.message));
+      run(); const t=setInterval(run,10000);
+      return ()=>{vivo=false;clearInterval(t);};
+    }
     const q=cidade?query(collection(db,'disponibilidades'),where('cidade','==',cidade)):query(collection(db,'disponibilidades'));
     const u=onSnapshot(q,s=>{
       const all=s.docs.map(d=>({id:d.id,...d.data()} as Disponibilidade));
@@ -535,7 +593,9 @@ function AbaDisponibilidade({usuario,cidade}:AbaProps){
       atualizadoEm:serverTimestamp(),
     };
     try{
-      if(minha?.id){
+      if (escalaProviderSupabase()) {
+        await salvarDisponibilidade(payload);
+      } else if(minha?.id){
         await updateDoc(doc(db,'disponibilidades',minha.id),payload);
       }else{
         await addDoc(collection(db,'disponibilidades'),{...payload,criadoEm:serverTimestamp()});
@@ -552,7 +612,10 @@ function AbaDisponibilidade({usuario,cidade}:AbaProps){
     setSalvando(true);
     const payload={...form,cidade:cidade||'SP',atualizadoEm:serverTimestamp()};
     try{
-      if(editando?.id){await updateDoc(doc(db,'disponibilidades',editando.id),payload);toast('Atualizado');}
+      if (escalaProviderSupabase()) {
+        await salvarDisponibilidadeForm({ ...form, id: editando?.id, cidade: cidade||'SP' });
+        toast(editando?.id?'Atualizado':'Cadastrado');
+      } else if(editando?.id){await updateDoc(doc(db,'disponibilidades',editando.id),payload);toast('Atualizado');}
       else{await addDoc(collection(db,'disponibilidades'),{...payload,criadoEm:serverTimestamp()});toast('Cadastrado');}
       setModal(false);
     }catch(e:any){toast(e.message,'erro');}finally{setSalvando(false);}
@@ -649,7 +712,7 @@ function AbaDisponibilidade({usuario,cidade}:AbaProps){
                 <td style={{...S.td,fontSize:11,color:T.dim}}>{(d.zonasDisponiveis||[]).slice(0,2).join(', ')}{(d.zonasDisponiveis||[]).length>2?'...':''}</td>
                 <td style={S.td}><div style={{display:'flex',gap:4}}>
                   <button onClick={()=>{setEditando(d);setForm({...d});setModal(true);}} style={{...S.btn(T.bluel,true),padding:'3px 8px',fontSize:11}}>✏</button>
-                  <button onClick={async()=>{if(d.id&&window.confirm(`Remover ${d.nome}?`)){await deleteDoc(doc(db,'disponibilidades',d.id));toast('Removido');}}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
+                  <button onClick={async()=>{if(d.id&&window.confirm(`Remover ${d.nome}?`)){ if(escalaProviderSupabase()){await delDisponibilidade(d.id);}else{await deleteDoc(doc(db,'disponibilidades',d.id));} toast('Removido');}}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
                 </div></td>
               </tr>
             ))}
@@ -714,6 +777,12 @@ function AbaRanking({cidade}:{cidade:string}){
 
   useEffect(()=>{
     setLoading(true);
+    if (escalaProviderSupabase()) {
+      let vivo=true;
+      const run=()=>fetchPrestadores(cidade).then(p=>{ if(vivo){setPrestadores(p as any);setLoading(false);} }).catch(e=>{console.warn('[escala-supa]',e?.message);setLoading(false);});
+      run(); const t=setInterval(run,15000);
+      return ()=>{vivo=false;clearInterval(t);};
+    }
     const q=cidade?query(collection(db,'prestadores'),where('cidade','==',cidade),orderBy('pontos','desc'),limit(100)):query(collection(db,'prestadores'),orderBy('pontos','desc'),limit(100));
     const u=onSnapshot(q,s=>{setPrestadores(s.docs.map(d=>({id:d.id,...d.data()} as Prestador)));setLoading(false);});
     return u;
@@ -854,6 +923,12 @@ function AbaPenalidades({usuario,cidade}:AbaProps){
   const [salvando, setSalvando]=useState(false);
 
   useEffect(()=>{
+    if (escalaProviderSupabase()) {
+      let vivo=true;
+      const run=()=>Promise.all([fetchPenalidadesList(cidade),fetchPrestadores(cidade)]).then(([pen,pr])=>{ if(vivo){setLista(pen as any);setPrests(pr as any);} }).catch(e=>console.warn('[escala-supa]',e?.message));
+      run(); const t=setInterval(run,15000);
+      return ()=>{vivo=false;clearInterval(t);};
+    }
     const q=cidade?query(collection(db,'penalidades'),where('cidade','==',cidade),orderBy('criadoEm','desc'),limit(200)):query(collection(db,'penalidades'),orderBy('criadoEm','desc'),limit(200));
     const u=onSnapshot(q,s=>setLista(s.docs.map(d=>({id:d.id,...d.data()} as Penalidade))));
     getDocs(cidade?query(collection(db,'prestadores'),where('cidade','==',cidade)):query(collection(db,'prestadores'),limit(100))).then(s=>setPrests(s.docs.map(d=>({id:d.id,...(d.data() as any)}))));
@@ -871,6 +946,9 @@ function AbaPenalidades({usuario,cidade}:AbaProps){
     if(!form.uid||!form.descricao){toast('Selecione prestador e descrição','erro');return;}
     setSalvando(true);
     try{
+      if (escalaProviderSupabase()) {
+        await salvarPenalidade(form, usuario.uid, cidade);
+      } else {
       await addDoc(collection(db,'penalidades'),{...form,cidade:cidade||'SP',aplicadoPor:usuario.uid,criadoEm:serverTimestamp()});
       // Deduzir pontos do prestador
       const pDoc=await getDocs(query(collection(db,'prestadores'),where('uid','==',form.uid),limit(1)));
@@ -880,6 +958,7 @@ function AbaPenalidades({usuario,cidade}:AbaProps){
           totalFaltas:form.tipo==='falta'?(pDoc.docs[0].data().totalFaltas||0)+1:pDoc.docs[0].data().totalFaltas||0,
           totalAtrasos:form.tipo==='atraso'?(pDoc.docs[0].data().totalAtrasos||0)+1:pDoc.docs[0].data().totalAtrasos||0,
         });
+      }
       }
       toast('Penalidade aplicada');setModal(false);
       setForm({tipo:'falta',pontosDeducao:30,descricao:'',cidade:cidade||'SP'});
@@ -967,20 +1046,29 @@ function AbaConfigTeams({cidade}:{cidade:string}){
   const [novoFeriado,setNovoFeriado]=useState({data:'',nome:'',nacional:false});
   const [salvando,setSalvando]=useState(false);
 
+  const recarregarFeriados=()=>fetchEscala(cidade).then(d=>setFeriados(d.feriados as any)).catch(()=>{});
   useEffect(()=>{
+    if (escalaProviderSupabase()) {
+      fetchEscala(cidade).then(d=>{ if(d.cfg) setCfg(prev=>({...prev,...d.cfg})); setFeriados(d.feriados as any); }).catch(e=>console.warn('[escala-supa]',e?.message));
+      return;
+    }
     getDoc(doc(db,'escala_config',cidade||'global')).then(d=>{if(d.exists())setCfg(prev=>({...prev,...d.data() as EscalaConfig}));});
     onSnapshot(collection(db,'feriados'),s=>setFeriados(s.docs.map(d=>({id:d.id,...d.data()} as Feriado))));
   },[cidade]);
 
   const salvar=async()=>{
     setSalvando(true);
-    try{await setDoc(doc(db,'escala_config',cidade||'global'),{...cfg,atualizadoEm:serverTimestamp()});toast('Config salva');}
+    try{
+      if (escalaProviderSupabase()) { await salvarEscalaConfig(cfg, cidade); toast('Config salva'); }
+      else { await setDoc(doc(db,'escala_config',cidade||'global'),{...cfg,atualizadoEm:serverTimestamp()}); toast('Config salva'); }
+    }
     catch(e:any){toast(e.message,'erro');}finally{setSalvando(false);}
   };
 
   const adicionarFeriado=async()=>{
     if(!novoFeriado.data||!novoFeriado.nome){toast('Data e nome obrigatórios','erro');return;}
-    await addDoc(collection(db,'feriados'),{...novoFeriado,cidade:novoFeriado.nacional?null:cidade,criadoEm:serverTimestamp()});
+    if (escalaProviderSupabase()) { await addFeriado(novoFeriado, cidade); await recarregarFeriados(); }
+    else { await addDoc(collection(db,'feriados'),{...novoFeriado,cidade:novoFeriado.nacional?null:cidade,criadoEm:serverTimestamp()}); }
     toast('Feriado adicionado');setNovoFeriado({data:'',nome:'',nacional:false});
   };
 
@@ -1063,7 +1151,7 @@ function AbaConfigTeams({cidade}:{cidade:string}){
               <span style={{fontFamily:'monospace',fontSize:11,color:T.dim,flexShrink:0}}>{f.data}</span>
               <span style={{flex:1,fontSize:12,color:T.txt}}>{f.nome}</span>
               {f.nacional&&<span style={S.chip(T.orange)}>Nacional</span>}
-              <button onClick={async()=>{if(f.id)await deleteDoc(doc(db,'feriados',f.id));}} style={{...S.btn(T.red,true),padding:'2px 6px',fontSize:10}}>🗑</button>
+              <button onClick={async()=>{if(f.id){ if(escalaProviderSupabase()){await delFeriado(f.id);await recarregarFeriados();}else{await deleteDoc(doc(db,'feriados',f.id));} }}} style={{...S.btn(T.red,true),padding:'2px 6px',fontSize:10}}>🗑</button>
             </div>
           ))}
         </div>
