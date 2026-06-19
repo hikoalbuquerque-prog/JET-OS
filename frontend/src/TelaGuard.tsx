@@ -8,6 +8,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import { uploadComRetry } from './lib/uploadUtils';
+import { capturarPosicaoUnica } from './lib/gps-background';
 
 // ── TIPOS ─────────────────────────────────────────────────────────
 interface Ocorrencia {
@@ -236,11 +237,15 @@ function ModalEdicao({ ocorrencia, onFechar, onSalvo, showToast, roleUsuario = '
   };
 
   const buscarGPS = () => {
-    navigator.geolocation.getCurrentPosition(p => {
-      setLat(String(p.coords.latitude.toFixed(6)));
-      setLng(String(p.coords.longitude.toFixed(6)));
-      showToast('GPS atualizado', 'ok');
-    }, () => showToast('GPS indisponível', 'erro'));
+    capturarPosicaoUnica().then(pos => {
+      if (pos) {
+        setLat(String(pos.lat.toFixed(6)));
+        setLng(String(pos.lng.toFixed(6)));
+        showToast('GPS atualizado', 'ok');
+      } else {
+        showToast('GPS indisponível', 'erro');
+      }
+    });
   };
 
   const inp: React.CSSProperties = {
@@ -920,22 +925,18 @@ function LocSelector({
   // Capturar GPS atual
   const capturarGPS = () => {
     setGpsStatus('aguardando');
-    navigator.geolocation.getCurrentPosition(
-      async pos => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        setGps({ lat, lng });
-        setGpsStatus('ok');
-        const geo = await reverseGeocode(lat, lng);
-        setGeocoded(geo);
-        if (mapaLocRef.current && markerLocRef.current) {
-          mapaLocRef.current.setView([lat, lng], 17);
-          markerLocRef.current.setLatLng([lat, lng]);
-        }
-      },
-      () => setGpsStatus('erro'),
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+    capturarPosicaoUnica().then(async pos => {
+      if (!pos) { setGpsStatus('erro'); return; }
+      const { lat, lng } = pos;
+      setGps({ lat, lng });
+      setGpsStatus('ok');
+      const geo = await reverseGeocode(lat, lng);
+      setGeocoded(geo);
+      if (mapaLocRef.current && markerLocRef.current) {
+        mapaLocRef.current.setView([lat, lng], 17);
+        markerLocRef.current.setLatLng([lat, lng]);
+      }
+    });
   };
 
   const corStatus = gpsStatus === 'ok' || gpsStatus === 'manual'
@@ -1077,19 +1078,14 @@ export function FormNovaOcorrenciaExport({ usuario, showToast, onSucesso }: {
   const boGalRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!navigator.geolocation) { setGpsStatus('erro'); return; }
-    navigator.geolocation.getCurrentPosition(
-      async pos => {
-        const lat = pos.coords.latitude;
-        const lng = pos.coords.longitude;
-        setGps({ lat, lng });
-        setGpsStatus('ok');
-        const geo = await reverseGeocode(lat, lng);
-        setGeocoded(geo);
-      },
-      () => setGpsStatus('erro'),
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+    capturarPosicaoUnica().then(async pos => {
+      if (!pos) { setGpsStatus('erro'); return; }
+      const { lat, lng } = pos;
+      setGps({ lat, lng });
+      setGpsStatus('ok');
+      const geo = await reverseGeocode(lat, lng);
+      setGeocoded(geo);
+    });
   }, []);
 
   const handleFoto = (slot: 1 | 2, file: File) => {

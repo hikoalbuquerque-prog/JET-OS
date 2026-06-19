@@ -13,6 +13,7 @@ import { uploadComRetry } from '../lib/uploadUtils';
 import TelegramVinculo, { useTelegramVinculado } from '../TelegramVinculo';
 import i18n from '../i18n/index';
 import { sanitizarFotoUrl } from '../lib/app-utils';
+import { capturarPosicaoUnica } from '../lib/gps-background';
 import type { Usuario } from '../lib/app-utils';
 import { CIDADES } from '../lib/app-utils';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
@@ -1593,10 +1594,14 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
   };
 
   const buscarGPS = () => {
-    navigator.geolocation.getCurrentPosition(p => {
-      setLat(p.coords.latitude.toFixed(6));
-      setLng(p.coords.longitude.toFixed(6));
-    }, () => setErro('GPS indisponível'));
+    capturarPosicaoUnica().then(pos => {
+      if (pos) {
+        setLat(pos.lat.toFixed(6));
+        setLng(pos.lng.toFixed(6));
+      } else {
+        setErro('GPS indisponível');
+      }
+    });
   };
 
   // Mini mapa de seleção de localização

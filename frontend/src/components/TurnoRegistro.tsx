@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { uploadComRetry } from '../lib/uploadUtils';
+import { capturarPosicaoUnica } from '../lib/gps-background';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -102,14 +103,10 @@ export default function TurnoRegistro({ uid, nome, cidade, role, visivel, onFech
   useEffect(() => {
     if (!visivel) return;
     setBuscandoGps(true);
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        setGps({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: pos.coords.accuracy });
-        setBuscandoGps(false);
-      },
-      () => setBuscandoGps(false),
-      { enableHighAccuracy: true, timeout: 10000 },
-    );
+    capturarPosicaoUnica().then(pos => {
+      if (pos) setGps({ lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy });
+      setBuscandoGps(false);
+    });
   }, [visivel]);
 
   const handleFoto = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
