@@ -1932,3 +1932,54 @@ Com a base estável e dados fluindo:
 **Recomendação:** Caminho 1 — porte do escritor (achar o ponto de registro de ocorrência no Guard → gravar em `ocorrencias` no Supabase atrás de flag; foto segue no Storage). Tabela `ocorrencias` já existe (migration 0008) com geo/registrado_por. Fecha o cutover do módulo de segurança (escrita + leitura no Supabase). Análogo aos portes de GoJet/Slots já feitos.
 
 **Relacionado:** decidir a migração do **Firebase Storage** (fotos de ocorrências/turnos) — trilha própria, hoje adiada.
+
+---
+
+# Seção 17 — STATUS DA SESSÃO (18–19/06/2026): commits, deploy e pendências
+
+> Snapshot do que foi entregue nesta sessão e o que falta. 15 commits (`39990ee..e8fb170`).
+
+## 17.1 O que foi entregue (por frente)
+
+**GPS em background no APK**
+- `a601ae8` — projeto Android (Capacitor) + serviço nativo (`GpsTrackerService`/`Plugin`/`QueueDb`/`TokenManager`/`BootReceiver`) + Cloud Function `ingestGps`. Rastreio segue com app fechado/tela travada.
+- `e0684b7` — captura pontual unificada (`capturarPosicaoUnica`) em turno/guard/appshell.
+
+**LGPD**
+- `dd18430` — `LgpdConsentGate` (termo + aceite imutável em `consentimentos_lgpd/{uid}_v{versao}`) + regra Firestore (create do dono, list gestão, update/delete negados). Plugado no `App.tsx` antes do permission gate.
+
+**Migração Firebase → Supabase (strangler)**
+- `42d1139` — libs frontend (`supabase`, `supabase-auth` dual-auth, `analytics/slots/escala-supabase`), 23 migrations, 6 edge functions, `mirror-ocorrencias` (dual-write Guard→Supabase), cutover de geração de slots (no-op no Firebase).
+- `c3430ed` — `mirror.mjs` estendido: backfill de ocorrências Firestore→Supabase (rodado: **600 ocorrências**).
+
+**NFS-e (campos no perfil)**
+- `6a9a6c1` — aba "Nota Fiscal" no `TelaPrestadorPerfil` (cnpj, razão social, cpf_responsável, inscrição municipal, e-mail fiscal, nível gov.br) → `prestadores_fiscal/{uid}` + regra Firestore espelhando a RLS do Supabase.
+
+**Guard — perdas como ocorrência (5a) — COMPLETO**
+- `dbb301e` tipo `Perda` registrável (4 idiomas) · `c0de639` import histórico (planilha → **600 ocorrências `Perda`** no Supabase) · `4cb8def` relatório Telegram data-driven · `955f4e8` PDF data-driven + coluna Baterias · `e8fb170` aposenta o relatório de Perdas standalone (era PT-only/416 hardcoded e duplicava o envio das 7h).
+- Resultado: perdas viraram ocorrência ao vivo (Supabase), em paridade com roubos, dentro do relatório Guard (Telegram + PDF, 4 idiomas). **Isso fecha parcialmente a Seção 16**: o `espelharOcorrenciaSupabase` (deployado) espelha ocorrências novas → analytics não fica mais stale.
+
+**Infra/correções**
+- `74a6dd9` — cap global `maxInstances:10` (ver [Seção 17.4]). `18e16f9` build deployável. `22ebe3e` docs. `49416ba` corrige comentário de horário (relatórios são **7h**, não 10h).
+
+## 17.2 Estado de deploy (o que está no ar)
+- ✅ **firestore:rules** deployado (regras de `prestadores_fiscal` e `consentimentos_lgpd` ativas).
+- ✅ Functions do GPS/mirror/cutover/relatório-Perda no ar (deploy cirúrgico: `ingestGps`, `espelharOcorrenciaSupabase`, `gerarSlotsAgendado`, `relatorioGuardDiarioFn`, `relatorioGuardManualFn`).
+- ✅ Backfill + import de perdas rodados (Supabase: 600 ocorrências + 600 perdas).
+
+## 17.3 PENDÊNCIAS (ação do usuário no ambiente)
+1. **Deletar** os 2 relatórios de perdas aposentados:
+   `firebase functions:delete relatorioPerdasDiario relatorioPerdasSemanal --region southamerica-east1`
+2. **Redeploy** dos relatórios Guard p/ ativar perdas data-driven:
+   `firebase deploy --only functions:relatorioGuardDiarioFn,functions:relatorioGuardManualFn,functions:relatorioGuardSemanal,functions:enviarRelatorioManual`
+3. **Supabase (#4):** `supabase db push` + deploy das edge functions + **validar o PORTÃO GPS em campo** (Seção 14.5.1). Depois Fase 2 (Auth/Usuários).
+4. **Cap `maxInstances`** nas demais ~44 funções: aplicar em lotes OU após aumento de cota de CPU (ver 17.4).
+
+## 17.4 Armadilha de cota (Cloud Run CPU, southamerica-east1)
+`firebase deploy --only functions` (todas de uma vez) estoura **"Quota exceeded for total allowable CPU per project per region"** — ~60 funções 2ª gen recriadas juntas. Mitigado com `maxInstances:10` global. Quando a cota satura, vira deadlock (nem deploy de 1 função passa). **Saída:** deploy cirúrgico (poucas funções) OU aumentar a cota no GCP (IAM/Cotas → "Cloud Run Admin API: Total CPU allocation"). Falhas parciais **não derrubam** nada: a revisão anterior segue servindo.
+
+## 17.5 Próximos passos
+- **5c (em andamento):** vínculo/reconexão ao Telegram automatizado e simples.
+- **5b (ADIADO):** relatório Guard por cidade → grupos Telegram específicos — fazer junto com **turnos/escala dos seguranças**, em outro momento.
+- **NFS-e:** próximos passos do módulo (verificarProcuracoes, emissão) — campos do perfil já prontos.
+- **Supabase:** seguir o roadmap da Seção 14.
