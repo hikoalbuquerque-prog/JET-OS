@@ -13,6 +13,7 @@ interface PermState {
   locForeground: PermStatus;
   locBackground: PermStatus;
   notifications: PermStatus;
+  camera: PermStatus;
   battery: 'granted' | 'prompt';
 }
 
@@ -21,6 +22,8 @@ const BatteryOpt = registerPlugin<{
   isIgnoring: () => Promise<{ value: boolean }>;
   requestIgnoring: () => Promise<void>;
   checkBackgroundLocation: () => Promise<{ value: boolean }>;
+  requestBackgroundLocation: () => Promise<{ value: boolean }>;
+  openAppSettings: () => Promise<void>;
 }>('BatteryOptimization');
 
 interface Props {
@@ -49,11 +52,29 @@ async function checkBackgroundLocation(): Promise<'granted' | 'prompt'> {
   } catch { return 'granted'; } // web/iOS/Android<10: ignorar
 }
 
+// Câmera (necessária p/ a foto de entrada do turno — input capture no WebView).
+async function checkCamera(): Promise<PermStatus> {
+  try {
+    const { Camera } = await import('@capacitor/camera');
+    const p = await Camera.checkPermissions();
+    return (p.camera as PermStatus) ?? 'prompt';
+  } catch { return 'granted'; } // web/iOS: ignorar
+}
+
+async function requestCamera(): Promise<PermStatus> {
+  try {
+    const { Camera } = await import('@capacitor/camera');
+    const p = await Camera.requestPermissions({ permissions: ['camera'] });
+    return (p.camera as PermStatus) ?? 'denied';
+  } catch { return 'denied'; }
+}
+
 async function checkPermissions(needsLocation: boolean): Promise<PermState> {
   const state: PermState = {
     locForeground: 'prompt',
     locBackground: 'prompt',
     notifications: 'prompt',
+    camera: needsLocation ? 'prompt' : 'granted',
     battery: await checkBattery(),
   };
 
@@ -86,6 +107,8 @@ async function checkPermissions(needsLocation: boolean): Promise<PermState> {
     state.notifications = (notif.display as PermStatus) ?? 'prompt';
   } catch { /* plugin não disponível em web */ }
 
+  if (needsLocation) state.camera = await checkCamera();
+
   return state;
 }
 
@@ -103,6 +126,16 @@ async function requestLocation(): Promise<PermStatus> {
   } catch { return 'denied'; }
 }
 
+// Solicita "Permitir o tempo todo" pela API nativa (mesma mecânica das outras
+// permissões). Android 10 → diálogo de um toque; Android 11+ → leva direto à tela
+// de seleção de localização do app. Só funciona após o foreground estar concedido.
+async function requestBackgroundLocation(): Promise<'granted' | 'prompt'> {
+  try {
+    const { value } = await BatteryOpt.requestBackgroundLocation();
+    return value ? 'granted' : 'prompt';
+  } catch { return 'prompt'; }
+}
+
 async function requestBattery(): Promise<'granted' | 'prompt'> {
   try {
     await BatteryOpt.requestIgnoring();
@@ -113,16 +146,18 @@ async function requestBattery(): Promise<'granted' | 'prompt'> {
 }
 
 async function abrirConfiguracoes() {
+  // No Android, abre a tela de detalhes do app via Intent nativo (plugin BatteryOptimization).
+  // NÃO usar window.open('android.settings...') nem App.openUrl('app-settings:'):
+  // o primeiro vira https://localhost/android.settings... (ERR_INVALID_RESPONSE) e o
+  // segundo só funciona no iOS.
   try {
-    // Tenta abrir as configurações de permissão do app diretamente
+    await BatteryOpt.openAppSettings();
+    return;
+  } catch { /* plugin indisponível (web/iOS): tenta o esquema do iOS abaixo */ }
+  try {
     const { App } = await import('@capacitor/app');
     await (App as any).openUrl({ url: 'app-settings:' });
-  } catch {
-    try {
-      // Fallback Android via intent
-      window.open('android.settings.APPLICATION_DETAILS_SETTINGS', '_system');
-    } catch { /* nada */ }
-  }
+  } catch { /* nada a fazer */ }
 }
 
 async function requestNotifications(): Promise<PermStatus> {
@@ -206,7 +241,8 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
   const [loadingLoc, setLoadingLoc]   = useState(false);
   const [loadingPush, setLoadingPush] = useState(false);
   const [loadingBat, setLoadingBat]   = useState(false);
-  const [skipped, setSkipped]         = useState(false);
+  const [loadingBg,  setLoadingBg]    = useState(false);
+  const [loadingCam, setLoadingCam]   = useState(false);
 
   // Se não for APK Android, passa direto
   useEffect(() => {
@@ -230,7 +266,8 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
     const locOk  = !needsLocation || perms.locForeground === 'granted';
     const bgOk   = !needsLocation || perms.locBackground === 'granted';
     const pushOk = perms.notifications === 'granted';
-    if (locOk && bgOk && pushOk && perms.battery === 'granted') onReady();
+    const camOk  = !needsLocation || perms.camera === 'granted';
+    if (locOk && bgOk && pushOk && camOk && perms.battery === 'granted') onReady();
   }, [perms, needsLocation]);
 
   const handleLocation = useCallback(async () => {
@@ -241,10 +278,15 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
     setLoadingLoc(false);
   }, []);
 
-  // Background ("Permitir o tempo todo") não pode ser concedido por diálogo no
-  // Android 11+ — só nas Configurações do app. Abre a tela e re-checa ao voltar.
+  // "Permitir o tempo todo": tenta pela API nativa (Android 10 = diálogo de um toque;
+  // Android 11+ = tela de seleção de localização do app). Se ainda não for concedido
+  // (ex.: usuário recusou), cai para abrir as Configurações como último recurso.
   const handleBackgroundLocation = useCallback(async () => {
-    await abrirConfiguracoes();
+    setLoadingBg(true);
+    const result = await requestBackgroundLocation();
+    if (result !== 'granted') await abrirConfiguracoes();
+    setPerms(prev => prev ? { ...prev, locBackground: result } : prev);
+    setLoadingBg(false);
   }, []);
 
   const handleNotifications = useCallback(async () => {
@@ -261,13 +303,22 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
     setLoadingBat(false);
   }, []);
 
-  if (skipped || !perms) return null;
+  const handleCamera = useCallback(async () => {
+    setLoadingCam(true);
+    const result = await requestCamera();
+    if (result !== 'granted') await abrirConfiguracoes(); // negada → leva às configs
+    setPerms(prev => prev ? { ...prev, camera: result } : prev);
+    setLoadingCam(false);
+  }, []);
+
+  if (!perms) return null;
 
   const locOk  = !needsLocation || perms.locForeground === 'granted';
   const bgOk   = !needsLocation || perms.locBackground === 'granted';
   const pushOk = perms.notifications === 'granted';
+  const camOk  = !needsLocation || perms.camera === 'granted';
   const batOk  = perms.battery === 'granted';
-  if (locOk && bgOk && pushOk && batOk) return null;
+  if (locOk && bgOk && pushOk && camOk && batOk) return null;
 
   return (
     <div style={S.overlay}>
@@ -298,10 +349,10 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
           <PermRow
             icon="🛰️"
             title="Localização o tempo todo"
-            desc='Em Configurações → Localização, escolha "Permitir o tempo todo". Sem isso o GPS para quando o app fica minimizado.'
+            desc='Toque em Permitir e escolha "Permitir o tempo todo". Sem isso o GPS para quando o app fica minimizado.'
             status={perms.locBackground}
             onRequest={handleBackgroundLocation}
-            loading={false}
+            loading={loadingBg}
           />
         )}
 
@@ -314,6 +365,18 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
           onRequest={handleNotifications}
           loading={loadingPush}
         />
+
+        {/* Câmera — necessária para a foto de entrada do turno */}
+        {needsLocation && (
+          <PermRow
+            icon="📷"
+            title="Câmera"
+            desc="Necessária para a foto de entrada do turno e registro de ocorrências."
+            status={perms.camera}
+            onRequest={handleCamera}
+            loading={loadingCam}
+          />
+        )}
 
         {/* Isenção de otimização de bateria */}
         <PermRow
@@ -344,16 +407,16 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
           </div>
         )}
 
-        {/* Botão continuar */}
-        {(locOk && pushOk) || (perms.locForeground === 'denied' || perms.notifications === 'denied') ? (
+        {/* Só continua com TODAS as permissões necessárias concedidas (sem escape) */}
+        {locOk && bgOk && pushOk && camOk && batOk ? (
           <button onClick={onReady} style={{ ...S.btn(true), width: '100%', padding: 14 }}>
-            {locOk && bgOk && pushOk && batOk ? '✓ Continuar' : 'Continuar mesmo assim'}
+            ✓ Continuar
           </button>
-        ) : null}
-
-        <button onClick={() => setSkipped(true)} style={S.skipBtn}>
-          Pular por agora
-        </button>
+        ) : (
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', textAlign: 'center', lineHeight: 1.5 }}>
+            Conceda todas as permissões acima para continuar.
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,11 +1,21 @@
 package com.jet.os;
 
+import android.content.pm.ApplicationInfo;
+import android.webkit.WebView;
+
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(android.os.Bundle savedInstanceState) {
         registerPlugin(BatteryPlugin.class);
+        registerPlugin(GpsTrackerPlugin.class);
+        // Inspeção do WebView via chrome://inspect (diagnóstico da migração).
+        // Habilitado APENAS em builds debuggable; desligado em release de produção
+        // por segurança (chrome://inspect daria acesso ao WebView do app).
+        if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+            WebView.setWebContentsDebuggingEnabled(true);
+        }
         super.onCreate(savedInstanceState);
     }
 

@@ -32,6 +32,7 @@ import {
 } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db } from './firebase';
+import { isAndroidNative, iniciarGpsNativo, atualizarSlotNativo, pararGpsNativo } from './gps-native';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -335,6 +336,25 @@ class GPSBackgroundService {
     this.opcoes = opcoes;
     this.ativo = true;
 
+    // Android APK: usa o serviço NATIVO (upload direto p/ Cloud Function). Ele coleta e
+    // envia mesmo com o app fechado, sem depender do JS. Aqui só disparamos e marcamos
+    // ativo — não há watchdog/timer/equimaps no JS (o upload não passa mais por aqui).
+    if (isAndroidNative()) {
+      try {
+        await iniciarGpsNativo(opcoes.uid, opcoes.slotId);
+        this.estrategia = 'background_android_native';
+        this.stats.estrategia = 'Android (serviço nativo)';
+        this.stats.ativo = true;
+        this.stats.ultimoErro = null;
+        this._emitirStats();
+        console.log('[GPS-BG] iniciado — serviço nativo (upload em segundo plano)');
+        return;
+      } catch (e: any) {
+        // Plugin nativo indisponível (ex.: build antigo): cai para o caminho legado.
+        console.warn('[GPS-BG] serviço nativo indisponível, fallback:', e?.message);
+      }
+    }
+
     // Drena fila de erros não-rede ao reconectar
     const onOnline = async () => {
       const n = await drenarFila();
@@ -499,6 +519,12 @@ class GPSBackgroundService {
 
   async parar() {
     this.ativo = false;
+
+    // Android nativo: encerra o serviço nativo (idempotente).
+    if (isAndroidNative()) {
+      try { await pararGpsNativo(); } catch { /* serviço já parado */ }
+    }
+
     if (this.watchdog) { clearTimeout(this.watchdog); this.watchdog = null; }
 
     if (this.watcherId) {
@@ -520,6 +546,9 @@ class GPSBackgroundService {
 
   atualizarSlot(slotId: string | null) {
     if (this.opcoes) this.opcoes.slotId = slotId;
+    if (isAndroidNative()) {
+      atualizarSlotNativo(slotId).catch(e => console.warn('[GPS-BG] updateSlot nativo:', e?.message));
+    }
   }
 
   private _atualizarStats(ponto: PontoGPS, ok: boolean) {

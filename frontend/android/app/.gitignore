@@ -1,0 +1,5 @@
+/build/*
+!/build/.npmkeep
+
+# Saída de build do APK (não commitar binário gerado)
+/release/
