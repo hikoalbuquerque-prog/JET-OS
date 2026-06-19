@@ -5,16 +5,16 @@
 //   1. Banner fixo no topo (após primeiro login, se ainda não vinculou)
 //   2. Botão/modal na área de perfil do usuário (sempre disponível)
 //
-// Fluxo:
-//   Usuário abre bot no Telegram → /start → recebe um código de 6 dígitos
-//   O bot (via webhook) salva (codigo → uid) em telegram_vinculos/
-//   O usuário digita o código aqui → Cloud Function valida e salva telegramChatId
+// Fluxo PRINCIPAL (1-toque / deep-link):
+//   App chama iniciarVinculoTelegram → recebe t.me/<bot>?start=<token> (token ligado ao uid)
+//   Usuário toca → Telegram manda /start <token> → telegramWebhook vincula DIRETO
+//   App faz polling do telegramChatId e confirma sozinho (sem digitar nada, sem voltar).
 //
-// Alternativa simples (sem webhook):
-//   Usuário cola manualmente o Chat ID do próprio perfil do Telegram
-//   (obtido enviando /start para @userinfobot)
+// Fallbacks:
+//   - Código de 6 dígitos: /start (sem token) → bot devolve código → usuário digita aqui.
+//   - Chat ID manual: cola o Chat ID (obtido em @userinfobot).
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -132,6 +132,11 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState('');
   const [chatIdAtual, setChatIdAtual] = useState<string | null>(null);
+  const [aguardando, setAguardando] = useState(false); // esperando o toque no Telegram (deep-link)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const pararPoll = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+  useEffect(() => () => pararPoll(), []); // limpa ao desmontar
 
   const isPrestador = usuario.tipoCadastro === 'prestador';
   const [nomeBot, setNomeBot] = useState('@jet_os_bot');
@@ -147,6 +152,47 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
       if (username) setNomeBot(username.startsWith('@') ? username : `@${username}`);
     }).catch(() => {});
   }, [usuario.uid]);
+
+  // ── Vínculo 1-toque (deep-link) ──
+  // App gera token ligado ao uid, abre t.me/<bot>?start=<token>; o webhook vincula
+  // direto. Aqui só fazemos polling do telegramChatId pra confirmar sem o usuário voltar.
+  const vincularUmToque = async () => {
+    setBusy(true); setErro('');
+    try {
+      const fns = getFunctions(undefined, 'southamerica-east1');
+      const fn = httpsCallable(fns, 'iniciarVinculoTelegram');
+      const res = await fn({}) as any;
+      const deepLink = res.data?.deepLink as string;
+      if (!deepLink) {
+        // bot username não configurado no Firestore → cai pro fluxo de código
+        setErro('Vínculo 1-toque indisponível (bot não configurado). Use o código.');
+        setEtapa('codigo');
+        return;
+      }
+      window.open(deepLink, '_blank', 'noopener');
+      setAguardando(true);
+      // Poll do usuário até o webhook gravar o telegramChatId (~2,5 min)
+      pararPoll();
+      let tentativas = 0;
+      pollRef.current = setInterval(async () => {
+        tentativas++;
+        try {
+          const snap = await getDoc(doc(db, 'usuarios', usuario.uid));
+          const id = snap.data()?.telegramChatId;
+          if (id) {
+            pararPoll();
+            setChatIdAtual(id); setAguardando(false); setEtapa('ok');
+            onVinculado?.();
+          }
+        } catch { /* ignora erro de rede pontual */ }
+        if (tentativas >= 50) { pararPoll(); setAguardando(false); } // ~2,5 min
+      }, 3000);
+    } catch (e: any) {
+      setErro(e.message ?? 'Erro ao iniciar vínculo');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // ── Validar código (Cloud Function) ──
   const validarCodigo = async () => {
@@ -327,42 +373,59 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
           direto no app.
         </div>
 
-        {/* Passos */}
-        <div style={{ marginBottom: 20 }}>
-          {[
-            { n: 1, txt: `Abra o Telegram e busque por ${nomeBot}`, ativo: true },
-            { n: 2, txt: 'Toque em "Iniciar" ou envie /start', ativo: false },
-            { n: 3, txt: 'O bot envia um código de 6 dígitos', ativo: false },
-            { n: 4, txt: 'Digite o código aqui para confirmar', ativo: false },
-          ].map(p => (
-            <div key={p.n} style={S.step(p.ativo)}>
-              <div style={S.numCircle(p.ativo)}>{p.n}</div>
-              <div style={{ fontSize: 13, color: p.ativo ? '#dce8ff' : 'rgba(255,255,255,.45)', alignSelf: 'center' }}>
-                {p.txt}
-              </div>
+        {aguardando ? (
+          <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>✈️</div>
+            <div style={{ fontSize: 13, color: '#dce8ff', fontWeight: 700, marginBottom: 4 }}>
+              Aguardando confirmação no Telegram…
             </div>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', gap: 8 }}>
-          {onFechar && (
-            <button style={S.btn('#6b7280', true)} onClick={onFechar}>
-              Depois
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,.45)', lineHeight: 1.5, marginBottom: 14 }}>
+              Toque em <b>Iniciar</b> (ou <b>Start</b>) na conversa que abriu. A vinculação é
+              automática — você não precisa voltar aqui nem digitar nada.
+            </div>
+            <button style={S.btn('#6b7280', true)} onClick={() => { pararPoll(); setAguardando(false); }}>
+              Cancelar
             </button>
-          )}
-          <button style={S.btn(COR_TG)} onClick={() => setEtapa('codigo')}>
-            Já enviei /start →
-          </button>
-        </div>
+          </div>
+        ) : (
+          <>
+            <button
+              style={{ ...S.btn(COR_TG), width: '100%', flex: 'unset', padding: '13px', fontSize: 14 }}
+              onClick={vincularUmToque} disabled={busy}
+            >
+              {busy ? '⏳ Abrindo Telegram…' : '✈️ Vincular com 1 toque'}
+            </button>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,.35)', textAlign: 'center', marginTop: 8, lineHeight: 1.5 }}>
+              Abre o {nomeBot} no Telegram e vincula sozinho — sem digitar código.
+            </div>
+          </>
+        )}
 
-        <div style={{ marginTop: 12, textAlign: 'center' }}>
+        {erro && <div style={{ color: '#ef4444', fontSize: 12, marginTop: 12, textAlign: 'center' }}>{erro}</div>}
+
+        {/* Alternativas */}
+        <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 18, flexWrap: 'wrap' }}>
           <button
-            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.3)', fontSize: 12, cursor: 'pointer' }}
-            onClick={() => setEtapa('manual')}
+            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', fontSize: 12, cursor: 'pointer' }}
+            onClick={() => { pararPoll(); setAguardando(false); setErro(''); setEtapa('codigo'); }}
+          >
+            Usar código de 6 dígitos
+          </button>
+          <button
+            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', fontSize: 12, cursor: 'pointer' }}
+            onClick={() => { pararPoll(); setAguardando(false); setErro(''); setEtapa('manual'); }}
           >
             Inserir Chat ID manualmente
           </button>
         </div>
+
+        {onFechar && !aguardando && (
+          <div style={{ textAlign: 'center', marginTop: 12 }}>
+            <button style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.3)', fontSize: 12, cursor: 'pointer' }} onClick={onFechar}>
+              Depois
+            </button>
+          </div>
+        )}
       </div>
     );
   };

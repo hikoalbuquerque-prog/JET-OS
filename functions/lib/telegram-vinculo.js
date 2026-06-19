@@ -33,9 +33,10 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.notificarTarefaAtribuida = exports.notificarStatusNF = exports.notificarAprovacaoPrestador = exports.validarVinculoTelegram = exports.telegramWebhook = void 0;
+exports.notificarTarefaAtribuida = exports.notificarStatusNF = exports.notificarAprovacaoPrestador = exports.iniciarVinculoTelegram = exports.validarVinculoTelegram = exports.telegramWebhook = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const crypto_1 = require("crypto");
 // functions/src/telegram-vinculo.ts
 // Cloud Functions para vincular Telegram ao usuário JET OS
 // Adicionar ao index.ts: export * from './telegram-vinculo';
@@ -79,7 +80,41 @@ exports.telegramWebhook = (0, https_1.onRequest)((req, res) => {
                 });
             };
             if (text === '/start' || text.startsWith('/start ')) {
-                // Gera código de 6 dígitos (único, expira em 10 min)
+                // ── Deep-link 1-toque: /start <token> (token de 32 hex gerado pelo app,
+                // já ligado ao uid via iniciarVinculoTelegram). Vincula DIRETO, sem código. ──
+                const param = text.startsWith('/start ') ? text.slice(7).trim() : '';
+                if (/^[a-f0-9]{32}$/.test(param)) {
+                    const tokRef = db.collection('telegram_vinculos').doc(param);
+                    const tokSnap = await tokRef.get();
+                    const tok = tokSnap.data();
+                    const valido = tokSnap.exists && tok?.uid && !tok.usado
+                        && tok.expiraEm?.toDate?.() > new Date();
+                    if (!valido) {
+                        await sendMsg(`⚠️ Link de vinculação inválido ou expirado.\nGere um novo no JET OS ("Vincular com 1 toque").`);
+                        res.json({ ok: true });
+                        return;
+                    }
+                    // Conflito: este Telegram já está em OUTRA conta?
+                    const jaQ = await db.collection('usuarios')
+                        .where('telegramChatId', '==', chatId).limit(1).get();
+                    if (!jaQ.empty && jaQ.docs[0].id !== tok.uid) {
+                        await sendMsg(`⚠️ Este Telegram já está vinculado a outra conta JET OS.\nEnvie /desvincular antes de vincular a uma nova conta.`);
+                        res.json({ ok: true });
+                        return;
+                    }
+                    await db.collection('usuarios').doc(tok.uid).update({
+                        telegramChatId: chatId,
+                        telegramVinculadoEm: admin.firestore.FieldValue.serverTimestamp(),
+                        telegramModo: 'deeplink',
+                        atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+                    });
+                    await tokRef.delete();
+                    const uSnap = await db.collection('usuarios').doc(tok.uid).get();
+                    await sendMsg(`✅ Conta vinculada com sucesso, <b>${uSnap.data()?.nome ?? firstName}</b>!\n\nVocê já pode fechar esta conversa — as notificações do JET OS chegam aqui.`);
+                    res.json({ ok: true });
+                    return;
+                }
+                // ── Fluxo legado (sem token): gera código de 6 dígitos p/ digitar no app ──
                 const codigo = String(Math.floor(100000 + Math.random() * 900000));
                 const expiraEm = new Date(Date.now() + 10 * 60 * 1000); // 10 minutos
                 await db.collection('telegram_vinculos').doc(codigo).set({
@@ -200,6 +235,28 @@ exports.validarVinculoTelegram = (0, https_1.onCall)({ region: 'southamerica-eas
     // Deleta o código (já usado)
     await vinculoRef.delete();
     return { sucesso: true, chatId };
+});
+// ─── FUNCTION: iniciarVinculoTelegram (onCall — deep-link 1-toque) ────────────
+// O app (autenticado) gera um token ligado ao uid e devolve o deep-link
+// t.me/<bot>?start=<token>. O usuário toca → Telegram manda /start <token> →
+// telegramWebhook vincula direto (sem digitar código, sem voltar ao app).
+exports.iniciarVinculoTelegram = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+    if (!request.auth)
+        throw new https_1.HttpsError('unauthenticated', 'Autenticação necessária');
+    const uid = request.auth.uid;
+    const token = (0, crypto_1.randomBytes)(16).toString('hex'); // 32 hex, não-adivinhável
+    const expiraEm = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+    await db.collection('telegram_vinculos').doc(token).set({
+        uid,
+        modo: 'deeplink',
+        expiraEm: admin.firestore.Timestamp.fromDate(expiraEm),
+        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+        usado: false,
+    });
+    const cfgSnap = await db.collection('telegram_config').doc('global').get();
+    const botUsername = String(cfgSnap.data()?.botUsername ?? '').replace(/^@/, '');
+    const deepLink = botUsername ? `https://t.me/${botUsername}?start=${token}` : '';
+    return { token, deepLink, botUsername };
 });
 // ─── FUNCTION: notificarAprovacaoPrestador (onCall — chamado pelo app) ────────
 exports.notificarAprovacaoPrestador = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
