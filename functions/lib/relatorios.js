@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.relatorioPerdasSemanal = exports.relatorioPerdasDiario = exports.relatorioGuardSemanal = exports.enviarRelatorioManual = void 0;
+exports.relatorioGuardSemanal = exports.enviarRelatorioManual = void 0;
 // functions/src/relatorios.ts
 // Relatórios automáticos Guard + Perdas via Telegram — Firebase Functions v2
 // Já importado no index.ts via: export * from './relatorios';
@@ -293,76 +293,9 @@ function gerarTextoGuard(ocorrs, label, semanal) {
     txt += `📎 _PDF completo em anexo com fotos e detalhes._`;
     return txt;
 }
-// ─── gerarTextoPerdas — mensagem Telegram otimizada ──────────────────
-function gerarTextoPerdas(ocorrs, label, semanal) {
-    const ACUM = { patinetes: 406, bikes: 10, total: 416 }; // da planilha 06/06/26
-    const roubos = ocorrs.filter(o => o.tipo === 'Roubo');
-    const tent = ocorrs.filter(o => o.tipo === 'Tentativa');
-    const vand = ocorrs.filter(o => o.tipo === 'Vandalismo');
-    const recup = ocorrs.filter(o => o.tipo === 'Recuperacao' || /recuper/i.test(o.status || ''));
-    const total = ocorrs.length;
-    const porFilial = {};
-    ocorrs.forEach(o => {
-        const f = o.filial || o.cidade_inicial || 'Desconhecida';
-        if (!porFilial[f])
-            porFilial[f] = { total: 0, roubos: 0, recup: 0, pat: 0, bic: 0, bat: 0 };
-        porFilial[f].total++;
-        if (o.tipo === 'Roubo' || o.tipo === 'Tentativa')
-            porFilial[f].roubos++;
-        if (/recuper/i.test(o.status || '') || o.tipo === 'Recuperacao')
-            porFilial[f].recup++;
-        const at = String(o.ativo_tipo || '').toLowerCase();
-        if (at.includes('patinete'))
-            porFilial[f].pat++;
-        else if (at.includes('bicicleta'))
-            porFilial[f].bic++;
-        else if (at.includes('bateria'))
-            porFilial[f].bat++;
-    });
-    const filiaisOrd = Object.entries(porFilial).sort((a, b) => b[1].total - a[1].total);
-    const maxF = filiaisOrd[0]?.[1].total || 1;
-    const periodo = semanal ? '📆 SEMANAL' : '📅 DIÁRIO';
-    const dtFmt = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    let txt = '';
-    txt += `💸 *JET Guard • Perdas ${periodo}*\n`;
-    txt += `📆 ${label}  •  Gerado ${dtFmt}\n`;
-    txt += `${'─'.repeat(28)}\n\n`;
-    txt += `*📊 Resumo do período*\n`;
-    txt += `┌ 🔴 Roubos:      *${roubos.length}*\n`;
-    txt += `├ 🟠 Tentativas:  *${tent.length}*\n`;
-    txt += `├ 🟡 Vandalismos: *${vand.length}*\n`;
-    txt += `├ 🟢 Recuperados: *${recup.length}*\n`;
-    txt += `└ Total:          *${total}*\n\n`;
-    // Acumulado
-    txt += `*📉 Acumulado Brasil (desde 01/01/23)*\n`;
-    txt += `🛴 Patinetes: *${ACUM.patinetes}* | 🚲 Bikes: *${ACUM.bikes}* | Total: *${ACUM.total}*\n\n`;
-    if (filiaisOrd.length) {
-        txt += `*📍 Por filial*\n`;
-        filiaisOrd.slice(0, 8).forEach(([f, v]) => {
-            const bar = barra(v.total, maxF, 6);
-            const ativos = [v.pat ? `🛴${v.pat}` : '', v.bic ? `🚲${v.bic}` : '', v.bat ? `🔋${v.bat}` : ''].filter(Boolean).join(' ');
-            txt += `*${f}*  \`${bar}\`  ${v.total} total\n`;
-            if (ativos)
-                txt += `  ${ativos}  |  🔴${v.roubos} roubos  ✅${v.recup} recup.\n`;
-        });
-        txt += `\n`;
-    }
-    if (filiaisOrd[0]) {
-        txt += `${'─'.repeat(28)}\n`;
-        txt += `*⚠️ Alertas*\n`;
-        if (roubos.length > 0)
-            txt += `• 🔴 *${roubos.length}* roubo(s) registrado(s) no período\n`;
-        if (vand.length > 0)
-            txt += `• 🟡 *${vand.length}* vandalismo(s)\n`;
-        txt += `• 🔺 Maior volume: *${filiaisOrd[0][0]}* (${filiaisOrd[0][1].total})\n`;
-        if (total === 0)
-            txt += `• ✅ Nenhuma ocorrência no período\n`;
-        txt += `\n`;
-    }
-    txt += `${'─'.repeat(28)}\n`;
-    txt += `📎 _PDF completo em anexo com ranking e gráficos._`;
-    return txt;
-}
+// gerarTextoPerdas — REMOVIDO (jun/2026): relatório de Perdas standalone aposentado.
+// As perdas agora são data-driven (Supabase) e em 4 idiomas dentro do relatório Guard
+// (relatorio.ts: buscarPerdasSupabase + seção de perdas no texto e no PDF).
 // ─── helpers do gráfico ──────────────────────────────────────────────
 function calcKpisGrafico(lista) {
     return {
@@ -445,10 +378,9 @@ function gerarSvgPizza(dados, titulo, W = 220, H = 160) {
     return svg;
 }
 function gerarSvgGrafico(ocorrsOntem, ocorrsMes, tipo) {
-    const ACUM_PERDAS = { total: 416, patinetes: 406, bicicletas: 10, baterias: 0 };
     const kOntem = calcKpisGrafico(ocorrsOntem);
     const kMes = calcKpisGrafico(ocorrsMes);
-    const kAcum = tipo === 'perdas' ? ACUM_PERDAS : kMes;
+    const kAcum = kMes; // perdas standalone aposentado (perdas agora no relatório Guard)
     const dadosBarras = [
         { label: 'Ontem', valor: kOntem.total, cor: '#2980b9' },
         { label: 'Este mês', valor: kMes.total, cor: '#1a1a2e' },
@@ -805,19 +737,17 @@ async function enviarDocumento(token, chatId, htmlContent, filename, caption) {
     });
 }
 // ─── orquestrador interno ─────────────────────────────────────────────
-async function enviarRelatorio(tipo, periodo) {
+// Perdas standalone APOSENTADO (perdas agora data-driven dentro do relatório Guard —
+// relatorio.ts). Esta função ficou guard-only.
+async function enviarRelatorio(periodo) {
     const { token, chatId } = await getTelegramConfig();
     const { ini, fim, label } = getRange(periodo);
     const semanal = periodo === 'semana';
     const ocorrs = await buscarOcorrencias(ini, fim);
-    const texto = tipo === 'guard'
-        ? gerarTextoGuard(ocorrs, label, semanal)
-        : gerarTextoPerdas(ocorrs, label, semanal);
-    const tituloHtml = tipo === 'guard'
-        ? (semanal ? 'JET Guard – Semanal' : 'JET Guard – Diário')
-        : (semanal ? 'JET Perdas – Semanal' : 'JET Perdas – Diário');
-    const html = gerarHtmlPdf(ocorrs, tituloHtml, label, tipo);
-    const filename = `${tipo}_${periodo}_${label.replace(/\//g, '-')}.html`;
+    const texto = gerarTextoGuard(ocorrs, label, semanal);
+    const tituloHtml = semanal ? 'JET Guard – Semanal' : 'JET Guard – Diário';
+    const html = gerarHtmlPdf(ocorrs, tituloHtml, label, 'guard');
+    const filename = `guard_${periodo}_${label.replace(/\//g, '-')}.html`;
     await enviarTexto(token, chatId, texto);
     await enviarDocumento(token, chatId, html, filename, `📎 ${tituloHtml} — ${label}`);
     return { ok: true, total: ocorrs.length, periodo: label };
@@ -836,9 +766,9 @@ exports.enviarRelatorioManual = (0, https_1.onCall)({
 }, async (r) => {
     if (!r.auth)
         throw new Error('Auth required');
-    const tipo = r.data?.tipo === 'perdas' ? 'perdas' : 'guard';
+    // tipo 'perdas' aposentado — sempre relatório Guard (que já inclui perdas data-driven).
     const periodo = r.data?.periodo === 'semana' ? 'semana' : 'ontem';
-    return enviarRelatorio(tipo, periodo);
+    return enviarRelatorio(periodo);
 });
 // ─── Schedules ────────────────────────────────────────────────────────
 // Guard semanal — toda segunda às 7h (reporta dom anterior → sab anterior)
@@ -879,8 +809,9 @@ exports.relatorioGuardSemanal = (0, scheduler_1.onSchedule)({ schedule: '0 7 * *
     await (0, relatorio_1.enviarRelatorioTelegram)(relatorioSemanal);
     console.log('[guard-semanal] Semana', label, '—', ocorrs.length, 'ocorrências');
 });
-// Perdas diário — 7h, seg a sáb
-exports.relatorioPerdasDiario = (0, scheduler_1.onSchedule)({ schedule: '0 7 * * 2-7', timeZone: 'America/Sao_Paulo', memory: '256MiB', timeoutSeconds: 300 }, async () => { await enviarRelatorio('perdas', 'ontem'); });
-// Perdas semanal — 7h toda segunda
-exports.relatorioPerdasSemanal = (0, scheduler_1.onSchedule)({ schedule: '0 7 * * 1', timeZone: 'America/Sao_Paulo', memory: '256MiB', timeoutSeconds: 300 }, async () => { await enviarRelatorio('perdas', 'semana'); });
+// relatorioPerdasDiario / relatorioPerdasSemanal — APOSENTADOS (jun/2026).
+// As perdas (BRPD) agora são data-driven (Supabase) e em 4 idiomas DENTRO do relatório
+// Guard (relatorio.ts). Manter relatórios separados duplicava o envio das 7h e usava o
+// número fixo 416. Removidos os exports; deletar no Cloud com:
+//   firebase functions:delete relatorioPerdasDiario relatorioPerdasSemanal --region southamerica-east1
 //# sourceMappingURL=relatorios.js.map
