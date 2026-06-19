@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { doc, getDoc, updateDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import TelegramVinculo from './TelegramVinculo';
 
@@ -21,6 +21,26 @@ interface Props {
 }
 
 const TIPOS_PIX = ['CPF', 'CNPJ', 'E-mail', 'Telefone', 'Chave aleatória'];
+
+const NIVEIS_GOVBR = ['desconhecido', 'bronze', 'prata', 'ouro'];
+const NIVEL_GOVBR_LABEL: Record<string, string> = {
+  desconhecido: 'Não sei / não informado',
+  bronze: 'Bronze',
+  prata: 'Prata',
+  ouro: 'Ouro',
+};
+
+// Status da procuração (definido pela verificação automática / gestor — read-only aqui)
+const PROCURACAO_LABEL: Record<string, string> = {
+  pendente: 'Pendente',
+  ativa: 'Ativa',
+  revogada: 'Revogada',
+};
+const PROCURACAO_COR: Record<string, string> = {
+  pendente: '#fbbf24',
+  ativa: '#4ade80',
+  revogada: '#ef4444',
+};
 
 const CARGO_LABEL: Record<string, string> = {
   logistica: 'Agente de Logística',
@@ -48,7 +68,7 @@ const lbl: React.CSSProperties = {
 };
 
 export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Props) {
-  const [tab, setTab] = useState<'dados' | 'pagamento' | 'telegram'>('dados');
+  const [tab, setTab] = useState<'dados' | 'pagamento' | 'fiscal' | 'telegram'>('dados');
   const [loading, setLoading] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -64,6 +84,17 @@ export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Pro
   // PIX
   const [tipoPix, setTipoPix] = useState('CPF');
   const [chavePix, setChavePix] = useState('');
+
+  // Fiscal / NFS-e (coleção prestadores_fiscal) — campos auto-declarados pelo prestador.
+  // Os sensíveis (codigo_servico, aliquota_iss, etc.) NÃO entram aqui: são definidos
+  // por gestor/Edge Fn. procuracaoStatus é apenas exibido (read-only).
+  const [cnpjFiscal, setCnpjFiscal] = useState('');
+  const [razaoSocial, setRazaoSocial] = useState('');
+  const [cpfResponsavel, setCpfResponsavel] = useState('');
+  const [inscricaoMunicipal, setInscricaoMunicipal] = useState('');
+  const [emailFiscal, setEmailFiscal] = useState('');
+  const [nivelGovbr, setNivelGovbr] = useState('desconhecido');
+  const [procuracaoStatus, setProcuracaoStatus] = useState('pendente');
 
   // Cidades disponíveis
   const [cidadesDisponiveis, setCidadesDisponiveis] = useState<string[]>([]);
@@ -81,6 +112,19 @@ export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Pro
         if (d.pix_tipo) setTipoPix(d.pix_tipo);
         if (d.pix_chave) setChavePix(d.pix_chave);
         if (d.tipo_contrato) setTipoContrato(d.tipo_contrato);
+      }
+
+      // Dados fiscais (NFS-e) — coleção prestadores_fiscal/{uid}
+      const fiscalSnap = await getDoc(doc(db, 'prestadores_fiscal', usuario.uid));
+      if (fiscalSnap.exists()) {
+        const f = fiscalSnap.data();
+        setCnpjFiscal(f.cnpj || '');
+        setRazaoSocial(f.razao_social || '');
+        setCpfResponsavel(f.cpf_responsavel || '');
+        setInscricaoMunicipal(f.inscricao_municipal || '');
+        setEmailFiscal(f.email_fiscal || '');
+        setNivelGovbr(f.nivel_govbr || 'desconhecido');
+        setProcuracaoStatus(f.procuracao_status || 'pendente');
       }
 
       // Complementa com solicitação de cadastro se não tiver pix/cpf ainda
@@ -145,6 +189,32 @@ export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Pro
     } catch (e) {
       console.error(e);
       showToast('Erro ao salvar. Tente novamente.');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  // Salva SÓ os campos fiscais auto-declarados em prestadores_fiscal/{uid}.
+  // Não toca nos campos sensíveis (codigo_servico, aliquota_iss, procuracao_status,
+  // faturamento_ano, ultimo_ndps) — a regra Firestore bloqueia o prestador de alterá-los.
+  const salvarFiscal = async () => {
+    setSalvando(true);
+    try {
+      await setDoc(doc(db, 'prestadores_fiscal', usuario.uid), {
+        uid:                 usuario.uid,
+        cnpj:                cnpjFiscal.trim(),
+        razao_social:        razaoSocial.trim(),
+        cpf_responsavel:     cpfResponsavel.trim(),
+        inscricao_municipal: inscricaoMunicipal.trim(),
+        email_fiscal:        emailFiscal.trim(),
+        nivel_govbr:         nivelGovbr,
+        regime_tributario:   'MEI',
+        atualizadoEm:        serverTimestamp(),
+      }, { merge: true });
+      showToast('Dados fiscais salvos!');
+    } catch (e) {
+      console.error('[perfil fiscal] erro ao salvar:', e);
+      showToast('Erro ao salvar dados fiscais.');
     } finally {
       setSalvando(false);
     }
@@ -222,8 +292,9 @@ export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Pro
         flexShrink: 0,
       }}>
         {([
-          { k: 'dados',    label: '👤 Dados pessoais' },
+          { k: 'dados',    label: '👤 Dados' },
           { k: 'pagamento', label: '💳 Pagamento' },
+          { k: 'fiscal',   label: '🧾 Nota Fiscal' },
           { k: 'telegram', label: '📲 Telegram' },
         ] as { k: typeof tab; label: string }[]).map(t => (
           <button key={t.k} onClick={() => setTab(t.k)} style={{
@@ -320,6 +391,78 @@ export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Pro
               color: '#fff', fontSize: 14, fontWeight: 700, cursor: salvando ? 'not-allowed' : 'pointer',
               marginTop: 4,
             }}>{salvando ? 'Salvando...' : 'Salvar dados de pagamento'}</button>
+          </div>
+        ) : tab === 'fiscal' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{
+              background: 'rgba(99,102,241,.06)', border: '1px solid rgba(99,102,241,.15)',
+              borderRadius: 10, padding: '10px 14px', fontSize: 12, color: '#a5b4fc', lineHeight: 1.5,
+            }}>
+              Estes dados permitem que a Jet emita a sua <strong>Nota Fiscal de Serviço (NFS-e)</strong>{' '}
+              automaticamente a cada semana, sem você precisar emitir manualmente. Preencha com os dados
+              do seu <strong>MEI</strong>.
+            </div>
+
+            {/* Status da procuração — read-only (definido pela verificação automática) */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)',
+              borderRadius: 10, padding: '10px 14px',
+            }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,.45)', fontWeight: 600 }}>PROCURAÇÃO P/ EMISSÃO</div>
+                <div style={{ fontSize: 10, color: '#4a5a7a', marginTop: 2 }}>Concedida no gov.br / e-CAC</div>
+              </div>
+              <div style={{
+                padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                background: (PROCURACAO_COR[procuracaoStatus] ?? '#4a5a7a') + '18',
+                color: PROCURACAO_COR[procuracaoStatus] ?? '#4a5a7a',
+                border: `1px solid ${(PROCURACAO_COR[procuracaoStatus] ?? '#4a5a7a')}44`,
+              }}>{PROCURACAO_LABEL[procuracaoStatus] ?? '—'}</div>
+            </div>
+
+            <div>
+              <label style={lbl}>CNPJ (MEI)</label>
+              <input style={inp} value={cnpjFiscal} onChange={e => setCnpjFiscal(e.target.value)}
+                placeholder="00.000.000/0001-00" />
+            </div>
+            <div>
+              <label style={lbl}>RAZÃO SOCIAL</label>
+              <input style={inp} value={razaoSocial} onChange={e => setRazaoSocial(e.target.value)}
+                placeholder="Nome empresarial do MEI" />
+            </div>
+            <div>
+              <label style={lbl}>CPF DO RESPONSÁVEL</label>
+              <input style={inp} value={cpfResponsavel} onChange={e => setCpfResponsavel(e.target.value)}
+                placeholder="000.000.000-00" />
+            </div>
+            <div>
+              <label style={lbl}>INSCRIÇÃO MUNICIPAL</label>
+              <input style={inp} value={inscricaoMunicipal} onChange={e => setInscricaoMunicipal(e.target.value)}
+                placeholder="Inscrição na prefeitura (se houver)" />
+            </div>
+            <div>
+              <label style={lbl}>E-MAIL FISCAL</label>
+              <input style={inp} type="email" value={emailFiscal} onChange={e => setEmailFiscal(e.target.value)}
+                placeholder="onde você recebe a nota" />
+            </div>
+            <div>
+              <label style={lbl}>NÍVEL DA CONTA GOV.BR</label>
+              <select style={{ ...inp, appearance: 'none' as const }} value={nivelGovbr}
+                onChange={e => setNivelGovbr(e.target.value)}>
+                {NIVEIS_GOVBR.map(n => <option key={n} value={n}>{NIVEL_GOVBR_LABEL[n]}</option>)}
+              </select>
+              <div style={{ fontSize: 10, color: '#4a5a7a', marginTop: 5, lineHeight: 1.4 }}>
+                A procuração exige nível <strong>prata</strong> ou <strong>ouro</strong>. Subir de bronze é
+                grátis (pelo banco ou reconhecimento facial no app gov.br).
+              </div>
+            </div>
+            <button onClick={salvarFiscal} disabled={salvando} style={{
+              padding: '12px', borderRadius: 10, border: 'none',
+              background: salvando ? 'rgba(99,102,241,.3)' : '#6366f1',
+              color: '#fff', fontSize: 14, fontWeight: 700, cursor: salvando ? 'not-allowed' : 'pointer',
+              marginTop: 4,
+            }}>{salvando ? 'Salvando...' : 'Salvar dados fiscais'}</button>
           </div>
         ) : (
           <TelegramVinculo

@@ -76,6 +76,28 @@ service cloud.firestore {
       allow update, delete: if false; // imutável — prova do consentimento
     }
 
+    // ── PRESTADORES FISCAL (NFS-e) ────────────────────────────────────
+    // Dados fiscais do prestador (MEI) p/ emissão automática de NFS-e.
+    // Espelha a RLS do Supabase (prestadores_fiscal): o prestador edita só os
+    // campos AUTO-DECLARADOS; os sensíveis (alíquota/código de serviço/status da
+    // procuração/faturamento/nº DPS) são definidos por gestor/Edge Fn — o prestador
+    // não pode alterá-los. id do doc = uid.
+    match /prestadores_fiscal/{uid} {
+      // Em um update do próprio prestador, os campos sensíveis devem ficar idênticos.
+      function fiscalSensiveisIntactos() {
+        return request.resource.data.get('codigo_servico', null)    == resource.data.get('codigo_servico', null)
+            && request.resource.data.get('aliquota_iss', null)      == resource.data.get('aliquota_iss', null)
+            && request.resource.data.get('municipio_incidencia', null) == resource.data.get('municipio_incidencia', null)
+            && request.resource.data.get('procuracao_status', null) == resource.data.get('procuracao_status', null)
+            && request.resource.data.get('faturamento_ano', null)   == resource.data.get('faturamento_ano', null)
+            && request.resource.data.get('ultimo_ndps', null)       == resource.data.get('ultimo_ndps', null);
+      }
+      allow read:   if isAuth() && (request.auth.uid == uid || isGestorSeg());
+      allow create: if isGestor() || (isAuth() && request.auth.uid == uid);
+      allow update: if isGestor() || (isAuth() && request.auth.uid == uid && fiscalSensiveisIntactos());
+      allow delete: if isGestor();
+    }
+
     // ── ESTAÇÕES ──────────────────────────────────────────────────────
     match /estacoes/{id} {
       allow read:   if isAtivo();
