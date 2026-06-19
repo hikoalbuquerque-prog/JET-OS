@@ -44,7 +44,12 @@ const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const v2_1 = require("firebase-functions/v2");
 admin.initializeApp();
-(0, v2_1.setGlobalOptions)({ region: 'southamerica-east1' });
+// maxInstances global: limita a CPU reservada por função no Cloud Run. Sem isso
+// cada função pode escalar muito e o total estoura a cota regional de CPU em
+// southamerica-east1 (erro "Quota exceeded for total allowable CPU") em deploys
+// que recriam muitas funções de uma vez. Também controla custo (ver migração Supabase).
+// Funções que precisarem de mais escala podem sobrescrever no próprio options.
+(0, v2_1.setGlobalOptions)({ region: 'southamerica-east1', maxInstances: 10 });
 const db = admin.firestore();
 // ─── CORS helper ──────────────────────────────────────────────────
 function addCORS(res) {
