@@ -1,149 +1,242 @@
-# App Estações — Migração Firebase
-## Fase 1: Infraestrutura
+# JET OS
+
+Sistema operacional interno da Jet para gestão de operações de micromobilidade.
+
+**URL produção:** https://jet-os-1.web.app  
+**Firebase project:** `jet-os-1`  
+**Região:** `southamerica-east1`
 
 ---
 
-## Pré-requisitos
+## Stack
 
-- Node.js 20+
-- Conta Google nova (conta de destino)
-- Firebase CLI: `npm install -g firebase-tools`
-
----
-
-## Passo 1 — Criar projeto Firebase
-
-1. Acesse [console.firebase.google.com](https://console.firebase.google.com)
-2. **Add project** → nome: `app-estacoes` (ou o de sua preferência)
-3. Desative Google Analytics (opcional)
-4. Aguarde a criação
-
-No projeto criado, ative:
-- **Firestore Database** → Create database → Production mode → `southamerica-east1`
-- **Authentication** → Get started → Email/Password → Enable
-- **Storage** → Get started → Production mode → `southamerica-east1`
-- **Functions** → Get started (requer billing — plano Blaze, mas tem free tier generoso)
+- **Frontend:** React + Vite + TypeScript + Leaflet + deck.gl (Capacitor para Android)
+- **Backend:** Firebase Cloud Functions v2 (Node.js 22)
+- **Banco:** Firestore + Firebase Storage
+- **Auth:** Firebase Authentication (Email/Password)
 
 ---
 
-## Passo 2 — Service Account para importação
+## Estrutura de arquivos principais
 
-1. No Firebase Console → **Project Settings** → **Service accounts**
-2. **Generate new private key** → baixa o arquivo JSON
-3. **Guarde esse arquivo com segurança** — ele dá acesso total ao projeto
+```
+frontend/src/
+  App.tsx                          — componente principal (~6500+ linhas), mapa, modais, FABs
+  UsuariosManager.tsx              — gestão de usuários e aprovação de prestadores
+  AnalyticsManager.tsx             — analytics deck.gl, upload XLSX
+  DashboardManager.tsx             — dashboard + exportação
+  ZonasManager.tsx                 — editor de polígonos/vértices
+  TelaGuard.tsx                    — tela de segurança (guardas)
+  TelaPrestadorPerfil.tsx          — perfil do prestador (dados, PIX, Telegram)
+  GuiaPanel.tsx                    — painel do guia/scout
+  MonitorPanel.tsx                 — monitoramento de slots em tempo real
+  LogisticaModule.tsx              — módulo de logística
+  SlotsModule.tsx                  — gestão de slots/baterias
+  EstacoesCampo.tsx                — visão de campo das estações
+
+  components/
+    FotoMedidas.tsx                — editor de medidas sobre foto (Konva)
+    FotoCaptura.tsx                — captura de foto com câmera
+    PagamentosModule.tsx           — módulo de pagamentos do prestador (NF semanal)
+    PagamentosAdminPanel.tsx       — painel admin de pagamentos (NFs + config)
+    MonitorConfigPanel.tsx         — configuração de thresholds M1/M2/M3
+    TarefasLogisticaModule.tsx     — tarefas de logística com GPS
+    GoJetOverlay.tsx               — overlay GoJet com painéis integrados
+    CandidatosManager.tsx          — gestão de candidatos
+    GestorLogisticaPanel.tsx       — painel do gestor logístico
+    GoJetCidadesPanel.tsx          — painel de cidades GoJet
+
+functions/src/
+  index.ts                         — entry point, exporta todas as functions
+  auth/index.ts                    — getUsuario, criarSlotAuth
+  telegram-vinculo.ts              — vinculação Telegram + notificações
+  notificacoes-prestador.ts        — trigger: notifica gestor em nova solicitação
+  automacao.ts                     — limpeza, notificações, ocorrências
+  automacao-tarefas.ts             — geração automática/manual de tarefas
+  relatorios.ts                    — relatórios semanais/diários
+  gps-alertas.ts                   — verificação de atrasos e chegada a pontos
+```
 
 ---
 
-## Passo 3 — Importar dados da planilha atual
+## Roles do sistema
 
-> Este passo roda na **conta antiga** via GAS
+| Role | Acesso |
+|---|---|
+| `admin` | Tudo |
+| `supergestor` | Tudo exceto configurações de sistema |
+| `gestor` | Gestão operacional completa |
+| `gestor_seg` | Segurança — aprova guard/segurança |
+| `gestor_log` | Logística — aprova logística |
+| `guard` | Tela de segurança |
+| `viewer` | Visualização de cidades permitidas |
+| `logistica` | Tarefas logísticas das cidades gerenciadas |
+| `prestador_pendente` | Aguardando aprovação |
+| `desativado` | Acesso revogado |
 
-1. Abra o projeto GAS da conta antiga
-2. Cole o arquivo `scripts/importar_sheets_para_firestore.gs`
-3. Edite a constante no topo:
-   ```javascript
-   var FIREBASE_PROJECT_ID = 'seu-project-id-aqui'; // do Firebase Console
-   ```
-4. Cole o JSON da Service Account na função `salvarFirebaseSA()` e rode-a
-5. Rode `testarConexaoFirebase()` — deve mostrar "Conexão Firebase OK"
-6. Rode `importarTudo()` e acompanhe os logs
-
-A importação é idempotente — pode rodar mais de uma vez sem duplicar dados.
+**tipoCadastro:** `'interno'` (padrão) | `'prestador'`  
+**statusPrestador:** `'pendente_aprovacao'` | `'ativo'`
 
 ---
 
-## Passo 4 — Deploy das regras e índices
+## Coleções Firestore
+
+| Coleção | Descrição |
+|---|---|
+| `estacoes` | Estações de bicicleta |
+| `usuarios` | Perfis e permissões |
+| `solicitacoes_prestadores` | Cadastros de prestadores pendentes |
+| `tarefas_logistica` | Tarefas de campo (scout/charger) |
+| `slots` | Slots de bicicletas por estação |
+| `ocorrencias` | Ocorrências registradas |
+| `pagamentos_config` | Valor por tarefa por cidade |
+| `pagamentos_semana` | Registros semanais de pagamento |
+| `notas_fiscais` | Metadados de NFs enviadas |
+| `monitor_config` | Thresholds M1/M2/M3 por cidade |
+| `telegram_config` | Configuração de bot Telegram por cidade |
+| `gojet_config` | Configuração GoJet por cidade (`ativo`, `url`) |
+| `turnos` | Registros de entrada/saída de turno |
+| `log_slots_auto` | Log de geração automática de slots |
+| `gps_logistica` | Posições GPS de logística em tempo real |
+| `gps_logistica_hist` | Histórico GPS |
+| `eficiencias_logistica` | Métricas de eficiência |
+| `eventos` | Eventos especiais (pontos temporários M3) |
+
+---
+
+## Campos padronizados (prestador)
+
+```
+cpf_cnpj        — CPF ou CNPJ (snake_case, sem formatação)
+pix_chave       — chave PIX
+pix_tipo        — 'cpf' | 'cnpj' | 'email' | 'telefone' | 'aleatoria'
+tipo_contrato   — 'pj' | 'autonomo' | 'clt'
+cidade          — cidade principal de atuação
+cidadesPermitidas — array de cidades onde pode trabalhar
+cargoPrestador  — 'scout' | 'charger' | 'guard' | 'seguranca' | 'logistica'
+```
+
+---
+
+## Fluxo de aprovação de prestadores
+
+1. Prestador se cadastra → `role: 'prestador_pendente'`, `statusPrestador: 'pendente_aprovacao'`
+2. Gestor vê solicitação filtrada por cargo vs. role do gestor:
+   - `gestor_seg` → aprova guard/segurança
+   - `gestor_log` → aprova logística
+   - `admin/gestor/supergestor` → aprova tudo
+3. Aprovação atualiza `role`, `statusPrestador: 'ativo'`, `cidadesPermitidas`
+4. Telegram notifica prestador (se vinculado)
+
+---
+
+## Módulo de pagamentos
+
+- **Período:** segunda → domingo (semana ISO)
+- **ID do documento:** `{uid}_{ano}W{semana_padded}` ex: `abc123_2026W24`
+- **Fluxo:** tarefas concluídas → prestador envia NF → gestor aprova → marca pago
+- **Config por cidade:** `pagamentos_config/{cidade}` com `valor_por_tarefa` (R$)
+- **Storage NF:** `notas_fiscais/{uid}/{ano}W{semana}.{ext}`
+
+---
+
+## Monitor automático (M1/M2/M3)
+
+Configurável por cidade via `MonitorConfigPanel`:
+- **M1** — crítico (vermelho): threshold baixo, alta prioridade
+- **M2** — atenção (âmbar): threshold médio, prioridade média  
+- **M3** — informativo (azul): threshold alto, baixa prioridade / eventos temporários
+
+Config armazenada em `monitor_config/{cidade}`.
+
+---
+
+## Deploy
 
 ```bash
-# Na pasta firebase-estacoes/
-firebase login --reauth
-firebase use --add  # selecione o projeto criado no Passo 1
+# Frontend (build + hosting)
+cd frontend && npm run build && cd .. && firebase deploy --only hosting
 
-# Deploy das regras e índices
-firebase deploy --only firestore:rules,firestore:indexes,storage
+# Function específica
+cd functions && npm run build && cd .. && firebase deploy --only functions:nomeDaFunction
+
+# Regras
+firebase deploy --only firestore:rules,storage
+
+# Indexes — ATENÇÃO: usar API direta (ver seção abaixo)
+firebase deploy --only firestore:indexes
 ```
 
----
+### Criação de indexes Firestore
 
-## Passo 5 — Criar usuário admin inicial
+O comando `firebase deploy --only firestore:indexes` via MCP **não cria novos indexes** (retorna success falso positivo). Sempre criar via API direta:
 
-No Firebase Console → **Authentication** → **Add user**:
-- Email: seu email da conta nova
-- Senha: senha forte
+```
+firestore_create_index(
+  parent: "projects/jet-os-1/databases/(default)/collectionGroups/{colecao}",
+  index: { queryScope: "COLLECTION", fields: [...] }
+)
+```
 
-Depois no **Firestore** → coleção `usuarios` → **Add document**:
-- Document ID: (o UID gerado pelo Auth, visível na lista de usuários)
-- Campos:
-  ```
-  uid:        (mesmo UID)
-  email:      seu@email.com
-  nome:       Seu Nome
-  role:       admin
-  paises:     [BR]
-  ativo:      true
-  criadoEm:   (timestamp atual)
-  ```
+Também adicionar ao `firestore.indexes.json` para referência.
 
 ---
 
-## Passo 6 — Configurar variáveis de ambiente das Functions
+## Android (Capacitor)
 
 ```bash
-firebase functions:config:set \
-  app.gmaps_key="SUA_GMAPS_API_KEY" \
-  app.gemini_key="SUA_GEMINI_API_KEY" \
-  app.mapillary_token="SEU_MAPILLARY_TOKEN" \
-  app.add_pass="SENHA_PARA_ADICIONAR_ESTACOES"
+cd frontend
+npm run build
+npx cap sync android
+# Build APK no Android Studio ou:
+# $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+# cd android && .\gradlew assembleDebug
+```
+
+APK gerado em: `frontend/android/app/build/outputs/apk/debug/app-debug.apk`
+
+---
+
+## zIndex hierarchy
+
+| Camada | Valor |
+|---|---|
+| Mapa Leaflet | 0–400 |
+| Drawers/painéis | 450–1200 |
+| ZonasManager | 1200 |
+| Modais | 1500–2000 |
+| Editor FotoMedidas | 2000 |
+| Analytics overlay | 2000 |
+| Popups sobre analytics | 4000+ |
+
+---
+
+## Variáveis de ambiente
+
+Arquivo `.env.local` (não commitado):
+```
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=jet-os-1
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_GMAPS_KEY=
 ```
 
 ---
 
-## Estrutura do Firestore
+## Criação de usuário admin inicial
 
+No Firebase Console → Authentication → Add user  
+Depois no Firestore → `usuarios/{uid}`:
+```json
+{
+  "uid": "...",
+  "email": "admin@empresa.com",
+  "nome": "Admin",
+  "role": "admin",
+  "paises": ["BR"],
+  "ativo": true
+}
 ```
-/estacoes/{codigoEstacao}     — dados completos da estação
-/usuarios/{uid}               — perfis e permissões
-/poligonos/{id}               — polígonos de mapeamento
-/solicitacoes/{id}            — solicitações de acesso
-/jet_import/{id}              — dados JET Cross
-/eventos/{id}                 — log de ações
-/config/{id}                  — configurações do sistema
-```
-
----
-
-## Estrutura do Storage
-
-```
-/estacoes/{codigoEstacao}/fotos/{file}     — fotos de campo
-/estacoes/{codigoEstacao}/streetview/{file}— street view
-/croquis/{codigoEstacao}.png              — croqui exportado
-/croquis/{codigoEstacao}.pdf              — croqui PDF
-```
-
----
-
-## Próximas fases
-
-| Fase | O que é | Arquivo |
-|------|---------|---------|
-| 2 | Cloud Functions (backend) | `functions/src/` |
-| 3 | Geração de croqui via Slides API | `functions/src/croqui.ts` |
-| 4 | Frontend React + Vite | `src/` |
-| 5 | Varredura automática | `functions/src/varredura.ts` |
-
----
-
-## Sobre os templates de Slides
-
-Na conta nova, crie os templates do zero no Google Slides e anote os IDs.
-Configure no Firestore em `/config/sistema`:
-```
-slideTemplatePublicoBR:  "ID_DO_SLIDE_PUBLICO_BR"
-slideTemplatePrivadoBR:  "ID_DO_SLIDE_PRIVADO_BR"
-slideTemplatePublicoMX:  "ID_DO_SLIDE_PUBLICO_MX"
-slideTemplatePrivadoMX:  "ID_DO_SLIDE_PRIVADO_MX"
-slideOutputFolderId:     "ID_DA_PASTA_DRIVE_SAIDA"
-```
-
-Assim os IDs ficam no banco, não hardcoded no código.
