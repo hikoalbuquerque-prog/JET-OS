@@ -74,6 +74,7 @@
     "attempt": "Tentativa",
     "vandalism": "Vandalismo",
     "recovery": "Recuperação",
+    "loss": "Perda",
     "other": "Outro",
     "assetId": "ID do Ativo / Código",
     "assetPlaceholder": "Ex: JET-001234",

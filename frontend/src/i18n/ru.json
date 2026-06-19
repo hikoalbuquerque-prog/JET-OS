@@ -74,6 +74,7 @@
     "attempt": "Попытка",
     "vandalism": "Вандализм",
     "recovery": "Восстановление",
+    "loss": "Потеря",
     "other": "Другое",
     "assetId": "ID Актива / Код",
     "assetPlaceholder": "Напр: JET-001234",

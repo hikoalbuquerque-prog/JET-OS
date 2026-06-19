@@ -57,6 +57,7 @@ const TIPOS_KEYS = [
   { key: 'Tentativa',  emoji: '🟠', cor: '#f97316', tk: 'guard.attempt'   },
   { key: 'Vandalismo', emoji: '🟡', cor: '#eab308', tk: 'guard.vandalism' },
   { key: 'Recuperacao',emoji: '🟢', cor: '#22c55e', tk: 'guard.recovery'  },
+  { key: 'Perda',      emoji: '🟣', cor: '#a855f7', tk: 'guard.loss'      },
   { key: 'Outro',      emoji: '⚪', cor: '#6b7280', tk: 'guard.other'     },
 ];
 

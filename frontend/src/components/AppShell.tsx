@@ -1543,7 +1543,7 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
   onFechar: () => void;
   onSalvo:  () => void;
 }) {
-  const TIPOS_G   = ['Roubo','Tentativa','Vandalismo','Recuperacao','Outro'];
+  const TIPOS_G   = ['Roubo','Tentativa','Vandalismo','Recuperacao','Perda','Outro'];
   const STATUS_G  = ['Aberto','Em apuração','Recuperado','Encerrado'];
   const ATIVOS_G  = ['Patinete','Bicicleta','Bateria'];
   const TURNOS_G  = [['shiftMorning','Manhã (06–14h)'],['shiftAfternoon','Tarde (14–22h)'],['shiftNight','Noite (22–06h)']];
@@ -1700,10 +1700,10 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
     letterSpacing:'.07em', display:'block', marginBottom:4, textTransform:'uppercase' as const,
   };
   const corTipo: Record<string,string> = {
-    Roubo:'#ef4444',Tentativa:'#f97316',Vandalismo:'#eab308',Recuperacao:'#22c55e',Outro:'#6b7280'
+    Roubo:'#ef4444',Tentativa:'#f97316',Vandalismo:'#eab308',Recuperacao:'#22c55e',Perda:'#a855f7',Outro:'#6b7280'
   };
   const emojiTipo: Record<string,string> = {
-    Roubo:'🔴',Tentativa:'🟠',Vandalismo:'🟡',Recuperacao:'🟢',Outro:'⚪'
+    Roubo:'🔴',Tentativa:'🟠',Vandalismo:'🟡',Recuperacao:'🟢',Perda:'🟣',Outro:'⚪'
   };
 
   return (

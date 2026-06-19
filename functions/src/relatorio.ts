@@ -221,7 +221,8 @@ function sanitizarFoto(url?: string): string | null {
 
 function emojiTipo(t: string): string {
   return t === 'Roubo' ? '🔴' : t === 'Tentativa' ? '🟠'
-    : t === 'Vandalismo' ? '🟡' : t === 'Recuperacao' ? '🟢' : '⚪';
+    : t === 'Vandalismo' ? '🟡' : t === 'Recuperacao' ? '🟢'
+    : t === 'Perda' ? '🟣' : '⚪';
 }
 
 function barra(v: number, max: number, len = 8): string {
@@ -457,6 +458,7 @@ async function gerarPdfHtml(
     Vandalismo:  { pt:'Vandalismo',  en:'Vandalism',  es:'Vandalismo',   ru:'Вандализм' },
     Tentativa:   { pt:'Tentativa',   en:'Attempt',    es:'Tentativa',    ru:'Попытка'   },
     Recuperação: { pt:'Recuperação', en:'Recovery',   es:'Recuperación', ru:'Возврат'   },
+    Perda:       { pt:'Perda',       en:'Loss',       es:'Pérdida',      ru:'Потеря'    },
     Outro:       { pt:'Outro',       en:'Other',      es:'Otro',         ru:'Другое'    },
   };
   const tTipo = (tipo: string) => tipoLabels[tipo]?.[lang] ?? tipo;

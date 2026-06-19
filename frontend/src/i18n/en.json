@@ -74,6 +74,7 @@
     "attempt": "Attempt",
     "vandalism": "Vandalism",
     "recovery": "Recovery",
+    "loss": "Loss",
     "other": "Other",
     "assetId": "Asset ID / Code",
     "assetPlaceholder": "E.g: JET-001234",
