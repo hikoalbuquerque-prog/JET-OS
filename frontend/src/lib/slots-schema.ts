@@ -6,6 +6,7 @@ import {
   type QuerySnapshot, type DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { guardWriteSupabase, criarOcorrenciaSupabase } from './ocorrencias-supabase';
 
 // ─────────────────────────────────────────────────────────────────
 // CARGOS (legado — mantido para ocorrências / equipe / compatib.)
@@ -334,6 +335,9 @@ export async function criarOcorrencia(dados: Omit<Ocorrencia, 'id' | 'criadoEm' 
   const ref = await addDoc(collection(db, 'ocorrencias'), {
     ...dados, criadoEm: serverTimestamp(), atualizadoEm: serverTimestamp(),
   });
+  if (guardWriteSupabase()) {
+    criarOcorrenciaSupabase(ref.id, dados).catch(err => console.error('[guard-write] create Supabase:', err));
+  }
   return ref.id;
 }
 

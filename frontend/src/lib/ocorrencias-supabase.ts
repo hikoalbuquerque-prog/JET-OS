@@ -114,6 +114,94 @@ export async function carregarOcorrenciasSupabase(opts?: {
   return (data || []).map(mapRow);
 }
 
+// ── ESCRITA (cutover de writes, dual-write atrás de flag) ────────────────────
+// Flag SEPARADA da leitura: `localStorage['jet_guard_write']='supabase'` (ou
+// VITE_GUARD_WRITE) liga o dual-write (Firestore + Supabase). Default OFF → só Firestore.
+// O mirror server-side já sincronia Firestore→Supabase; o write do cliente existe p/
+// provar a escrita SOB RLS (sem depender de Firebase Auth) rumo ao flip de Auth (Onda C).
+export const guardWriteSupabase = (): boolean => {
+  try {
+    const v = localStorage.getItem('jet_guard_write');
+    if (v === 'supabase') return true;
+    if (v === 'firebase') return false;
+  } catch { /* sem localStorage */ }
+  return (import.meta.env.VITE_GUARD_WRITE as string) === 'supabase';
+};
+
+const numW = (v: any): number | null => {
+  const n = typeof v === 'string' ? parseFloat(v) : v;
+  return (typeof n === 'number' && isFinite(n)) ? n : null;
+};
+const strW = (...vals: any[]): string | null => {
+  for (const v of vals) if (typeof v === 'string' && v.trim()) return v;
+  return null;
+};
+
+// Traduz um doc/patch camelCase (Firestore) → colunas snake_case da tabela ocorrencias.
+// Mesmo mapeamento do mirror (functions/src/mirror-ocorrencias.ts) p/ não divergir.
+function mapParaSupabase(d: any): Record<string, unknown> {
+  const lat = numW(d.lat_inicial ?? d.lat ?? d.latInicial);
+  const lng = numW(d.lng_inicial ?? d.lng ?? d.lngInicial);
+  const row: Record<string, unknown> = {
+    codigo:          strW(d.id, d.codigo),
+    tipo:            strW(d.tipo),
+    prioridade:      strW(d.prioridade),
+    ativo_tipo:      strW(d.ativo_tipo, d.ativoTipo),
+    asset_id:        strW(d.asset_id, d.assetId),
+    descricao:       strW(d.descricao),
+    observacao_fechamento: strW(d.observacao_fechamento, d.observacaoFechamento),
+    cidade:          strW(d.cidade_inicial, d.cidade),
+    bairro:          strW(d.bairro_inicial, d.bairro),
+    endereco:        strW(d.endereco_inicial, d.endereco),
+    estacao_id:      strW(d.estacaoId, d.estacao_id),
+    bo_numero:       strW(d.bo_numero, d.boNumero),
+    bo_url:          strW(d.bo_url, d.boUrl),
+    foto1_url:       strW(d.foto1_url, d.foto1Url),
+    foto2_url:       strW(d.foto2_url, d.foto2Url),
+    cargo:           strW(d.cargo),
+    origem_registro: strW(d.origem_registro, d.origemRegistro),
+    turno:           strW(d.turno),
+    registrado_por_nome: strW(d.registradoPorNome, d.registrado_por_nome),
+    data_manual:     strW(d.dataManual, d.data_manual),
+  };
+  if (d.status != null) row.status = String(d.status).toLowerCase();
+  if (d.procurando != null) row.procurando = d.procurando === true;
+  if (lat !== null && lng !== null) row.geo = `SRID=4326;POINT(${lng} ${lat})`;
+  // remove chaves nulas p/ não sobrescrever colunas existentes num update
+  for (const k of Object.keys(row)) if (row[k] == null) delete row[k];
+  return row;
+}
+
+async function meuUuidSupabase(): Promise<string | null> {
+  try { const { data } = await supabase.auth.getUser(); return data.user?.id ?? null; }
+  catch { return null; }
+}
+
+// CREATE — espelha a ocorrência recém-criada no Firestore (firebaseDocId) para o Supabase
+// sob a sessão A. registrado_por = uuid do próprio (auth.uid()) p/ casar com a RLS.
+export async function criarOcorrenciaSupabase(firebaseDocId: string, dados: any): Promise<void> {
+  const row = mapParaSupabase(dados);
+  row.firebase_doc_id = firebaseDocId;
+  row.registrado_por = await meuUuidSupabase();
+  if (!row.status) row.status = 'aberto';
+  const { error } = await supabase.from('ocorrencias').upsert(row, { onConflict: 'firebase_doc_id' });
+  if (error) throw error;
+}
+
+// UPDATE — atualiza por firebase_doc_id (status/BO/fotos/etc).
+export async function atualizarOcorrenciaSupabase(firebaseDocId: string, patch: any): Promise<void> {
+  const row = mapParaSupabase(patch);
+  if (!Object.keys(row).length) return;
+  const { error } = await supabase.from('ocorrencias').update(row).eq('firebase_doc_id', firebaseDocId);
+  if (error) throw error;
+}
+
+// DELETE — remove por firebase_doc_id.
+export async function deletarOcorrenciaSupabase(firebaseDocId: string): Promise<void> {
+  const { error } = await supabase.from('ocorrencias').delete().eq('firebase_doc_id', firebaseDocId);
+  if (error) throw error;
+}
+
 // Busca pontual por código (id humano) e, se não achar, por asset_id.
 // Usado no auditor do DashboardManager (substitui os getDocs por where('id'/'asset_id')).
 export async function buscarOcorrenciaSupabase(termo: string): Promise<any | null> {
