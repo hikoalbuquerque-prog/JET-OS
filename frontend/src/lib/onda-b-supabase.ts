@@ -76,3 +76,62 @@ export async function carregarTurnosLogisticaSupabase(desdeISO: string): Promise
   if (error) throw error;
   return (data || []).map(mapTurno);
 }
+
+// ── ESCRITA (cutover de writes, dual-write atrás de flag) ────────────────────
+// RLS já pronta: solicitacoes (insert público / update gestor), turnos (insert
+// autenticado / update gestor) — ver 0001 e 0026. Mirrors já deployados; o write
+// do cliente prova escrita sob RLS sem Firebase Auth (rumo ao flip de Auth).
+export const logisticaWriteSupabase = (): boolean => {
+  try {
+    const v = localStorage.getItem('jet_logistica_write');
+    if (v === 'supabase') return true;
+    if (v === 'firebase') return false;
+  } catch { /* sem localStorage */ }
+  return (import.meta.env.VITE_LOGISTICA_WRITE as string) === 'supabase';
+};
+
+const sW = (...vals: any[]): string | null => {
+  for (const v of vals) if (typeof v === 'string' && v.trim()) return v;
+  return null;
+};
+
+// Solicitação de prestador — CREATE (upsert por firebase_id). Mesmo mapa do mirror.
+export async function criarSolicitacaoSupabase(firebaseId: string, d: any): Promise<void> {
+  const row: Record<string, unknown> = {
+    firebase_id: firebaseId,
+    uid: sW(d.uid), nome: sW(d.nome), email: sW(d.email),
+    cpf: sW(d.cpf_cnpj, d.cpf), cargo: sW(d.cargo), cidade: sW(d.cidade),
+    status: sW(d.status) ?? 'pendente',
+    pix_chave: sW(d.pix_chave), pix_tipo: sW(d.pix_tipo),
+    telegram: sW(d.telegram), motivo_cadastro: sW(d.motivo_cadastro),
+    tipo_contrato: sW(d.tipo_contrato),
+    pais: (typeof d.pais === 'string' && /^[A-Z]{2}$/.test(d.pais)) ? d.pais : 'BR',
+  };
+  const { error } = await supabase.from('solicitacoes_prestadores').upsert(row, { onConflict: 'firebase_id' });
+  if (error) throw error;
+}
+
+// Solicitação — UPDATE (aprovar/rejeitar) por firebase_id.
+export async function atualizarSolicitacaoSupabase(firebaseId: string, patch: any): Promise<void> {
+  const row: Record<string, unknown> = {};
+  if (patch.status != null)         row.status = String(patch.status);
+  if (patch.respondido_por != null) row.respondido_por = String(patch.respondido_por);
+  if (patch.data_resposta != null)  row.data_resposta = patch.data_resposta;
+  if (!Object.keys(row).length) return;
+  const { error } = await supabase.from('solicitacoes_prestadores').update(row).eq('firebase_id', firebaseId);
+  if (error) throw error;
+}
+
+// Turno logística — CREATE (upsert por firebase_id). Mesmo mapa do mirror.
+export async function criarTurnoLogisticaSupabase(firebaseId: string, d: any): Promise<void> {
+  const row: Record<string, unknown> = {
+    firebase_id: firebaseId,
+    firebase_uid: sW(d.uid, d.firebase_uid),
+    nome: sW(d.nome),
+    foto_url: sW(d.fotoUrl, d.foto_url),
+    acao: sW(d.acao),
+    cidade: sW(d.cidade),
+  };
+  const { error } = await supabase.from('turnos_logistica').upsert(row, { onConflict: 'firebase_id' });
+  if (error) throw error;
+}
