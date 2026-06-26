@@ -9,8 +9,15 @@ import { SUPA_REFRESH_KEY, carregarPerfilSupabase, encerrarSessaoSupabase } from
 
 export interface Usuario {
   uid: string; email: string; nome: string;
-  role: 'campo' | 'gestor' | 'admin' | 'guard' | 'viewer';
+  role: 'campo' | 'gestor' | 'admin' | 'guard' | 'viewer' | string;
   paises: string[];
+  cidadesPermitidas?: string[];
+  cidadesGerenciaLog?: string[];
+  cargoPrestador?: string;
+  tipoCadastro?: string;
+  statusPrestador?: string;
+  cidade?: string;
+  senhaTemporaria?: boolean;
 }
 
 interface AuthState {
@@ -34,23 +41,30 @@ const _notify = () => _subs.forEach(fn => fn());
 const _set = (s: Partial<AuthState>) => { _state = { ..._state, ...s }; _notify(); };
 
 async function _loadProfile(supaUid: string): Promise<Usuario | null> {
+  const cols = 'email, nome, role, paises, ativo, firebase_uid, cidades_permitidas, cidades_gerencia_log, cargo, tipo_cadastro, status_prestador, cidade, senha_temporaria';
   const { data, error } = await supabase
     .from('usuarios')
-    .select('email, nome, role, paises, ativo, firebase_uid')
+    .select(cols)
     .eq('id', supaUid)
     .maybeSingle();
+
   if (error || !data || data.ativo === false) {
-    // fallback: buscar por firebase_uid (perfil pode ter sido criado com id = firebase_uid)
     const fb = await carregarPerfilSupabase(supaUid);
     return fb ? { ...fb, role: fb.role as Usuario['role'] } : null;
   }
-  const paises = Array.isArray(data.paises) && data.paises.length ? data.paises : [];
   return {
     uid: data.firebase_uid || supaUid,
     email: data.email || '',
     nome: data.nome || '',
     role: (data.role || 'viewer') as Usuario['role'],
-    paises,
+    paises: Array.isArray(data.paises) && data.paises.length ? data.paises : [],
+    cidadesPermitidas: data.cidades_permitidas ?? undefined,
+    cidadesGerenciaLog: data.cidades_gerencia_log ?? undefined,
+    cargoPrestador: data.cargo ?? undefined,
+    tipoCadastro: data.tipo_cadastro ?? undefined,
+    statusPrestador: data.status_prestador ?? undefined,
+    cidade: data.cidade ?? undefined,
+    senhaTemporaria: data.senha_temporaria ?? false,
   };
 }
 
