@@ -35,24 +35,36 @@ export const db = initializeFirestore(app, {
 
 const fns = getFunctions(app, 'southamerica-east1');
 
-// Cloud Functions
-export const fnGerarCroqui          = () => httpsCallable(fns, 'gerarCroquiFn');
-export const fnGerarStreetView      = () => httpsCallable(fns, 'gerarStreetViewFn');
-export const fnAnalisarCalcada      = () => httpsCallable(fns, 'analisarCalcadaFn');
-export const fnAddEstacao           = () => httpsCallable(fns, 'addEstacaoFn');
-export const fnBuscarPOIs           = () => httpsCallable(fns, 'buscarPOIsFn');
-export const fnGeocodeForward       = () => httpsCallable(fns, 'geocodeForwardFn');
-export const fnGetUsuario           = () => httpsCallable(fns, 'getUsuario');
-export const fnGerarCroquisLote     = () => httpsCallable(fns, 'gerarCroquisLoteFn');
-export const fnSvEstatisticas       = () => httpsCallable(fns, 'svEstatisticasFn');
-export const fnAceitarSlot          = () => httpsCallable(fns, 'aceitarSlot');
-export const fnNotificarOcorrencia  = () => httpsCallable(fns, 'notificarOcorrencia');
-export const fnNotificarTarefa      = () => httpsCallable(fns, 'notificarTarefa');
-export const fnRegistrarTelegramId  = () => httpsCallable(fns, 'registrarTelegramChatId');
-export const fnUpdatePrestadorPosition = () => httpsCallable(fns, 'updatePrestadorPositionFn');
-export const fnGerarSlotsManual        = () => httpsCallable(fns, 'gerarSlotsManualFn');
-export const fnScraperGoJetManual      = () => httpsCallable(fns, 'scraperGoJetManual');
-export const fnExportarHistoricoParking = () => httpsCallable(fns, 'exportarHistoricoParking');
+import { functionsProviderSupabase, getEdgeCallable } from './edge-functions';
+
+function fn(name: string): () => any {
+  return () => {
+    if (functionsProviderSupabase()) {
+      const edge = getEdgeCallable(name);
+      if (edge) return edge();
+    }
+    return httpsCallable(fns, name);
+  };
+}
+
+// Cloud Functions → Edge Functions (atrás de flag jet_functions_provider)
+export const fnGerarCroqui             = fn('gerarCroquiFn');
+export const fnGerarStreetView         = fn('gerarStreetViewFn');
+export const fnAnalisarCalcada         = fn('analisarCalcadaFn');
+export const fnAddEstacao              = fn('addEstacaoFn');
+export const fnBuscarPOIs              = fn('buscarPOIsFn');
+export const fnGeocodeForward          = fn('geocodeForwardFn');
+export const fnGetUsuario              = fn('getUsuario');
+export const fnGerarCroquisLote        = fn('gerarCroquisLoteFn');
+export const fnSvEstatisticas          = fn('svEstatisticasFn');
+export const fnAceitarSlot             = fn('aceitarSlot');
+export const fnNotificarOcorrencia     = fn('notificarOcorrencia');
+export const fnNotificarTarefa         = fn('notificarTarefa');
+export const fnRegistrarTelegramId     = fn('registrarTelegramChatId');
+export const fnUpdatePrestadorPosition = fn('updatePrestadorPositionFn');
+export const fnGerarSlotsManual        = fn('gerarSlotsManualFn');
+export const fnScraperGoJetManual      = fn('scraperGoJetManual');
+export const fnExportarHistoricoParking = fn('exportarHistoricoParking');
 
 if (typeof window !== 'undefined') {
   (window as any).__fnNotificarOcorrencia = httpsCallable(fns, 'notificarOcorrencia');

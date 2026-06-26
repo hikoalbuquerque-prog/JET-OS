@@ -7,10 +7,34 @@
 //   <GoJetCidadesPanel />
 
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   collection, doc, getDocs, setDoc, deleteDoc, onSnapshot,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+
+const T = {
+  cidadesGoJet:       { pt: '🗺 Cidades GoJet',                                    en: '🗺 GoJet Cities',                                          es: '🗺 Ciudades GoJet',                                       ru: '🗺 Города GoJet' },
+  carregando:         { pt: 'Carregando...',                                       en: 'Loading...',                                               es: 'Cargando...',                                             ru: 'Загрузка...' },
+  nenhumaCidade:      { pt: 'Nenhuma cidade configurada.',                         en: 'No cities configured.',                                    es: 'Ninguna ciudad configurada.',                             ru: 'Нет настроенных городов.' },
+  editarCidade:       { pt: 'Editar cidade',                                       en: 'Edit city',                                                es: 'Editar ciudad',                                           ru: 'Редактировать город' },
+  novaCidade:         { pt: 'Nova cidade',                                         en: 'New city',                                                 es: 'Nueva ciudad',                                            ru: 'Новый город' },
+  nomeDaCidade:       { pt: 'Nome da cidade',                                      en: 'City name',                                                es: 'Nombre de la ciudad',                                     ru: 'Название города' },
+  selecionarCidade:   { pt: '— Selecionar cidade —',                               en: '— Select city —',                                          es: '— Seleccionar ciudad —',                                  ru: '— Выбрать город —' },
+  digitarManual:      { pt: '✏️ Digitar manualmente...',                           en: '✏️ Enter manually...',                                     es: '✏️ Escribir manualmente...',                              ru: '✏️ Ввести вручную...' },
+  exRecife:           { pt: 'Ex: Recife',                                          en: 'E.g.: Recife',                                             es: 'Ej.: Recife',                                             ru: 'Напр.: Recife' },
+  digiteNomeExato:    { pt: 'Digite o nome da cidade exatamente como no Firestore', en: 'Enter the city name exactly as in Firestore',             es: 'Escriba el nombre de la ciudad exactamente como en Firestore', ru: 'Введите название города точно как в Firestore' },
+  cityIdGoJet:        { pt: 'City ID (GoJet)',                                     en: 'City ID (GoJet)',                                          es: 'City ID (GoJet)',                                         ru: 'City ID (GoJet)' },
+  exCityId:           { pt: 'Ex: 669f89ebd06775867c31b984',                        en: 'E.g.: 669f89ebd06775867c31b984',                           es: 'Ej.: 669f89ebd06775867c31b984',                           ru: 'Напр.: 669f89ebd06775867c31b984' },
+  dicaCityId:         { pt: '💡 Abrir map.gojet.app → selecionar cidade → copiar o ?cid= da URL', en: '💡 Open map.gojet.app → select city → copy the ?cid= from the URL', es: '💡 Abrir map.gojet.app → seleccionar ciudad → copiar el ?cid= de la URL', ru: '💡 Откройте map.gojet.app → выберите город → скопируйте ?cid= из URL' },
+  ativoOverlay:       { pt: 'Ativo (aparece no overlay GoJet)',                    en: 'Active (shown in the GoJet overlay)',                      es: 'Activo (aparece en el overlay GoJet)',                    ru: 'Активен (отображается в слое GoJet)' },
+  cancelar:           { pt: 'Cancelar',                                            en: 'Cancel',                                                   es: 'Cancelar',                                                ru: 'Отмена' },
+  salvando:           { pt: 'Salvando...',                                         en: 'Saving...',                                                es: 'Guardando...',                                            ru: 'Сохранение...' },
+  salvar:             { pt: '✓ Salvar',                                            en: '✓ Save',                                                   es: '✓ Guardar',                                               ru: '✓ Сохранить' },
+  adicionarCidade:    { pt: '+ Adicionar cidade',                                  en: '+ Add city',                                               es: '+ Agregar ciudad',                                        ru: '+ Добавить город' },
+  erroObrigatorio:    { pt: 'Nome e City ID são obrigatórios',                     en: 'Name and City ID are required',                            es: 'Nombre y City ID son obligatorios',                       ru: 'Имя и City ID обязательны' },
+  confirmRemover:     { pt: 'Remover',                                             en: 'Remove',                                                   es: 'Eliminar',                                                ru: 'Удалить' },
+};
 
 interface GoJetCidade {
   id: string;          // nome da cidade (doc id)
@@ -26,6 +50,10 @@ const SEED: Omit<GoJetCidade, 'id'>[] = [
 ];
 
 export default function GoJetCidadesPanel() {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
+  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
+
   const [cidades,          setCidades]          = useState<GoJetCidade[]>([]);
   const [cidadesFirestore, setCidadesFirestore] = useState<string[]>([]);
   const [loading,          setLoading]          = useState(true);
@@ -65,7 +93,7 @@ export default function GoJetCidadesPanel() {
 
   const salvar = async () => {
     if (!form.nome.trim() || !form.cityId.trim()) {
-      setErro('Nome e City ID são obrigatórios');
+      setErro(pick(T.erroObrigatorio));
       return;
     }
     setSalvando(true);
@@ -87,7 +115,7 @@ export default function GoJetCidadesPanel() {
   };
 
   const remover = async (id: string) => {
-    if (!confirm(`Remover ${id}?`)) return;
+    if (!confirm(`${pick(T.confirmRemover)} ${id}?`)) return;
     await deleteDoc(doc(db, 'gojet_config', id));
   };
 
@@ -134,15 +162,15 @@ export default function GoJetCidadesPanel() {
 
   return (
     <div>
-      <div style={S.title}>🗺 Cidades GoJet</div>
+      <div style={S.title}>{pick(T.cidadesGoJet)}</div>
 
       {/* Lista */}
       <div style={S.section}>
         {loading ? (
-          <div style={{ color: 'rgba(255,255,255,.3)', fontSize: 12 }}>Carregando...</div>
+          <div style={{ color: 'rgba(255,255,255,.3)', fontSize: 12 }}>{pick(T.carregando)}</div>
         ) : cidades.length === 0 ? (
           <div style={{ color: 'rgba(255,255,255,.3)', fontSize: 12 }}>
-            Nenhuma cidade configurada.
+            {pick(T.nenhumaCidade)}
           </div>
         ) : cidades.map(c => (
           <div key={c.id} style={S.row}>
@@ -182,9 +210,9 @@ export default function GoJetCidadesPanel() {
       {/* Formulário novo/editar */}
       {nova ? (
         <div style={S.section}>
-          <div style={S.title}>{editando ? 'Editar cidade' : 'Nova cidade'}</div>
+          <div style={S.title}>{editando ? pick(T.editarCidade) : pick(T.novaCidade)}</div>
 
-          <label style={S.lbl}>Nome da cidade</label>
+          <label style={S.lbl}>{pick(T.nomeDaCidade)}</label>
           {editando ? (
             // Editando — nome não pode mudar (é o doc ID)
             <div style={{ ...S.inp, color: 'rgba(255,255,255,.4)', cursor: 'not-allowed' }}>
@@ -197,33 +225,33 @@ export default function GoJetCidadesPanel() {
               value={form.nome}
               onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
             >
-              <option value="">— Selecionar cidade —</option>
+              <option value="">{pick(T.selecionarCidade)}</option>
               {cidadesFirestore
                 .filter(c => !cidades.find(gc => gc.nome === c)) // esconde já configuradas
                 .map(c => (
                   <option key={c} value={c}>{c}</option>
                 ))}
-              <option value="__manual__">✏️ Digitar manualmente...</option>
+              <option value="__manual__">{pick(T.digitarManual)}</option>
             </select>
           ) : (
             <input style={S.inp} value={form.nome}
-              placeholder="Ex: Recife"
+              placeholder={pick(T.exRecife)}
               onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
           )}
           {form.nome === '__manual__' && (
             <input style={{ ...S.inp, marginTop: 6 }}
-              placeholder="Digite o nome da cidade exatamente como no Firestore"
+              placeholder={pick(T.digiteNomeExato)}
               autoFocus
               onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
           )}
 
-          <label style={S.lbl}>City ID (GoJet)</label>
+          <label style={S.lbl}>{pick(T.cityIdGoJet)}</label>
           <input style={S.inp} value={form.cityId}
-            placeholder="Ex: 669f89ebd06775867c31b984"
+            placeholder={pick(T.exCityId)}
             onChange={e => setForm(f => ({ ...f, cityId: e.target.value }))} />
 
           <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', marginBottom: 8 }}>
-            💡 Abrir map.gojet.app → selecionar cidade → copiar o ?cid= da URL
+            {pick(T.dicaCityId)}
           </div>
 
           <label style={{
@@ -232,7 +260,7 @@ export default function GoJetCidadesPanel() {
           }}>
             <input type="checkbox" checked={form.ativo}
               onChange={e => setForm(f => ({ ...f, ativo: e.target.checked }))} />
-            Ativo (aparece no overlay GoJet)
+            {pick(T.ativoOverlay)}
           </label>
 
           {erro && <div style={{ color: '#ef4444', fontSize: 11, marginBottom: 8 }}>{erro}</div>}
@@ -241,12 +269,12 @@ export default function GoJetCidadesPanel() {
             <button onClick={() => { setNova(false); setEditando(null); setForm({ nome: '', cityId: '', ativo: true }); setErro(''); }}
               style={{ flex: 1, padding: '8px', borderRadius: 8, border: '1px solid rgba(255,255,255,.1)',
                 background: 'rgba(255,255,255,.05)', color: 'rgba(255,255,255,.4)', cursor: 'pointer', fontSize: 12 }}>
-              Cancelar
+              {pick(T.cancelar)}
             </button>
             <button onClick={salvar} disabled={salvando}
               style={{ flex: 2, padding: '8px', borderRadius: 8, border: 'none',
                 background: '#10b981', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>
-              {salvando ? 'Salvando...' : '✓ Salvar'}
+              {salvando ? pick(T.salvando) : pick(T.salvar)}
             </button>
           </div>
         </div>
@@ -254,7 +282,7 @@ export default function GoJetCidadesPanel() {
         <button onClick={() => { setNova(true); setEditando(null); setForm({ nome: '', cityId: '', ativo: true }); }}
           style={{ width: '100%', padding: '9px', borderRadius: 8, border: '1px dashed rgba(16,185,129,.3)',
             background: 'rgba(16,185,129,.06)', color: '#10b981', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-          + Adicionar cidade
+          {pick(T.adicionarCidade)}
         </button>
       )}
     </div>

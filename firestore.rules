@@ -76,6 +76,26 @@ service cloud.firestore {
       allow update, delete: if false; // imutável — prova do consentimento
     }
 
+    // ── ACEITES DE TERMOS DE USO + PRIVACIDADE ────────────────────────
+    // Aceite GERAL (todos os perfis), separado do consentimento de GPS acima.
+    // Mesmo padrão auditável e IMUTÁVEL. id = "{uid}_v{versao}".
+    match /aceites_termos/{id} {
+      allow get:    if isAuth(); // usuário consulta o próprio aceite (id contém o uid)
+      allow list:   if isGestorSeg();
+      allow create: if isAuth() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false; // imutável — prova do aceite
+    }
+
+    // ── BUG REPORTS / ERROS ───────────────────────────────────────────
+    // Report manual do usuário + captura automática de erros não-tratados.
+    // Qualquer autenticado cria (com o próprio uid); gestão lê e gerencia.
+    match /bug_reports/{id} {
+      allow create: if isAuth() && request.resource.data.uid == request.auth.uid;
+      allow get, list: if isGestorSeg();
+      allow update:    if isGestor();  // marcar resolvido / triagem
+      allow delete:    if isAdmin();
+    }
+
     // ── PRESTADORES FISCAL (NFS-e) ────────────────────────────────────
     // Dados fiscais do prestador (MEI) p/ emissão automática de NFS-e.
     // Espelha a RLS do Supabase (prestadores_fiscal): o prestador edita só os
@@ -125,7 +145,7 @@ service cloud.firestore {
 
     // ── SLOTS ─────────────────────────────────────────────────────────
     match /slots/{slotId} {
-      allow read, write: if isGestor();
+      allow read, write: if isGestor() || hasRole(['logistica', 'supergestor']);
       allow read: if isPrestadorAtivo() &&
         resource.data.get('cidade', '') == getUser().get('cidade', '') &&
         resource.data.get('status', '') in ['aberto', 'Aberto'];

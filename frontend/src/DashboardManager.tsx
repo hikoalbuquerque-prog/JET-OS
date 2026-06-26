@@ -1,8 +1,10 @@
 // DashboardManager.tsx — Dashboard + Custos API + Exportação/Importação
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { collection, getDocs, query, where, doc, writeBatch, getDoc, updateDoc, orderBy, limit, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useState as useLocalState } from 'react';
 import { db, auth } from './lib/firebase';
+import { guardProviderSupabase, carregarOcorrenciasSupabase, buscarOcorrenciaSupabase, guardWriteSupabase, atualizarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
 import JSZip from 'jszip';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
@@ -35,6 +37,16 @@ interface Props {
 // ── HELPERS ──────────────────────────────────────────────────────
 function pct(n: number, total: number) {
   return total > 0 ? Math.round((n / total) * 100) : 0;
+}
+
+// ── i18n (padrão TermosUsoGate: objetos {pt,en,es,ru} + seletor, sem chaves json) ──
+type Lang = 'pt' | 'en' | 'es' | 'ru';
+type TL = { pt: string; en: string; es: string; ru: string };
+function useLang() {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: TL) => o[lang] ?? o.pt;
+  return { lang, pick };
 }
 
 function BarraProgresso({ valor, total, cor }: { valor: number; total: number; cor: string }) {
@@ -514,6 +526,59 @@ function abrirJanelaImpressao(html: string, nomeArquivo: string) {
 function RelatorioManager({ estacoes, cidade, pais, total }: {
   estacoes: Estacao[]; cidade: string; pais: string; total: number;
 }) {
+  const { pick } = useLang();
+  const T = {
+    abaPrefeitura: { pt:'📋 Relatório Prefeitura', en:'📋 City Hall Report', es:'📋 Informe Ayuntamiento', ru:'📋 Отчёт мэрии' },
+    abaSuporte:    { pt:'📊 Suporte JET (Excel)', en:'📊 JET Support (Excel)', es:'📊 Soporte JET (Excel)', ru:'📊 Поддержка JET (Excel)' },
+    headerTitulo:  { pt:'Relatório de Parceria', en:'Partnership Report', es:'Informe de Asociación', ru:'Отчёт о партнёрстве' },
+    headerSub:     { pt:'Selecione as estações e gere o PDF no formato de relatório de pontos', en:'Select the stations and generate the PDF in the points report format', es:'Seleccione las estaciones y genere el PDF en formato de informe de puntos', ru:'Выберите станции и создайте PDF в формате отчёта о точках' },
+    todos:         { pt:'Todos', en:'All', es:'Todos', ru:'Все' },
+    privadas:      { pt:'🏢 Privadas', en:'🏢 Private', es:'🏢 Privadas', ru:'🏢 Частные' },
+    publicas:      { pt:'🛤 Públicas', en:'🛤 Public', es:'🛤 Públicas', ru:'🛤 Публичные' },
+    concorrentes:  { pt:'⚔️ Concorrentes', en:'⚔️ Competitors', es:'⚔️ Competidores', ru:'⚔️ Конкуренты' },
+    todosStatus:   { pt:'Todos status', en:'All statuses', es:'Todos los estados', ru:'Все статусы' },
+    estacoesCnt:   { pt:'estações', en:'stations', es:'estaciones', ru:'станций' },
+    selecionadas:  { pt:'selecionadas', en:'selected', es:'seleccionadas', ru:'выбрано' },
+    desmarcarTudo: { pt:'Desmarcar tudo', en:'Deselect all', es:'Deseleccionar todo', ru:'Снять выделение' },
+    selecionarTudo:{ pt:'Selecionar tudo', en:'Select all', es:'Seleccionar todo', ru:'Выбрать всё' },
+    nenhumaFiltro: { pt:'Nenhuma estação com esses filtros', en:'No station matches these filters', es:'Ninguna estación con estos filtros', ru:'Нет станций по этим фильтрам' },
+    ocultar:       { pt:'Ocultar', en:'Hide', es:'Ocultar', ru:'Скрыть' },
+    configurar:    { pt:'Configurar', en:'Configure', es:'Configurar', ru:'Настроить' },
+    camposRelat:   { pt:'campos do relatório', en:'report fields', es:'campos del informe', ru:'поля отчёта' },
+    camposAtivos:  { pt:'campos ativos', en:'active fields', es:'campos activos', ru:'активных полей' },
+  };
+  // Tradução dos rótulos de grupo/campo do relatório (somente exibição; chaves internas inalteradas)
+  const grupoLabels: Record<string, TL> = {
+    'Identificação':  { pt:'Identificação', en:'Identification', es:'Identificación', ru:'Идентификация' },
+    'Localização':    { pt:'Localização', en:'Location', es:'Ubicación', ru:'Местоположение' },
+    'Classificação':  { pt:'Classificação', en:'Classification', es:'Clasificación', ru:'Классификация' },
+    'Estabelecimento':{ pt:'Estabelecimento', en:'Establishment', es:'Establecimiento', ru:'Заведение' },
+    'Operacional':    { pt:'Operacional', en:'Operational', es:'Operacional', ru:'Операционные' },
+  };
+  const campoLabels: Record<string, TL> = {
+    codigo:        { pt:'Código', en:'Code', es:'Código', ru:'Код' },
+    criadoEm:      { pt:'Cadastrado em', en:'Registered on', es:'Registrado el', ru:'Зарегистрировано' },
+    consultor:     { pt:'Consultor campo', en:'Field consultant', es:'Consultor de campo', ru:'Полевой консультант' },
+    endereco:      { pt:'Endereço', en:'Address', es:'Dirección', ru:'Адрес' },
+    lat:           { pt:'Latitude', en:'Latitude', es:'Latitud', ru:'Широта' },
+    lng:           { pt:'Longitude', en:'Longitude', es:'Longitud', ru:'Долгота' },
+    tipo:          { pt:'Tipo', en:'Type', es:'Tipo', ru:'Тип' },
+    status:        { pt:'Status', en:'Status', es:'Estado', ru:'Статус' },
+    larguraFaixa:  { pt:'Largura faixa (m)', en:'Lane width (m)', es:'Ancho de carril (m)', ru:'Ширина полосы (м)' },
+    'privado.nomeLocal':        { pt:'Nome do local', en:'Location name', es:'Nombre del local', ru:'Название места' },
+    'privado.nomeAutorizante':  { pt:'Autorizante', en:'Authorizer', es:'Autorizante', ru:'Уполномоченный' },
+    'privado.cargoAutorizante': { pt:'Cargo', en:'Position', es:'Cargo', ru:'Должность' },
+    'privado.telefone':         { pt:'Telefone parceiro', en:'Partner phone', es:'Teléfono socio', ru:'Телефон партнёра' },
+    'privado.email':            { pt:'E-mail parceiro', en:'Partner email', es:'Correo socio', ru:'Эл. почта партнёра' },
+    operador:      { pt:'Operador', en:'Operator', es:'Operador', ru:'Оператор' },
+    ia_aprovado:   { pt:'IA Aprovado', en:'AI Approved', es:'IA Aprobado', ru:'ИИ одобрено' },
+    ia_score:      { pt:'IA Score', en:'AI Score', es:'Puntuación IA', ru:'Оценка ИИ' },
+    croqui:        { pt:'Link Croqui', en:'Sketch link', es:'Enlace croquis', ru:'Ссылка на эскиз' },
+    foto:          { pt:'Link Foto', en:'Photo link', es:'Enlace foto', ru:'Ссылка на фото' },
+    streetView:    { pt:'Link Street View', en:'Street View link', es:'Enlace Street View', ru:'Ссылка Street View' },
+  };
+  const labelGrupo = (g: string) => grupoLabels[g] ? pick(grupoLabels[g]) : g;
+  const labelCampo = (k: string, fallback: string) => campoLabels[k] ? pick(campoLabels[k]) : fallback;
   // Filtra apenas PRIVADAS por padrão, ordenadas por criadoEm desc
   const [filtroTipo,   setFiltroTipo]   = useState<'TODOS'|'PRIVADA'|'PUBLICA'|'CONCORRENTE'>('PRIVADA');
   const [filtroStatus, setFiltroStatus] = useState<string>('SOLICITADO');
@@ -990,8 +1055,8 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
       <div style={{ display: 'flex', gap: 0, marginBottom: 12, borderRadius: 8, overflow: 'hidden',
         border: '1px solid rgba(255,255,255,.08)' }}>
         {([
-          { k: 'parceria', l: '📋 Relatório Prefeitura' },
-          { k: 'suporte',  l: '📊 Suporte JET (Excel)' },
+          { k: 'parceria', l: pick(T.abaPrefeitura) },
+          { k: 'suporte',  l: pick(T.abaSuporte) },
         ] as {k:'parceria'|'suporte';l:string}[]).map(a => (
           <button key={a.k} onClick={() => setAbaRel(a.k)} style={{
             flex: 1, padding: '8px 0', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600,
@@ -1022,10 +1087,10 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
       <div style={{ padding: 12, borderRadius: 8, marginBottom: 12,
         background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.2)' }}>
         <div style={{ fontSize: 13, color: '#fbbf24', fontWeight: 600, marginBottom: 2 }}>
-          Relatório de Parceria — {cidade}
+          {pick(T.headerTitulo)} — {cidade}
         </div>
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)' }}>
-          Selecione as estações e gere o PDF no formato de relatório de pontos
+          {pick(T.headerSub)}
         </div>
       </div>
 
@@ -1039,7 +1104,7 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
               border: `1px solid ${filtroTipo === t ? 'rgba(245,158,11,.4)' : 'rgba(255,255,255,.08)'}`,
               fontWeight: filtroTipo === t ? 700 : 400,
             }}>
-            {t === 'TODOS' ? 'Todos' : t === 'PRIVADA' ? '🏢 Privadas' : t === 'PUBLICA' ? '🛤 Públicas' : '⚔️ Concorrentes'}
+            {t === 'TODOS' ? pick(T.todos) : t === 'PRIVADA' ? pick(T.privadas) : t === 'PUBLICA' ? pick(T.publicas) : pick(T.concorrentes)}
           </button>
         ))}
       </div>
@@ -1052,7 +1117,7 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
               border: `1px solid ${filtroStatus === s ? 'rgba(96,165,250,.3)' : 'rgba(255,255,255,.08)'}`,
               fontWeight: filtroStatus === s ? 700 : 400,
             }}>
-            {s === 'TODOS' ? 'Todos status' : s}
+            {s === 'TODOS' ? pick(T.todosStatus) : s}
           </button>
         ))}
       </div>
@@ -1060,10 +1125,10 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
       {/* Contador + Selecionar tudo */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <span style={{ fontSize: 11, color: 'rgba(255,255,255,.4)' }}>
-          {estFiltradas.length} estações · <span style={{ color: '#fbbf24', fontWeight: 600 }}>{selecionadas.size} selecionadas</span>
+          {estFiltradas.length} {pick(T.estacoesCnt)} · <span style={{ color: '#fbbf24', fontWeight: 600 }}>{selecionadas.size} {pick(T.selecionadas)}</span>
         </span>
         <button onClick={toggleTudo} style={{ ...inp, padding: '4px 10px' }}>
-          {selecionadas.size === estFiltradas.length && estFiltradas.length > 0 ? 'Desmarcar tudo' : 'Selecionar tudo'}
+          {selecionadas.size === estFiltradas.length && estFiltradas.length > 0 ? pick(T.desmarcarTudo) : pick(T.selecionarTudo)}
         </button>
       </div>
 
@@ -1072,7 +1137,7 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
         borderRadius: 8, marginBottom: 12 }}>
         {estFiltradas.length === 0 ? (
           <div style={{ padding: 16, fontSize: 11, color: 'rgba(255,255,255,.3)', textAlign: 'center' }}>
-            Nenhuma estação com esses filtros
+            {pick(T.nenhumaFiltro)}
           </div>
         ) : estFiltradas.map(e => {
           const sel = selecionadas.has(e.id);
@@ -1119,8 +1184,8 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
       <button onClick={() => setMostrarCampos(v => !v)} style={{ ...inp, width: '100%',
         marginBottom: 8, padding: '7px 10px', textAlign: 'left', display: 'flex',
         alignItems: 'center', justifyContent: 'space-between' }}>
-        <span>⚙️ {mostrarCampos ? 'Ocultar' : 'Configurar'} campos do relatório</span>
-        <span style={{ fontSize: 10, color: 'rgba(255,255,255,.3)' }}>{campos.length} campos ativos</span>
+        <span>⚙️ {mostrarCampos ? pick(T.ocultar) : pick(T.configurar)} {pick(T.camposRelat)}</span>
+        <span style={{ fontSize: 10, color: 'rgba(255,255,255,.3)' }}>{campos.length} {pick(T.camposAtivos)}</span>
       </button>
       {mostrarCampos && (() => {
         const grupos = Array.from(new Set(CAMPOS_RELATORIO.map(c => c.grupo)));
@@ -1131,7 +1196,7 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
               <div key={g} style={{ borderBottom: '1px solid rgba(255,255,255,.05)' }}>
                 <div style={{ padding: '6px 10px', fontSize: 9, color: 'rgba(255,255,255,.3)',
                   textTransform: 'uppercase', letterSpacing: .6, fontWeight: 600,
-                  background: 'rgba(255,255,255,.02)' }}>{g}</div>
+                  background: 'rgba(255,255,255,.02)' }}>{labelGrupo(g)}</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, padding: '6px 10px 8px' }}>
                   {CAMPOS_RELATORIO.filter(c => c.grupo === g).map(c => (
                     <button key={c.key} onClick={() => toggle(c.key)} style={{
@@ -1139,7 +1204,7 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
                       background: campos.includes(c.key) ? 'rgba(96,165,250,.15)' : 'rgba(255,255,255,.04)',
                       color: campos.includes(c.key) ? '#60a5fa' : 'rgba(255,255,255,.3)',
                       border: `1px solid ${campos.includes(c.key) ? 'rgba(96,165,250,.3)' : 'rgba(255,255,255,.07)'}`,
-                    }}>{c.label}</button>
+                    }}>{labelCampo(c.key, c.label)}</button>
                   ))}
                 </div>
               </div>
@@ -1220,6 +1285,43 @@ function SuporteJETPanel({ estacoes, cidade, filtroTipo, setFiltroTipo, filtroSt
   setFiltroStatus: (v: string) => void;
   exportarCSV: () => void;
 }) {
+  const { pick } = useLang();
+  const T = {
+    headerTit: { pt:'📊 Exportação para Suporte JET', en:'📊 Export for JET Support', es:'📊 Exportación para Soporte JET', ru:'📊 Экспорт для поддержки JET' },
+    headerDescA: { pt:'Gera o arquivo Excel (.csv) com ', en:'Generates the Excel file (.csv) with ', es:'Genera el archivo Excel (.csv) con ', ru:'Создаёт файл Excel (.csv) с ' },
+    headerStrong:{ pt:'latitude, longitude e endereço', en:'latitude, longitude and address', es:'latitud, longitud y dirección', ru:'широтой, долготой и адресом' },
+    headerDescB: { pt:', formatado para importação no sistema JET. Cada linha corresponde a uma estação.', en:', formatted for import into the JET system. Each row corresponds to one station.', es:', formateado para importación en el sistema JET. Cada fila corresponde a una estación.', ru:', отформатировано для импорта в систему JET. Каждая строка соответствует одной станции.' },
+    todosTipos:  { pt:'Todos tipos', en:'All types', es:'Todos los tipos', ru:'Все типы' },
+    privadas:    { pt:'🏢 Privadas', en:'🏢 Private', es:'🏢 Privadas', ru:'🏢 Частные' },
+    publicas:    { pt:'🛤 Públicas', en:'🛤 Public', es:'🛤 Públicas', ru:'🛤 Публичные' },
+    todosStatus: { pt:'Todos status', en:'All statuses', es:'Todos los estados', ru:'Все статусы' },
+    estacoes:    { pt:'Estações', en:'Stations', es:'Estaciones', ru:'Станции' },
+    comFoto:     { pt:'Com foto', en:'With photo', es:'Con foto', ru:'С фото' },
+    semFoto:     { pt:'Sem foto', en:'No photo', es:'Sin foto', ru:'Без фото' },
+    semFotoTxt:  { pt:'✗ sem foto', en:'✗ no photo', es:'✗ sin foto', ru:'✗ нет фото' },
+    temFotoTxt:  { pt:'✓ link', en:'✓ link', es:'✓ enlace', ru:'✓ ссылка' },
+    linhas:      { pt:'linhas...', en:'rows...', es:'filas...', ru:'строк...' },
+    sobreFotosTit:{ pt:'📁 Sobre o envio das fotos', en:'📁 About sending the photos', es:'📁 Sobre el envío de fotos', ru:'📁 Об отправке фотографий' },
+    sobreFotosP1a:{ pt:'O JET vincula fotos pelo ', en:'JET links photos by the ', es:'JET vincula fotos por el ', ru:'JET связывает фото по ' },
+    sobreFotosStrong:{ pt:'nome do arquivo = endereço da estação', en:'file name = station address', es:'nombre del archivo = dirección de la estación', ru:'имя файла = адрес станции' },
+    sobreFotosP1b:{ pt:'. As fotos salvas no sistema já têm URL do Firebase Storage — a coluna ', en:'. Photos saved in the system already have a Firebase Storage URL — the column ', es:'. Las fotos guardadas en el sistema ya tienen URL de Firebase Storage — la columna ', ru:'. Сохранённые в системе фото уже имеют URL Firebase Storage — столбец ' },
+    sobreFotosP1c:{ pt:' no CSV aponta diretamente para cada foto.', en:' in the CSV points directly to each photo.', es:' en el CSV apunta directamente a cada foto.', ru:' в CSV указывает напрямую на каждое фото.' },
+    paraDrive:   { pt:'Para enviar em pasta no Drive:', en:'To send in a Drive folder:', es:'Para enviar en una carpeta de Drive:', ru:'Чтобы отправить в папке Drive:' },
+    passo1a:     { pt:'Baixe as fotos a partir dos links da coluna ', en:'Download the photos from the links in the column ', es:'Descargue las fotos desde los enlaces de la columna ', ru:'Скачайте фото по ссылкам из столбца ' },
+    passo2a:     { pt:'Renomeie cada arquivo com o ', en:'Rename each file with the ', es:'Renombre cada archivo con la ', ru:'Переименуйте каждый файл, указав ' },
+    passo2strong:{ pt:'endereço completo', en:'full address', es:'dirección completa', ru:'полный адрес' },
+    passo2b:     { pt:' da estação correspondente', en:' of the corresponding station', es:' de la estación correspondiente', ru:' соответствующей станции' },
+    passo3:      { pt:'Suba a pasta para o Google Drive e compartilhe o link com o suporte JET junto com o CSV', en:'Upload the folder to Google Drive and share the link with JET support along with the CSV', es:'Suba la carpeta a Google Drive y comparta el enlace con el soporte JET junto con el CSV', ru:'Загрузите папку в Google Drive и поделитесь ссылкой со службой поддержки JET вместе с CSV' },
+    nenhumaFiltro:{ pt:'Nenhuma estação com esses filtros', en:'No station matches these filters', es:'Ninguna estación con estos filtros', ru:'Нет станций по этим фильтрам' },
+    baixarCsv:   { pt:'📥 Baixar CSV', en:'📥 Download CSV', es:'📥 Descargar CSV', ru:'📥 Скачать CSV' },
+    estacoesCnt: { pt:'estações', en:'stations', es:'estaciones', ru:'станций' },
+    baixar:      { pt:'📷 Baixar', en:'📷 Download', es:'📷 Descargar', ru:'📷 Скачать' },
+    fotoSing:    { pt:'foto', en:'photo', es:'foto', ru:'фото' },
+    fotoPlur:    { pt:'fotos', en:'photos', es:'fotos', ru:'фото' },
+    nomeadas:    { pt:'(nomeadas pelo endereço)', en:'(named by address)', es:'(nombradas por dirección)', ru:'(названы по адресу)' },
+    cadaArqA:    { pt:'Cada arquivo será salvo como ', en:'Each file will be saved as ', es:'Cada archivo se guardará como ', ru:'Каждый файл будет сохранён как ' },
+    cadaArqB:    { pt:' — pronto para enviar ao suporte JET', en:' — ready to send to JET support', es:' — listo para enviar al soporte JET', ru:' — готов к отправке в поддержку JET' },
+  };
   const comFoto = estacoes.filter(e => (e as any).imagens?.foto).length;
   const semFoto = estacoes.length - comFoto;
 
@@ -1262,12 +1364,10 @@ function SuporteJETPanel({ estacoes, cidade, filtroTipo, setFiltroTipo, filtroSt
       <div style={{ padding: 12, borderRadius: 8, marginBottom: 12,
         background: 'rgba(59,130,246,.06)', border: '1px solid rgba(59,130,246,.2)' }}>
         <div style={{ fontSize: 13, color: '#60a5fa', fontWeight: 600, marginBottom: 4 }}>
-          📊 Exportação para Suporte JET
+          {pick(T.headerTit)}
         </div>
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', lineHeight: 1.5 }}>
-          Gera o arquivo Excel (.csv) com <strong style={{ color: '#fff' }}>latitude, longitude e endereço</strong>,
-          formatado para importação no sistema JET.
-          Cada linha corresponde a uma estação.
+          {pick(T.headerDescA)}<strong style={{ color: '#fff' }}>{pick(T.headerStrong)}</strong>{pick(T.headerDescB)}
         </div>
       </div>
 
@@ -1279,7 +1379,7 @@ function SuporteJETPanel({ estacoes, cidade, filtroTipo, setFiltroTipo, filtroSt
             color: filtroTipo === t ? '#60a5fa' : 'rgba(255,255,255,.4)',
             border: `1px solid ${filtroTipo === t ? 'rgba(59,130,246,.35)' : 'rgba(255,255,255,.08)'}`,
             fontWeight: filtroTipo === t ? 700 : 400,
-          }}>{t === 'TODOS' ? 'Todos tipos' : t === 'PRIVADA' ? '🏢 Privadas' : '🛤 Públicas'}</button>
+          }}>{t === 'TODOS' ? pick(T.todosTipos) : t === 'PRIVADA' ? pick(T.privadas) : pick(T.publicas)}</button>
         ))}
         {(['TODOS','SOLICITADO','APROVADO','INSTALADO'] as const).map(s => (
           <button key={s} onClick={() => setFiltroStatus(s)} style={{ ...inp,
@@ -1287,16 +1387,16 @@ function SuporteJETPanel({ estacoes, cidade, filtroTipo, setFiltroTipo, filtroSt
             color: filtroStatus === s ? '#22c55e' : 'rgba(255,255,255,.4)',
             border: `1px solid ${filtroStatus === s ? 'rgba(34,197,94,.3)' : 'rgba(255,255,255,.08)'}`,
             fontWeight: filtroStatus === s ? 700 : 400,
-          }}>{s === 'TODOS' ? 'Todos status' : s.charAt(0) + s.slice(1).toLowerCase()}</button>
+          }}>{s === 'TODOS' ? pick(T.todosStatus) : s.charAt(0) + s.slice(1).toLowerCase()}</button>
         ))}
       </div>
 
       {/* Resumo */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
         {[
-          { l: 'Estações', v: estacoes.length, cor: '#60a5fa' },
-          { l: 'Com foto',    v: comFoto, cor: '#22c55e' },
-          { l: 'Sem foto',    v: semFoto, cor: semFoto > 0 ? '#f87171' : '#6b7280' },
+          { l: pick(T.estacoes), v: estacoes.length, cor: '#60a5fa' },
+          { l: pick(T.comFoto),    v: comFoto, cor: '#22c55e' },
+          { l: pick(T.semFoto),    v: semFoto, cor: semFoto > 0 ? '#f87171' : '#6b7280' },
         ].map(k => (
           <div key={k.l} style={{ padding: '8px 10px', borderRadius: 8,
             background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.07)' }}>
@@ -1325,14 +1425,14 @@ function SuporteJETPanel({ estacoes, cidade, filtroTipo, setFiltroTipo, filtroSt
               {(e as any).endereco || e.bairro || '—'}
             </span>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: (e as any).imagens?.foto ? '#22c55e' : '#f87171' }}>
-              {(e as any).imagens?.foto ? '✓ link' : '✗ sem foto'}
+              {(e as any).imagens?.foto ? pick(T.temFotoTxt) : pick(T.semFotoTxt)}
             </span>
           </div>
         ))}
         {estacoes.length > 3 && (
           <div style={{ padding: '5px 10px', color: 'rgba(255,255,255,.2)', fontSize: 10,
             borderTop: '1px solid rgba(255,255,255,.05)' }}>
-            + {estacoes.length - 3} linhas...
+            + {estacoes.length - 3} {pick(T.linhas)}
           </div>
         )}
       </div>
@@ -1341,18 +1441,16 @@ function SuporteJETPanel({ estacoes, cidade, filtroTipo, setFiltroTipo, filtroSt
       <div style={{ padding: 12, borderRadius: 8, marginBottom: 14,
         background: 'rgba(234,179,8,.05)', border: '1px solid rgba(234,179,8,.15)' }}>
         <div style={{ color: '#eab308', fontWeight: 600, fontSize: 12, marginBottom: 8 }}>
-          📁 Sobre o envio das fotos
+          {pick(T.sobreFotosTit)}
         </div>
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,.5)', lineHeight: 1.7 }}>
-          O JET vincula fotos pelo <strong style={{ color: '#fff' }}>nome do arquivo = endereço da estação</strong>.
-          As fotos salvas no sistema já têm URL do Firebase Storage —
-          a coluna <code style={{ color: '#eab308' }}>link_foto</code> no CSV aponta diretamente para cada foto.<br/><br/>
-          Para enviar em pasta no Drive:
+          {pick(T.sobreFotosP1a)}<strong style={{ color: '#fff' }}>{pick(T.sobreFotosStrong)}</strong>{pick(T.sobreFotosP1b)}<code style={{ color: '#eab308' }}>link_foto</code>{pick(T.sobreFotosP1c)}<br/><br/>
+          {pick(T.paraDrive)}
         </div>
         <ol style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 11, color: 'rgba(255,255,255,.5)', lineHeight: 2 }}>
-          <li>Baixe as fotos a partir dos links da coluna <code style={{ color: '#eab308' }}>link_foto</code></li>
-          <li>Renomeie cada arquivo com o <strong style={{ color: '#fff' }}>endereço completo</strong> da estação correspondente</li>
-          <li>Suba a pasta para o Google Drive e compartilhe o link com o suporte JET junto com o CSV</li>
+          <li>{pick(T.passo1a)}<code style={{ color: '#eab308' }}>link_foto</code></li>
+          <li>{pick(T.passo2a)}<strong style={{ color: '#fff' }}>{pick(T.passo2strong)}</strong>{pick(T.passo2b)}</li>
+          <li>{pick(T.passo3)}</li>
         </ol>
       </div>
 
@@ -1369,8 +1467,8 @@ function SuporteJETPanel({ estacoes, cidade, filtroTipo, setFiltroTipo, filtroSt
           fontSize: 13, fontWeight: 700,
         }}>
           {estacoes.length === 0
-            ? 'Nenhuma estação com esses filtros'
-            : `📥 Baixar CSV (${estacoes.length} estações)`}
+            ? pick(T.nenhumaFiltro)
+            : `${pick(T.baixarCsv)} (${estacoes.length} ${pick(T.estacoesCnt)})`}
         </button>
 
         {/* Download fotos automatizado */}
@@ -1381,12 +1479,12 @@ function SuporteJETPanel({ estacoes, cidade, filtroTipo, setFiltroTipo, filtroSt
             background: 'linear-gradient(135deg,#059669,#10b981)',
             color: '#fff', fontSize: 13, fontWeight: 700,
           }}>
-            📷 Baixar {comFoto} foto{comFoto > 1 ? 's' : ''} (nomeadas pelo endereço)
+            {pick(T.baixar)} {comFoto} {comFoto > 1 ? pick(T.fotoPlur) : pick(T.fotoSing)} {pick(T.nomeadas)}
           </button>
         )}
         {comFoto > 0 && (
           <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', textAlign: 'center', marginTop: -4 }}>
-            Cada arquivo será salvo como <em>endereço.jpg</em> — pronto para enviar ao suporte JET
+            {pick(T.cadaArqA)}<em>endereço.jpg</em>{pick(T.cadaArqB)}
           </div>
         )}
       </div>
@@ -1396,6 +1494,21 @@ function SuporteJETPanel({ estacoes, cidade, filtroTipo, setFiltroTipo, filtroSt
 
 // ── BOTÃO NORMALIZAR ─────────────────────────────────────────────
 function ZonasInline({ cidade, pais }: { cidade: string; pais: string }) {
+  const { pick } = useLang();
+  const T = {
+    excluirConfirm:{ pt:'Excluir', en:'Delete', es:'Eliminar', ru:'Удалить' },
+    carregando:    { pt:'Carregando zonas...', en:'Loading zones...', es:'Cargando zonas...', ru:'Загрузка зон...' },
+    nenhuma:       { pt:'Nenhuma zona cadastrada', en:'No zones registered', es:'Ninguna zona registrada', ru:'Зоны не зарегистрированы' },
+    todos:         { pt:'Todos', en:'All', es:'Todos', ru:'Все' },
+    ativos:        { pt:'Ativos', en:'Active', es:'Activos', ru:'Активные' },
+    inativos:      { pt:'Inativos', en:'Inactive', es:'Inactivos', ru:'Неактивные' },
+    semNome:       { pt:'(sem nome)', en:'(no name)', es:'(sin nombre)', ru:'(без названия)' },
+    inativaTag:    { pt:'INATIVA', en:'INACTIVE', es:'INACTIVA', ru:'НЕАКТИВНА' },
+    vertices:      { pt:'vértices', en:'vertices', es:'vértices', ru:'вершин' },
+    desativar:     { pt:'Desativar', en:'Deactivate', es:'Desactivar', ru:'Деактивировать' },
+    reativar:      { pt:'Reativar', en:'Reactivate', es:'Reactivar', ru:'Активировать' },
+  };
+  const filtroLabels: Record<'todos'|'ativos'|'inativos', TL> = { todos: T.todos, ativos: T.ativos, inativos: T.inativos };
   const [zonas, setZonas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState<'todos'|'ativos'|'inativos'>('todos');
@@ -1417,7 +1530,7 @@ function ZonasInline({ cidade, pais }: { cidade: string; pais: string }) {
   };
 
   const excluir = async (zona: any) => {
-    if (!confirm(`Excluir "${zona.nome}"?`)) return;
+    if (!confirm(`${pick(T.excluirConfirm)} "${zona.nome}"?`)) return;
     const { doc: fDoc, deleteDoc: fDel } = await import('firebase/firestore');
     await fDel(fDoc(db, 'poligonos', zona.id));
     setZonas(prev => prev.filter(z => z.id !== zona.id));
@@ -1427,8 +1540,8 @@ function ZonasInline({ cidade, pais }: { cidade: string; pais: string }) {
     filtro === 'todos' ? true : filtro === 'ativos' ? z.ativo !== false : z.ativo === false
   ).sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
 
-  if (loading) return <div style={{ padding: 12, fontSize: 11, color: 'rgba(255,255,255,.4)' }}>Carregando zonas...</div>;
-  if (!zonas.length) return <div style={{ padding: 12, fontSize: 11, color: 'rgba(255,255,255,.3)', textAlign: 'center' }}>Nenhuma zona cadastrada</div>;
+  if (loading) return <div style={{ padding: 12, fontSize: 11, color: 'rgba(255,255,255,.4)' }}>{pick(T.carregando)}</div>;
+  if (!zonas.length) return <div style={{ padding: 12, fontSize: 11, color: 'rgba(255,255,255,.3)', textAlign: 'center' }}>{pick(T.nenhuma)}</div>;
 
   return (
     <div>
@@ -1441,7 +1554,7 @@ function ZonasInline({ cidade, pais }: { cidade: string; pais: string }) {
             background: filtro === f ? 'rgba(99,102,241,.2)' : 'rgba(255,255,255,.04)',
             color: filtro === f ? '#818cf8' : 'rgba(255,255,255,.35)',
             outline: filtro === f ? '1px solid rgba(99,102,241,.3)' : '1px solid rgba(255,255,255,.08)',
-          }}>{f.charAt(0).toUpperCase()+f.slice(1)} {f==='todos'?`(${zonas.length})`:f==='ativos'?`(${zonas.filter(z=>z.ativo!==false).length})`:`(${zonas.filter(z=>z.ativo===false).length})`}</button>
+          }}>{pick(filtroLabels[f])} {f==='todos'?`(${zonas.length})`:f==='ativos'?`(${zonas.filter(z=>z.ativo!==false).length})`:`(${zonas.filter(z=>z.ativo===false).length})`}</button>
         ))}
       </div>
 
@@ -1458,15 +1571,15 @@ function ZonasInline({ cidade, pais }: { cidade: string; pais: string }) {
               <div style={{ width: 10, height: 10, borderRadius: 3, background: z.cor || '#2563eb', flexShrink: 0 }} />
               <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: '#dce8ff',
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {z.nome || '(sem nome)'}
+                {z.nome || pick(T.semNome)}
               </div>
               {z.ativo === false && (
                 <span style={{ fontSize: 8, background: 'rgba(239,68,68,.15)', color: '#f87171',
-                  border: '1px solid rgba(239,68,68,.2)', borderRadius: 4, padding: '1px 4px' }}>INATIVA</span>
+                  border: '1px solid rgba(239,68,68,.2)', borderRadius: 4, padding: '1px 4px' }}>{pick(T.inativaTag)}</span>
               )}
             </div>
             <div style={{ fontSize: 10, color: 'rgba(255,255,255,.35)', marginBottom: 4 }}>
-              {z.grupo} · {z.fase} · {z.poligono?.length || 0} vértices
+              {z.grupo} · {z.fase} · {z.poligono?.length || 0} {pick(T.vertices)}
               {(z.criadoEm || z.importadoEm) && (
                 <span style={{ marginLeft: 6, color: 'rgba(255,255,255,.2)' }}>
                   · 📅 {(() => { try { const dt = z.importadoEm || (z.criadoEm?.toDate ? z.criadoEm.toDate() : z.criadoEm); return new Date(dt).toLocaleDateString('pt-BR'); } catch { return ''; } })()}
@@ -1479,7 +1592,7 @@ function ZonasInline({ cidade, pais }: { cidade: string; pais: string }) {
                 fontSize: 10, fontWeight: 600,
                 background: z.ativo !== false ? 'rgba(239,68,68,.08)' : 'rgba(16,185,129,.08)',
                 color: z.ativo !== false ? '#f87171' : '#6ee7b7',
-              }}>{z.ativo !== false ? 'Desativar' : 'Reativar'}</button>
+              }}>{z.ativo !== false ? pick(T.desativar) : pick(T.reativar)}</button>
               <button onClick={() => excluir(z)} style={{
                 padding: '4px 8px', borderRadius: 5, border: '1px solid rgba(239,68,68,.2)',
                 background: 'rgba(239,68,68,.06)', color: '#f87171', cursor: 'pointer', fontSize: 10,
@@ -1494,6 +1607,20 @@ function ZonasInline({ cidade, pais }: { cidade: string; pais: string }) {
 
 // ── NORMALIZAR (client-side via Nominatim) ────────────────────────
 function NormalizarBtn({ cidade, pais, onDone }: { cidade: string; pais: string; onDone: () => void }) {
+  const { pick } = useLang();
+  const T = {
+    confirmA: { pt:'Normalizar bairro/endereço via Nominatim em', en:'Normalize neighborhood/address via Nominatim in', es:'Normalizar barrio/dirección vía Nominatim en', ru:'Нормализовать район/адрес через Nominatim в' },
+    confirmB: { pt:'Processa estações sem bairro, 1 por vez (limite da API gratuita).\nPode levar vários minutos.', en:'Processes stations without a neighborhood, 1 at a time (free API limit).\nMay take several minutes.', es:'Procesa estaciones sin barrio, 1 a la vez (límite de la API gratuita).\nPuede tardar varios minutos.', ru:'Обрабатывает станции без района, по одной (лимит бесплатного API).\nМожет занять несколько минут.' },
+    buscando: { pt:'Buscando estações sem bairro...', en:'Searching stations without a neighborhood...', es:'Buscando estaciones sin barrio...', ru:'Поиск станций без района...' },
+    semBairro:{ pt:'estações sem bairro/endereço', en:'stations without neighborhood/address', es:'estaciones sin barrio/dirección', ru:'станций без района/адреса' },
+    concluido:{ pt:'✓ Concluído:', en:'✓ Done:', es:'✓ Completado:', ru:'✓ Готово:' },
+    normalizados:{ pt:'normalizados', en:'normalized', es:'normalizados', ru:'нормализовано' },
+    rodando:  { pt:'● Rodando...', en:'● Running...', es:'● Ejecutando...', ru:'● Выполняется...' },
+    concluidoTag:{ pt:'✓ Concluído', en:'✓ Done', es:'✓ Completado', ru:'✓ Готово' },
+    novamente:{ pt:'↻ Normalizar novamente', en:'↻ Normalize again', es:'↻ Normalizar de nuevo', ru:'↻ Нормализовать снова' },
+    normalizar:{ pt:'🔧 Normalizar dados faltantes', en:'🔧 Normalize missing data', es:'🔧 Normalizar datos faltantes', ru:'🔧 Нормализовать недостающие данные' },
+    parar:    { pt:'⏹ Parar', en:'⏹ Stop', es:'⏹ Detener', ru:'⏹ Стоп' },
+  };
   const [rodando,   setRodando]   = useState(false);
   const [concluido, setConcluido] = useState(false);
   const [log,       setLog]       = useState<string[]>([]);
@@ -1501,9 +1628,9 @@ function NormalizarBtn({ cidade, pais, onDone }: { cidade: string; pais: string;
   const abortRef = useRef(false);
 
   const iniciar = async () => {
-    if (!confirm(`Normalizar bairro/endereço via Nominatim em ${cidade}?\n\nProcessa estações sem bairro, 1 por vez (limite da API gratuita).\nPode levar vários minutos.`)) return;
+    if (!confirm(`${pick(T.confirmA)} ${cidade}?\n\n${pick(T.confirmB)}`)) return;
     setRodando(true); setConcluido(false); abortRef.current = false;
-    setLog(['Buscando estações sem bairro...']);
+    setLog([pick(T.buscando)]);
 
     const { getDocs, collection, query, where, doc, updateDoc } = await import('firebase/firestore');
     const snap = await getDocs(query(
@@ -1513,7 +1640,7 @@ function NormalizarBtn({ cidade, pais, onDone }: { cidade: string; pais: string;
 
     const semBairro = snap.docs.filter(d => !d.data().bairro || !d.data().endereco);
     setProg({ normalizados: 0, restantes: semBairro.length });
-    setLog([`${semBairro.length} estações sem bairro/endereço`]);
+    setLog([`${semBairro.length} ${pick(T.semBairro)}`]);
 
     let ok = 0;
     for (let i = 0; i < semBairro.length && !abortRef.current; i++) {
@@ -1544,7 +1671,7 @@ function NormalizarBtn({ cidade, pais, onDone }: { cidade: string; pais: string;
       }
     }
     setRodando(false); setConcluido(true);
-    setLog(prev => [...prev, `✓ Concluído: ${ok} normalizados`]);
+    setLog(prev => [...prev, `${pick(T.concluido)} ${ok} ${pick(T.normalizados)}`]);
     if (ok > 0) onDone();
   };
 
@@ -1558,8 +1685,8 @@ function NormalizarBtn({ cidade, pais, onDone }: { cidade: string; pais: string;
               ✓ {prog.normalizados} · ⏳ {prog.restantes}
             </span>
             {rodando
-              ? <span style={{ fontSize: 10, color: '#fbbf24' }}>● Rodando...</span>
-              : <span style={{ fontSize: 10, color: '#6ee7b7' }}>✓ Concluído</span>
+              ? <span style={{ fontSize: 10, color: '#fbbf24' }}>{pick(T.rodando)}</span>
+              : <span style={{ fontSize: 10, color: '#6ee7b7' }}>{pick(T.concluidoTag)}</span>
             }
           </div>
           <div style={{ maxHeight: 100, overflowY: 'auto', fontSize: 10,
@@ -1575,14 +1702,14 @@ function NormalizarBtn({ cidade, pais, onDone }: { cidade: string; pais: string;
             background: 'rgba(96,165,250,.08)', border: '1px solid rgba(96,165,250,.2)',
             color: '#60a5fa', fontSize: 12, fontWeight: 600
           }}>
-            {concluido ? '↻ Normalizar novamente' : '🔧 Normalizar dados faltantes'}
+            {concluido ? pick(T.novamente) : pick(T.normalizar)}
           </button>
         ) : (
           <button onClick={() => abortRef.current = true} style={{
             flex: 1, padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
             background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)',
             color: '#f87171', fontSize: 12, fontWeight: 600
-          }}>⏹ Parar</button>
+          }}>{pick(T.parar)}</button>
         )}
       </div>
     </div>
@@ -1592,6 +1719,46 @@ function NormalizarBtn({ cidade, pais, onDone }: { cidade: string; pais: string;
 function AbaCroquisLote({ cidade, pais, total, estacoes }: {
   cidade: string; pais: string; total: number; estacoes: Estacao[];
 }) {
+  const { pick } = useLang();
+  const T = {
+    nenhumaProc: { pt:'Nenhuma estação para processar com os filtros selecionados.', en:'No station to process with the selected filters.', es:'Ninguna estación para procesar con los filtros seleccionados.', ru:'Нет станций для обработки с выбранными фильтрами.' },
+    avisoPular:  { pt:'estações sem foto serão puladas.', en:'stations without a photo will be skipped.', es:'estaciones sin foto serán omitidas.', ru:'станций без фото будут пропущены.' },
+    avisoPlace:  { pt:'estações sem foto usarão imagem placeholder.', en:'stations without a photo will use a placeholder image.', es:'estaciones sin foto usarán imagen de marcador.', ru:'станций без фото будут использовать изображение-заполнитель.' },
+    confirmGerarA:{ pt:'Gerar', en:'Generate', es:'Generar', ru:'Сгенерировать' },
+    confirmGerarB:{ pt:'croquis em', en:'sketches in', es:'croquis en', ru:'эскизов в' },
+    confirmMin:  { pt:'Pode levar vários minutos.', en:'May take several minutes.', es:'Puede tardar varios minutos.', ru:'Может занять несколько минут.' },
+    iniciando:   { pt:'Iniciando...', en:'Starting...', es:'Iniciando...', ru:'Запуск...' },
+    estacoes:    { pt:'estações', en:'stations', es:'estaciones', ru:'станций' },
+    loteA:       { pt:'Lote: +', en:'Batch: +', es:'Lote: +', ru:'Партия: +' },
+    loteGerados: { pt:'gerados ·', en:'generated ·', es:'generados ·', ru:'сгенерировано ·' },
+    loteErros:   { pt:'erros ·', en:'errors ·', es:'errores ·', ru:'ошибок ·' },
+    loteRest:    { pt:'restantes', en:'remaining', es:'restantes', ru:'осталось' },
+    erro:        { pt:'Erro:', en:'Error:', es:'Error:', ru:'Ошибка:' },
+    concluidoA:  { pt:'✓ Concluído:', en:'✓ Done:', es:'✓ Completado:', ru:'✓ Готово:' },
+    concluidoGer:{ pt:'gerados,', en:'generated,', es:'generados,', ru:'сгенерировано,' },
+    concluidoErr:{ pt:'erros', en:'errors', es:'errores', ru:'ошибок' },
+    croquisTit:  { pt:'Croquis', en:'Sketches', es:'Croquis', ru:'Эскизы' },
+    cardTotal:   { pt:'Total', en:'Total', es:'Total', ru:'Всего' },
+    cardGerados: { pt:'Gerados', en:'Generated', es:'Generados', ru:'Сгенерировано' },
+    cardPend:    { pt:'Pendentes', en:'Pending', es:'Pendientes', ru:'Ожидают' },
+    rodando:     { pt:'● Rodando...', en:'● Running...', es:'● Ejecutando...', ru:'● Выполняется...' },
+    concluidoTag:{ pt:'✓ Concluído', en:'✓ Done', es:'✓ Completado', ru:'✓ Готово' },
+    configLote:  { pt:'Configurar lote', en:'Configure batch', es:'Configurar lote', ru:'Настроить партию' },
+    modoTodos:   { pt:'Todos pendentes', en:'All pending', es:'Todos pendientes', ru:'Все ожидающие' },
+    modoBairro:  { pt:'Por bairro', en:'By neighborhood', es:'Por barrio', ru:'По району' },
+    modoSemFoto: { pt:'Sem foto', en:'No photo', es:'Sin foto', ru:'Без фото' },
+    selBairro:   { pt:'Selecione um bairro...', en:'Select a neighborhood...', es:'Seleccione un barrio...', ru:'Выберите район...' },
+    pendentes:   { pt:'pendentes', en:'pending', es:'pendientes', ru:'ожидают' },
+    semFotoPerg: { pt:'estações sem foto — o que fazer?', en:'stations without a photo — what to do?', es:'estaciones sin foto — ¿qué hacer?', ru:'станций без фото — что делать?' },
+    pularElas:   { pt:'Pular elas', en:'Skip them', es:'Omitirlas', ru:'Пропустить их' },
+    usarPlace:   { pt:'Usar placeholder', en:'Use placeholder', es:'Usar marcador', ru:'Использовать заполнитель' },
+    seraoProc:   { pt:'estações serão processadas', en:'stations will be processed', es:'estaciones serán procesadas', ru:'станций будет обработано' },
+    nenhumaFiltro:{ pt:'Nenhuma estação com esses filtros', en:'No station matches these filters', es:'Ninguna estación con estos filtros', ru:'Нет станций по этим фильтрам' },
+    execNovamente:{ pt:'↻ Executar novamente', en:'↻ Run again', es:'↻ Ejecutar de nuevo', ru:'↻ Запустить снова' },
+    gerarCroquis:{ pt:'📐 Gerar', en:'📐 Generate', es:'📐 Generar', ru:'📐 Сгенерировать' },
+    croquisWord: { pt:'croquis', en:'sketches', es:'croquis', ru:'эскизов' },
+    parar:       { pt:'⏹ Parar', en:'⏹ Stop', es:'⏹ Detener', ru:'⏹ Стоп' },
+  };
   const semCroqui  = estacoes.filter(e => !e.croquiStatus || e.croquiStatus === 'PENDENTE' || e.croquiStatus === 'ERRO').length;
   const comCroqui  = estacoes.filter(e => e.croquiStatus === 'OK').length;
   const semFoto    = estacoes.filter(e => !e.imagens?.foto && !e.imagens?.streetView).length;
@@ -1625,16 +1792,16 @@ function AbaCroquisLote({ cidade, pais, total, estacoes }: {
   const iniciar = async () => {
     if (!cidade) return;
     const alvo = getAlvo();
-    if (!alvo.length) { alert('Nenhuma estação para processar com os filtros selecionados.'); return; }
+    if (!alvo.length) { alert(pick(T.nenhumaProc)); return; }
     const fotoAviso = modeLote !== 'semFoto' && semFotoMode === 'pular'
-      ? `\n\n⚠ ${semFoto} estações sem foto serão puladas.`
+      ? `\n\n⚠ ${semFoto} ${pick(T.avisoPular)}`
       : modeLote !== 'semFoto' && semFotoMode === 'placeholder'
-      ? `\n\n📷 ${semFoto} estações sem foto usarão imagem placeholder.`
+      ? `\n\n📷 ${semFoto} ${pick(T.avisoPlace)}`
       : '';
-    if (!confirm(`Gerar ${alvo.length} croquis em ${cidade}?${fotoAviso}\nPode levar vários minutos.`)) return;
+    if (!confirm(`${pick(T.confirmGerarA)} ${alvo.length} ${pick(T.confirmGerarB)} ${cidade}?${fotoAviso}\n${pick(T.confirmMin)}`)) return;
 
     setRodando(true); setConcluido(false); abortRef.current = false;
-    setLog([`Iniciando... ${alvo.length} estações`]);
+    setLog([`${pick(T.iniciando)} ${alvo.length} ${pick(T.estacoes)}`]);
     setProgresso({ processados: 0, erros: 0, restantes: alvo.length });
 
     let totalProcessados = 0; let totalErros = 0; let restantes = alvo.length;
@@ -1652,16 +1819,16 @@ function AbaCroquisLote({ cidade, pais, total, estacoes }: {
         totalErros += d.erros || 0;
         restantes = d.restantes ?? 0;
         setProgresso({ processados: totalProcessados, erros: totalErros, restantes });
-        setLog(prev => [...prev, `Lote: +${d.processados} gerados · ${d.erros} erros · ${restantes} restantes`]);
+        setLog(prev => [...prev, `${pick(T.loteA)}${d.processados} ${pick(T.loteGerados)} ${d.erros} ${pick(T.loteErros)} ${restantes} ${pick(T.loteRest)}`]);
         if (restantes === 0 || d.processados === 0) break;
         await new Promise(r => setTimeout(r, 2000));
       } catch(e: unknown) {
-        setLog(prev => [...prev, 'Erro: ' + (e instanceof Error ? e.message : String(e))]);
+        setLog(prev => [...prev, pick(T.erro) + ' ' + (e instanceof Error ? e.message : String(e))]);
         break;
       }
     }
     setRodando(false); setConcluido(true);
-    setLog(prev => [...prev, `✓ Concluído: ${totalProcessados} gerados, ${totalErros} erros`]);
+    setLog(prev => [...prev, `${pick(T.concluidoA)} ${totalProcessados} ${pick(T.concluidoGer)} ${totalErros} ${pick(T.concluidoErr)}`]);
   };
 
   const parar = () => { abortRef.current = true; };
@@ -1673,7 +1840,7 @@ function AbaCroquisLote({ cidade, pais, total, estacoes }: {
       <div style={{ padding: 14, borderRadius: 10, marginBottom: 12,
         background: 'rgba(168,85,247,.06)', border: '1px solid rgba(168,85,247,.15)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-          <span style={{ fontSize: 13, color: '#c084fc', fontWeight: 600 }}>Croquis — {cidade}</span>
+          <span style={{ fontSize: 13, color: '#c084fc', fontWeight: 600 }}>{pick(T.croquisTit)} — {cidade}</span>
           <span style={{ fontSize: 12, color: 'rgba(255,255,255,.5)' }}>{pct}%</span>
         </div>
         <div style={{ height: 6, background: 'rgba(255,255,255,.06)', borderRadius: 3 }}>
@@ -1681,9 +1848,9 @@ function AbaCroquisLote({ cidade, pais, total, estacoes }: {
         </div>
         <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
           {[
-            { label: 'Total', n: total, cor: '#fff' },
-            { label: 'Gerados', n: comCroqui, cor: '#6ee7b7' },
-            { label: 'Pendentes', n: semCroqui, cor: '#fbbf24' },
+            { label: pick(T.cardTotal), n: total, cor: '#fff' },
+            { label: pick(T.cardGerados), n: comCroqui, cor: '#6ee7b7' },
+            { label: pick(T.cardPend), n: semCroqui, cor: '#fbbf24' },
           ].map(item => (
             <div key={item.label} style={{ flex: 1, textAlign: 'center' }}>
               <div style={{ fontSize: 18, fontWeight: 800, color: item.cor }}>{item.n}</div>
@@ -1701,8 +1868,8 @@ function AbaCroquisLote({ cidade, pais, total, estacoes }: {
             <span style={{ fontSize: 12, color: 'rgba(255,255,255,.6)' }}>
               ✓ {progresso.processados} · ✗ {progresso.erros} · ⏳ {progresso.restantes}
             </span>
-            {rodando && <span style={{ fontSize: 10, color: '#fbbf24' }}>● Rodando...</span>}
-            {concluido && <span style={{ fontSize: 10, color: '#6ee7b7' }}>✓ Concluído</span>}
+            {rodando && <span style={{ fontSize: 10, color: '#fbbf24' }}>{pick(T.rodando)}</span>}
+            {concluido && <span style={{ fontSize: 10, color: '#6ee7b7' }}>{pick(T.concluidoTag)}</span>}
           </div>
           <div style={{ maxHeight: 100, overflowY: 'auto', fontSize: 10,
             color: 'rgba(255,255,255,.4)', fontFamily: 'monospace' }}>
@@ -1715,11 +1882,11 @@ function AbaCroquisLote({ cidade, pais, total, estacoes }: {
       <div style={{ padding: 12, borderRadius: 8, marginBottom: 12,
         background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.06)' }}>
         <div style={{ fontSize: 10, color: 'rgba(255,255,255,.4)', fontWeight: 700,
-          textTransform: 'uppercase', letterSpacing: .8, marginBottom: 10 }}>Configurar lote</div>
+          textTransform: 'uppercase', letterSpacing: .8, marginBottom: 10 }}>{pick(T.configLote)}</div>
 
         {/* Modo */}
         <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
-          {([['todos','Todos pendentes'],['bairro','Por bairro'],['semFoto','Sem foto']] as const).map(([k,l]) => (
+          {([['todos',pick(T.modoTodos)],['bairro',pick(T.modoBairro)],['semFoto',pick(T.modoSemFoto)]] as const).map(([k,l]) => (
             <button key={k} onClick={() => setModeLote(k)} style={{
               flex: 1, padding: '5px 4px', borderRadius: 6, border: 'none', cursor: 'pointer',
               fontSize: 10, fontWeight: 600,
@@ -1736,9 +1903,9 @@ function AbaCroquisLote({ cidade, pais, total, estacoes }: {
             style={{ width: '100%', padding: '8px 10px', borderRadius: 6, marginBottom: 10,
               background: '#111722', border: '1px solid rgba(255,255,255,.1)',
               color: '#dce8ff', fontSize: 12 }}>
-            <option value="">Selecione um bairro...</option>
+            <option value="">{pick(T.selBairro)}</option>
             {bairrosDisp.map(b => (
-              <option key={b} value={b}>{b} ({estacoes.filter(e=>e.bairro===b&&(!e.croquiStatus||e.croquiStatus!=='OK')).length} pendentes)</option>
+              <option key={b} value={b}>{b} ({estacoes.filter(e=>e.bairro===b&&(!e.croquiStatus||e.croquiStatus!=='OK')).length} {pick(T.pendentes)})</option>
             ))}
           </select>
         )}
@@ -1747,10 +1914,10 @@ function AbaCroquisLote({ cidade, pais, total, estacoes }: {
         {modeLote !== 'semFoto' && (
           <div>
             <div style={{ fontSize: 10, color: 'rgba(255,255,255,.35)', marginBottom: 6 }}>
-              {semFoto} estações sem foto — o que fazer?
+              {semFoto} {pick(T.semFotoPerg)}
             </div>
             <div style={{ display: 'flex', gap: 5 }}>
-              {([['pular','Pular elas'],['placeholder','Usar placeholder']] as const).map(([k,l]) => (
+              {([['pular',pick(T.pularElas)],['placeholder',pick(T.usarPlace)]] as const).map(([k,l]) => (
                 <button key={k} onClick={() => setSemFotoMode(k)} style={{
                   flex: 1, padding: '5px', borderRadius: 6, border: 'none', cursor: 'pointer',
                   fontSize: 10, fontWeight: 600,
@@ -1765,7 +1932,7 @@ function AbaCroquisLote({ cidade, pais, total, estacoes }: {
 
         {/* Total do alvo */}
         <div style={{ marginTop: 10, fontSize: 11, color: 'rgba(255,255,255,.5)', textAlign: 'center' }}>
-          {totalAlvo > 0 ? `${totalAlvo} estações serão processadas` : 'Nenhuma estação com esses filtros'}
+          {totalAlvo > 0 ? `${totalAlvo} ${pick(T.seraoProc)}` : pick(T.nenhumaFiltro)}
         </div>
       </div>
 
@@ -1780,14 +1947,14 @@ function AbaCroquisLote({ cidade, pais, total, estacoes }: {
             border: 'none', color: semCroqui ? '#fff' : 'rgba(255,255,255,.3)',
             fontSize: 13, fontWeight: 600, cursor: semCroqui ? 'pointer' : 'not-allowed'
           }}>
-            {concluido ? '↻ Executar novamente' : `📐 Gerar ${semCroqui} croquis`}
+            {concluido ? pick(T.execNovamente) : `${pick(T.gerarCroquis)} ${semCroqui} ${pick(T.croquisWord)}`}
           </button>
         ) : (
           <button onClick={parar} style={{
             flex: 1, padding: 13, borderRadius: 10,
             background: 'rgba(239,68,68,.15)', border: '1px solid rgba(239,68,68,.3)',
             color: '#f87171', fontSize: 13, fontWeight: 600, cursor: 'pointer'
-          }}>⏹ Parar</button>
+          }}>{pick(T.parar)}</button>
         )}
       </div>
     </>
@@ -1860,6 +2027,56 @@ function baixarTemplate() {
 function AbaExportar({ estacoes, cidade, pais, total }: {
   estacoes: Estacao[]; cidade: string; pais: string; total: number;
 }) {
+  const { pick } = useLang();
+  const T = {
+    estacoesCampos:{ pt:'campos selecionados', en:'selected fields', es:'campos seleccionados', ru:'выбрано полей' },
+    estacoes:    { pt:'estações ·', en:'stations ·', es:'estaciones ·', ru:'станций ·' },
+    camposRelat: { pt:'CAMPOS DO RELATÓRIO', en:'REPORT FIELDS', es:'CAMPOS DEL INFORME', ru:'ПОЛЯ ОТЧЁТА' },
+    exportarCsv: { pt:'Exportar CSV', en:'Export CSV', es:'Exportar CSV', ru:'Экспорт CSV' },
+    csvSub:      { pt:'Excel, Google Sheets ·', en:'Excel, Google Sheets ·', es:'Excel, Google Sheets ·', ru:'Excel, Google Sheets ·' },
+    camposWord:  { pt:'campos', en:'fields', es:'campos', ru:'полей' },
+    exportarJson:{ pt:'Exportar JSON', en:'Export JSON', es:'Exportar JSON', ru:'Экспорт JSON' },
+    jsonSub:     { pt:'Backup completo · todos os campos', en:'Full backup · all fields', es:'Copia completa · todos los campos', ru:'Полная копия · все поля' },
+  };
+  const grupoLabels: Record<string, TL> = {
+    'Identificação':  { pt:'Identificação', en:'Identification', es:'Identificación', ru:'Идентификация' },
+    'Classificação':  { pt:'Classificação', en:'Classification', es:'Clasificación', ru:'Классификация' },
+    'Localização':    { pt:'Localização', en:'Location', es:'Ubicación', ru:'Местоположение' },
+    'Dados técnicos': { pt:'Dados técnicos', en:'Technical data', es:'Datos técnicos', ru:'Технические данные' },
+    'Privado':        { pt:'Privado', en:'Private', es:'Privado', ru:'Частное' },
+    'IA':             { pt:'IA', en:'AI', es:'IA', ru:'ИИ' },
+    'Imagens':        { pt:'Imagens', en:'Images', es:'Imágenes', ru:'Изображения' },
+    'Datas':          { pt:'Datas', en:'Dates', es:'Fechas', ru:'Даты' },
+  };
+  const campoLabels: Record<string, TL> = {
+    codigo:        { pt:'Código', en:'Code', es:'Código', ru:'Код' },
+    cidade:        { pt:'Cidade', en:'City', es:'Ciudad', ru:'Город' },
+    bairro:        { pt:'Bairro', en:'Neighborhood', es:'Barrio', ru:'Район' },
+    tipo:          { pt:'Tipo', en:'Type', es:'Tipo', ru:'Тип' },
+    status:        { pt:'Status', en:'Status', es:'Estado', ru:'Статус' },
+    pais:          { pt:'País', en:'Country', es:'País', ru:'Страна' },
+    lat:           { pt:'Latitude', en:'Latitude', es:'Latitud', ru:'Широта' },
+    lng:           { pt:'Longitude', en:'Longitude', es:'Longitud', ru:'Долгота' },
+    endereco:      { pt:'Endereço', en:'Address', es:'Dirección', ru:'Адрес' },
+    larguraFaixa:  { pt:'Largura Faixa (m)', en:'Lane Width (m)', es:'Ancho de Carril (m)', ru:'Ширина полосы (м)' },
+    operador:      { pt:'Operador', en:'Operator', es:'Operador', ru:'Оператор' },
+    consultor:     { pt:'Consultor campo', en:'Field consultant', es:'Consultor de campo', ru:'Полевой консультант' },
+    'privado.nomeLocal':        { pt:'Nome do local', en:'Location name', es:'Nombre del local', ru:'Название места' },
+    'privado.nomeAutorizante':  { pt:'Autorizante', en:'Authorizer', es:'Autorizante', ru:'Уполномоченный' },
+    'privado.cargoAutorizante': { pt:'Cargo', en:'Position', es:'Cargo', ru:'Должность' },
+    'privado.telefone':         { pt:'Telefone parceiro', en:'Partner phone', es:'Teléfono socio', ru:'Телефон партнёра' },
+    'privado.email':            { pt:'E-mail parceiro', en:'Partner email', es:'Correo socio', ru:'Эл. почта партнёра' },
+    ia_aprovado:   { pt:'IA Aprovado', en:'AI Approved', es:'IA Aprobado', ru:'ИИ одобрено' },
+    ia_score:      { pt:'IA Score', en:'AI Score', es:'Puntuación IA', ru:'Оценка ИИ' },
+    ia_confianca:  { pt:'IA Confiança', en:'AI Confidence', es:'Confianza IA', ru:'Уверенность ИИ' },
+    ia_largura:    { pt:'IA Largura Est.', en:'AI Est. Width', es:'Ancho Est. IA', ru:'Оценка ширины ИИ' },
+    croquiStatus:  { pt:'Status Croqui', en:'Sketch Status', es:'Estado Croquis', ru:'Статус эскиза' },
+    streetView:    { pt:'URL Street View', en:'Street View URL', es:'URL Street View', ru:'URL Street View' },
+    foto:          { pt:'URL Foto', en:'Photo URL', es:'URL Foto', ru:'URL Фото' },
+    criadoEm:      { pt:'Data Criação', en:'Creation Date', es:'Fecha de Creación', ru:'Дата создания' },
+  };
+  const labelGrupo = (g: string) => grupoLabels[g] ? pick(grupoLabels[g]) : g;
+  const labelCampo = (k: string, fb: string) => campoLabels[k] ? pick(campoLabels[k]) : fb;
   const defaultCampos = CAMPOS_EXPORT.filter(c => c.default).map(c => c.key);
   const [camposSel, setCamposSel] = useState<string[]>(defaultCampos);
 
@@ -1884,7 +2101,7 @@ function AbaExportar({ estacoes, cidade, pais, total }: {
         display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <div style={{ fontSize: 13, color: '#60a5fa', fontWeight: 600 }}>
-            {total} estações · {camposSel.length} campos selecionados
+            {total} {pick(T.estacoes)} {camposSel.length} {pick(T.estacoesCampos)}
           </div>
           <div style={{ fontSize: 10, color: 'rgba(255,255,255,.4)', marginTop: 2 }}>
             {cidade || pais}
@@ -1895,7 +2112,7 @@ function AbaExportar({ estacoes, cidade, pais, total }: {
       {/* Seletor de campos por grupo */}
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 10, color: 'rgba(255,255,255,.35)', fontWeight: 700,
-          letterSpacing: '.08em', marginBottom: 10 }}>CAMPOS DO RELATÓRIO</div>
+          letterSpacing: '.08em', marginBottom: 10 }}>{pick(T.camposRelat)}</div>
         {grupos.map(grupo => (
           <div key={grupo} style={{ marginBottom: 10 }}>
             <div onClick={() => toggleGrupo(grupo)} style={{
@@ -1912,7 +2129,7 @@ function AbaExportar({ estacoes, cidade, pais, total }: {
               }}>
                 {CAMPOS_EXPORT.filter(c=>c.grupo===grupo).every(c=>camposSel.includes(c.key)) ? '✓' : ''}
               </div>
-              {grupo}
+              {labelGrupo(grupo)}
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, paddingLeft: 20 }}>
               {CAMPOS_EXPORT.filter(c => c.grupo === grupo).map(campo => (
@@ -1921,7 +2138,7 @@ function AbaExportar({ estacoes, cidade, pais, total }: {
                   background: camposSel.includes(campo.key) ? 'rgba(48,127,226,.2)' : 'rgba(255,255,255,.04)',
                   border: `1px solid ${camposSel.includes(campo.key) ? 'rgba(48,127,226,.4)' : 'rgba(255,255,255,.08)'}`,
                   color: camposSel.includes(campo.key) ? '#60a5fa' : 'rgba(255,255,255,.35)'
-                }}>{campo.label}</button>
+                }}>{labelCampo(campo.key, campo.label)}</button>
               ))}
             </div>
           </div>
@@ -1940,8 +2157,8 @@ function AbaExportar({ estacoes, cidade, pais, total }: {
         }}>
           <span style={{ fontSize: 22 }}>📊</span>
           <div style={{ textAlign: 'left' }}>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>Exportar CSV</div>
-            <div style={{ fontSize: 10, opacity: .7 }}>Excel, Google Sheets · {camposSel.length} campos</div>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{pick(T.exportarCsv)}</div>
+            <div style={{ fontSize: 10, opacity: .7 }}>{pick(T.csvSub)} {camposSel.length} {pick(T.camposWord)}</div>
           </div>
         </button>
 
@@ -1956,8 +2173,8 @@ function AbaExportar({ estacoes, cidade, pais, total }: {
         }}>
           <span style={{ fontSize: 22 }}>🗂️</span>
           <div style={{ textAlign: 'left' }}>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>Exportar JSON</div>
-            <div style={{ fontSize: 10, opacity: .7 }}>Backup completo · todos os campos</div>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{pick(T.exportarJson)}</div>
+            <div style={{ fontSize: 10, opacity: .7 }}>{pick(T.jsonSub)}</div>
           </div>
         </button>
       </div>
@@ -1974,6 +2191,79 @@ function AbaDados({ estacoes, cidade, pais, total, isGestor,
   importando: boolean; importResult: any; importLog: string[];
   fileRef: React.RefObject<HTMLInputElement>; handleImportar: ()=>void;
 }) {
+  const { pick } = useLang();
+  const T = {
+    estTotal:    { pt:'📍 Estações —', en:'📍 Stations —', es:'📍 Estaciones —', ru:'📍 Станции —' },
+    totalWord:   { pt:'total', en:'total', es:'total', ru:'всего' },
+    ordenarPor:  { pt:'Ordenar por', en:'Sort by', es:'Ordenar por', ru:'Сортировать по' },
+    ordBairro:   { pt:'Bairro', en:'Neighborhood', es:'Barrio', ru:'Район' },
+    ordCodigo:   { pt:'Código', en:'Code', es:'Código', ru:'Код' },
+    ordStatus:   { pt:'Status', en:'Status', es:'Estado', ru:'Статус' },
+    camposExp:   { pt:'Campos a exportar', en:'Fields to export', es:'Campos a exportar', ru:'Поля для экспорта' },
+    selecionados:{ pt:'selecionados', en:'selected', es:'seleccionados', ru:'выбрано' },
+    importarFile:{ pt:'⬆ Importar CSV / JSON / XLSX Urent', en:'⬆ Import CSV / JSON / XLSX Urent', es:'⬆ Importar CSV / JSON / XLSX Urent', ru:'⬆ Импорт CSV / JSON / XLSX Urent' },
+    xlsxDetTit:  { pt:'📊 XLSX Urent detectado', en:'📊 Urent XLSX detected', es:'📊 XLSX Urent detectado', ru:'📊 Обнаружен XLSX Urent' },
+    xlsxIra:     { pt:'A importação irá:', en:'The import will:', es:'La importación va a:', ru:'Импорт выполнит:' },
+    xlsx1:       { pt:'✓ Importar estações de qualquer país', en:'✓ Import stations from any country', es:'✓ Importar estaciones de cualquier país', ru:'✓ Импортировать станции из любой страны' },
+    xlsx2:       { pt:'✓ Ignorar zonas de restrição e bloqueio', en:'✓ Ignore restriction and block zones', es:'✓ Ignorar zonas de restricción y bloqueo', ru:'✓ Игнорировать зоны ограничений и блокировок' },
+    xlsx3:       { pt:'✓ Importar estações inativas como CANCELADO', en:'✓ Import inactive stations as CANCELLED', es:'✓ Importar estaciones inactivas como CANCELADO', ru:'✓ Импортировать неактивные станции как ОТМЕНЕНО' },
+    xlsx4:       { pt:'✓ Completar bairro/cidade via geocode reverso', en:'✓ Fill neighborhood/city via reverse geocode', es:'✓ Completar barrio/ciudad vía geocodificación inversa', ru:'✓ Заполнить район/город через обратное геокодирование' },
+    xlsx5:       { pt:'⚠ Pode levar alguns minutos (1 req/seg no Nominatim)', en:'⚠ May take a few minutes (1 req/sec on Nominatim)', es:'⚠ Puede tardar unos minutos (1 req/seg en Nominatim)', ru:'⚠ Может занять несколько минут (1 запрос/сек в Nominatim)' },
+    importando:  { pt:'Importando...', en:'Importing...', es:'Importando...', ru:'Импорт...' },
+    iniciarImp:  { pt:'Iniciar importação', en:'Start import', es:'Iniciar importación', ru:'Начать импорт' },
+    zonas:       { pt:'⬡ Zonas', en:'⬡ Zones', es:'⬡ Zonas', ru:'⬡ Зоны' },
+    zonasAjudaA: { pt:'Para criar zonas manualmente: ative ⬡ Zonas no mapa e clique em', en:'To create zones manually: enable ⬡ Zones on the map and click', es:'Para crear zonas manualmente: active ⬡ Zonas en el mapa y haga clic en', ru:'Чтобы создать зоны вручную: включите ⬡ Зоны на карте и нажмите' },
+    zonasAjudaB: { pt:'no stack de FABs à direita.', en:'in the FAB stack on the right.', es:'en la pila de FABs a la derecha.', ru:'в стопке FAB справа.' },
+    exportar:    { pt:'Exportar', en:'Export', es:'Exportar', ru:'Экспорт' },
+    importar:    { pt:'Importar', en:'Import', es:'Importar', ru:'Импорт' },
+    impProgresso:{ pt:'⏳ Importando...', en:'⏳ Importing...', es:'⏳ Importando...', ru:'⏳ Импорт...' },
+    // logs de importação de zonas
+    lendoArq:    { pt:'📂 Lendo arquivo...', en:'📂 Reading file...', es:'📂 Leyendo archivo...', ru:'📂 Чтение файла...' },
+    semKml:      { pt:'Nenhum .kml encontrado no KMZ', en:'No .kml found in KMZ', es:'Ningún .kml encontrado en el KMZ', ru:'Файл .kml не найден в KMZ' },
+    kmzExtraido: { pt:'✅ KMZ extraído:', en:'✅ KMZ extracted:', es:'✅ KMZ extraído:', ru:'✅ KMZ извлечён:' },
+    kmlLido:     { pt:'✅ KML lido', en:'✅ KML read', es:'✅ KML leído', ru:'✅ KML прочитан' },
+    zonasEnc:    { pt:'zonas encontradas', en:'zones found', es:'zonas encontradas', ru:'зон найдено' },
+    zonaImport:  { pt:'Zona importada', en:'Imported zone', es:'Zona importada', ru:'Импортированная зона' },
+    pts:         { pt:'pts', en:'pts', es:'pts', ru:'тчк' },
+    zonasImportadas:{ pt:'zonas importadas!', en:'zones imported!', es:'zonas importadas!', ru:'зон импортировано!' },
+    poligonosEnc:{ pt:'polígonos encontrados', en:'polygons found', es:'polígonos encontrados', ru:'полигонов найдено' },
+    zona:        { pt:'Zona', en:'Zone', es:'Zona', ru:'Зона' },
+    csvVazio:    { pt:'CSV vazio ou sem dados', en:'Empty CSV or no data', es:'CSV vacío o sin datos', ru:'Пустой CSV или нет данных' },
+    linhasLidas: { pt:'linhas lidas', en:'rows read', es:'filas leídas', ru:'строк прочитано' },
+    formatoNS:   { pt:'Formato não suportado. Use .kmz, .kml, .geojson ou .csv', en:'Unsupported format. Use .kmz, .kml, .geojson or .csv', es:'Formato no soportado. Use .kmz, .kml, .geojson o .csv', ru:'Неподдерживаемый формат. Используйте .kmz, .kml, .geojson или .csv' },
+    erroLog:     { pt:'❌ Erro:', en:'❌ Error:', es:'❌ Error:', ru:'❌ Ошибка:' },
+  };
+  const ordLabels: Record<'bairro'|'codigo'|'status', TL> = { bairro: T.ordBairro, codigo: T.ordCodigo, status: T.ordStatus };
+  const grupoLabels: Record<string, TL> = {
+    'ID':      { pt:'ID', en:'ID', es:'ID', ru:'ID' },
+    'Local':   { pt:'Local', en:'Location', es:'Ubicación', ru:'Место' },
+    'Geo':     { pt:'Geo', en:'Geo', es:'Geo', ru:'Гео' },
+    'Técnico': { pt:'Técnico', en:'Technical', es:'Técnico', ru:'Технические' },
+    'IA':      { pt:'IA', en:'AI', es:'IA', ru:'ИИ' },
+    'Links':   { pt:'Links', en:'Links', es:'Enlaces', ru:'Ссылки' },
+    'Datas':   { pt:'Datas', en:'Dates', es:'Fechas', ru:'Даты' },
+  };
+  const campoLabels: Record<string, TL> = {
+    codigo:      { pt:'Código', en:'Code', es:'Código', ru:'Код' },
+    tipo:        { pt:'Tipo', en:'Type', es:'Tipo', ru:'Тип' },
+    status:      { pt:'Status', en:'Status', es:'Estado', ru:'Статус' },
+    endereco:    { pt:'Endereço', en:'Address', es:'Dirección', ru:'Адрес' },
+    bairro:      { pt:'Bairro', en:'Neighborhood', es:'Barrio', ru:'Район' },
+    cidade:      { pt:'Cidade', en:'City', es:'Ciudad', ru:'Город' },
+    pais:        { pt:'País', en:'Country', es:'País', ru:'Страна' },
+    lat:         { pt:'Latitude', en:'Latitude', es:'Latitud', ru:'Широта' },
+    lng:         { pt:'Longitude', en:'Longitude', es:'Longitud', ru:'Долгота' },
+    larguraFaixa:{ pt:'Largura Faixa (m)', en:'Lane Width (m)', es:'Ancho de Carril (m)', ru:'Ширина полосы (м)' },
+    ia_score:    { pt:'IA Score', en:'AI Score', es:'Puntuación IA', ru:'Оценка ИИ' },
+    ia_aprovado: { pt:'IA Aprovado', en:'AI Approved', es:'IA Aprobado', ru:'ИИ одобрено' },
+    link_estacao:{ pt:'Link Estação', en:'Station Link', es:'Enlace Estación', ru:'Ссылка станции' },
+    link_croqui: { pt:'Link Croqui', en:'Sketch Link', es:'Enlace Croquis', ru:'Ссылка эскиза' },
+    link_foto:   { pt:'Link Foto', en:'Photo Link', es:'Enlace Foto', ru:'Ссылка фото' },
+    link_sv:     { pt:'Link Street View', en:'Street View Link', es:'Enlace Street View', ru:'Ссылка Street View' },
+    criadoEm:    { pt:'Data Criação', en:'Creation Date', es:'Fecha de Creación', ru:'Дата создания' },
+  };
+  const labelGrupo = (g: string) => grupoLabels[g] ? pick(grupoLabels[g]) : g;
+  const labelCampo = (k: string, fb: string) => campoLabels[k] ? pick(campoLabels[k]) : fb;
   const CAMPOS_EXPORT = [
     { key: 'codigo',       label: 'Código',          grupo: 'ID',       default: true  },
     { key: 'tipo',         label: 'Tipo',             grupo: 'ID',       default: true  },
@@ -2132,7 +2422,7 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
 
   const importarZonas = async (file: File) => {
     setImportandoZona(true);
-    setImportZonaLog(['📂 Lendo arquivo...']);
+    setImportZonaLog([pick(T.lendoArq)]);
     const log = (msg: string) => setImportZonaLog(prev => [...prev, msg]);
 
     try {
@@ -2144,18 +2434,18 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
         if (ext.endsWith('.kmz')) {
           const zip = await JSZip.loadAsync(file);
           const kmlFile = Object.keys(zip.files).find(n => n.endsWith('.kml'));
-          if (!kmlFile) throw new Error('Nenhum .kml encontrado no KMZ');
+          if (!kmlFile) throw new Error(pick(T.semKml));
           kmlText = await zip.files[kmlFile].async('text');
-          log(`✅ KMZ extraído: ${kmlFile}`);
+          log(`${pick(T.kmzExtraido)} ${kmlFile}`);
         } else {
           kmlText = await file.text();
-          log('✅ KML lido');
+          log(pick(T.kmlLido));
         }
         const parser = new DOMParser();
         const kmlDoc = parser.parseFromString(kmlText, 'text/xml');
         const placemarks = Array.from(kmlDoc.querySelectorAll('Placemark'));
         const zonasPMs  = placemarks.filter(pm => pm.querySelector('Polygon'));
-        log(`📍 ${zonasPMs.length} zonas encontradas`);
+        log(`📍 ${zonasPMs.length} ${pick(T.zonasEnc)}`);
 
         const styles: Record<string, string> = {};
         kmlDoc.querySelectorAll('Style').forEach(s => {
@@ -2185,9 +2475,9 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
             poligono: pontos, criadoEm: serverTimestamp(), importadoDe: file.name,
           });
           criadas++;
-          log(`  ✅ ${nome} (${pontos.length} pts)`);
+          log(`  ✅ ${nome} (${pontos.length} ${pick(T.pts)})`);
         }
-        log(`🎉 ${criadas} zonas importadas!`);
+        log(`🎉 ${criadas} ${pick(T.zonasImportadas)}`);
 
       // ── GeoJSON ────────────────────────────────────────────────
       } else if (ext.endsWith('.geojson') || ext.endsWith('.json')) {
@@ -2196,7 +2486,7 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
         const features = gj.type === 'FeatureCollection' ? gj.features
           : gj.type === 'Feature' ? [gj] : [];
         const polys = features.filter((f: any) => f?.geometry?.type === 'Polygon');
-        log(`📍 ${polys.length} polígonos encontrados`);
+        log(`📍 ${polys.length} ${pick(T.poligonosEnc)}`);
         let criadas = 0;
         for (const f of polys) {
           const p = f.properties ?? {};
@@ -2212,16 +2502,16 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
             poligono: pontos, criadoEm: serverTimestamp(), importadoDe: file.name,
           });
           criadas++;
-          log(`  ✅ ${p.nome || p.name || 'Zona'}`);
+          log(`  ✅ ${p.nome || p.name || pick(T.zona)}`);
         }
-        log(`🎉 ${criadas} zonas importadas!`);
+        log(`🎉 ${criadas} ${pick(T.zonasImportadas)}`);
 
       // ── CSV (pontos: nome,grupo,fase,lat,lng,ativo) ────────────
       } else if (ext.endsWith('.csv')) {
         const text = await file.text();
         const linhas = text.split('\n').map(l => l.trim()).filter(Boolean);
-        if (linhas.length < 2) throw new Error('CSV vazio ou sem dados');
-        log(`📄 ${linhas.length - 1} linhas lidas`);
+        if (linhas.length < 2) throw new Error(pick(T.csvVazio));
+        log(`📄 ${linhas.length - 1} ${pick(T.linhasLidas)}`);
 
         // Agrupa linhas pelo nome da zona
         const grupos: Record<string, { nome: string; grupo: string; fase: string; ativo: boolean; pontos: {lat:number;lng:number}[] }> = {};
@@ -2242,15 +2532,15 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
             poligono: z.pontos, criadoEm: serverTimestamp(), importadoDe: file.name,
           });
           criadas++;
-          log(`  ✅ ${z.nome} (${z.pontos.length} pts)`);
+          log(`  ✅ ${z.nome} (${z.pontos.length} ${pick(T.pts)})`);
         }
-        log(`🎉 ${criadas} zonas importadas!`);
+        log(`🎉 ${criadas} ${pick(T.zonasImportadas)}`);
 
       } else {
-        throw new Error('Formato não suportado. Use .kmz, .kml, .geojson ou .csv');
+        throw new Error(pick(T.formatoNS));
       }
     } catch (e: any) {
-      log(`❌ Erro: ${e.message}`);
+      log(`${pick(T.erroLog)} ${e.message}`);
     } finally {
       setImportandoZona(false);
     }
@@ -2264,18 +2554,18 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
     <div>
       {/* ── ESTAÇÕES ── */}
       <div style={sec}>
-        <div style={secTitle}>📍 Estações — {estacoes.length} total</div>
+        <div style={secTitle}>{pick(T.estTotal)} {estacoes.length} {pick(T.totalWord)}</div>
 
         {/* Ordenação */}
         <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
-          <span style={{ fontSize:10, color:'rgba(255,255,255,.4)', flexShrink:0 }}>Ordenar por</span>
+          <span style={{ fontSize:10, color:'rgba(255,255,255,.4)', flexShrink:0 }}>{pick(T.ordenarPor)}</span>
           {(['bairro','codigo','status'] as const).map(k=>(
             <button key={k} onClick={()=>setOrdenarPor(k)} style={{
               padding:'3px 10px', borderRadius:10, border:'none', cursor:'pointer', fontSize:10, fontWeight:600,
               background: ordenarPor===k?'rgba(61,155,255,.2)':'rgba(255,255,255,.06)',
               color: ordenarPor===k?'#3d9bff':'rgba(255,255,255,.4)',
               outline: ordenarPor===k?'1px solid rgba(61,155,255,.4)':'1px solid rgba(255,255,255,.08)',
-            }}>{k.charAt(0).toUpperCase()+k.slice(1)}</button>
+            }}>{pick(ordLabels[k])}</button>
           ))}
         </div>
 
@@ -2285,7 +2575,7 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
           background:'rgba(255,255,255,.04)', border:'1px solid rgba(255,255,255,.1)',
           color:'rgba(255,255,255,.5)', fontSize:11, textAlign:'left',
         }}>
-          {showCampos ? '▲' : '▼'} Campos a exportar ({camposSel.length} selecionados)
+          {showCampos ? '▲' : '▼'} {pick(T.camposExp)} ({camposSel.length} {pick(T.selecionados)})
         </button>
 
         {showCampos && (
@@ -2294,7 +2584,7 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
             {grupos.map(g=>(
               <div key={g} style={{ marginBottom:8 }}>
                 <div style={{ fontSize:9, color:'rgba(255,255,255,.3)', fontWeight:700,
-                  textTransform:'uppercase', letterSpacing:.8, marginBottom:4 }}>{g}</div>
+                  textTransform:'uppercase', letterSpacing:.8, marginBottom:4 }}>{labelGrupo(g)}</div>
                 <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
                   {CAMPOS_EXPORT.filter(c=>c.grupo===g).map(c=>(
                     <div key={c.key} onClick={()=>toggleCampo(c.key)}
@@ -2302,7 +2592,7 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
                         background: camposSel.includes(c.key)?'rgba(61,155,255,.2)':'rgba(255,255,255,.04)',
                         color: camposSel.includes(c.key)?'#3d9bff':'rgba(255,255,255,.35)',
                         border: `1px solid ${camposSel.includes(c.key)?'rgba(61,155,255,.4)':'rgba(255,255,255,.08)'}`,
-                      }}>{c.label}</div>
+                      }}>{labelCampo(c.key, c.label)}</div>
                   ))}
                 </div>
               </div>
@@ -2325,18 +2615,18 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
               width:'100%', padding:'9px', borderRadius:8, cursor:'pointer',
               background:'rgba(255,255,255,.04)', border:'1px dashed rgba(255,255,255,.15)',
               color:'rgba(255,255,255,.5)', fontSize:11, marginBottom:6,
-            }}>{importFile ? `📁 ${importFile.name}` : '⬆ Importar CSV / JSON / XLSX Urent'}</button>
+            }}>{importFile ? `📁 ${importFile.name}` : pick(T.importarFile)}</button>
             {importFile && (importFile.name.endsWith('.xlsx') || importFile.name.endsWith('.xls')) && !importResult && (
               <div style={{ padding:'8px 10px', borderRadius:6, marginBottom:6,
                 background:'rgba(167,139,250,.08)', border:'1px solid rgba(167,139,250,.2)',
                 fontSize:10, color:'rgba(167,139,250,.8)', lineHeight:1.6 }}>
-                <strong>📊 XLSX Urent detectado</strong><br/>
-                A importação irá:<br/>
-                ✓ Importar estações de qualquer país<br/>
-                ✓ Ignorar zonas de restrição e bloqueio<br/>
-                ✓ Importar estações inativas como CANCELADO<br/>
-                ✓ Completar bairro/cidade via geocode reverso<br/>
-                ⚠ Pode levar alguns minutos (1 req/seg no Nominatim)
+                <strong>{pick(T.xlsxDetTit)}</strong><br/>
+                {pick(T.xlsxIra)}<br/>
+                {pick(T.xlsx1)}<br/>
+                {pick(T.xlsx2)}<br/>
+                {pick(T.xlsx3)}<br/>
+                {pick(T.xlsx4)}<br/>
+                {pick(T.xlsx5)}
               </div>
             )}
             {importFile && !importResult && (
@@ -2344,7 +2634,7 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
                 width:'100%', padding:9, background: importando?'rgba(48,127,226,.3)':'linear-gradient(135deg,#1a6fd4,#307FE2)',
                 border:'none', borderRadius:8, color:'#fff', fontSize:12, fontWeight:600,
                 cursor: importando?'not-allowed':'pointer', marginBottom:6,
-              }}>{importando?'Importando...':'Iniciar importação'}</button>
+              }}>{importando?pick(T.importando):pick(T.iniciarImp)}</button>
             )}
             {importLog.length>0 && (
               <div style={{maxHeight:80,overflowY:'auto',background:'rgba(0,0,0,.2)',
@@ -2358,15 +2648,15 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
 
       {/* ── ZONAS ── */}
       <div style={sec}>
-        <div style={secTitle}>⬡ Zonas</div>
+        <div style={secTitle}>{pick(T.zonas)}</div>
         <div style={{ padding:'8px 10px', marginBottom:8, borderRadius:6,
           background:'rgba(192,132,252,.08)', border:'1px solid rgba(192,132,252,.2)',
           fontSize:11, color:'rgba(255,255,255,.5)', lineHeight:1.5 }}>
-          Para criar zonas manualmente: ative ⬡ Zonas no mapa e clique em <b style={{color:'#c084fc'}}>✏</b> no stack de FABs à direita.
+          {pick(T.zonasAjudaA)} <b style={{color:'#c084fc'}}>✏</b> {pick(T.zonasAjudaB)}
         </div>
 
         {/* Exportar */}
-        <div style={{ fontSize:10, color:'rgba(255,255,255,.3)', fontWeight:700, textTransform:'uppercase', letterSpacing:1, marginBottom:5 }}>Exportar</div>
+        <div style={{ fontSize:10, color:'rgba(255,255,255,.3)', fontWeight:700, textTransform:'uppercase', letterSpacing:1, marginBottom:5 }}>{pick(T.exportar)}</div>
         <div style={{ display:'flex', gap:5, marginBottom:12 }}>
           <button onClick={()=>exportZonas('geojson')} style={btn('rgba(99,102,241,.8)')}>⬇ GeoJSON</button>
           <button onClick={()=>exportZonas('wkt')}     style={btn('rgba(48,127,226,.8)')}>⬇ WKT</button>
@@ -2374,7 +2664,7 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
         </div>
 
         {/* Importar */}
-        <div style={{ fontSize:10, color:'rgba(255,255,255,.3)', fontWeight:700, textTransform:'uppercase', letterSpacing:1, marginBottom:5 }}>Importar</div>
+        <div style={{ fontSize:10, color:'rgba(255,255,255,.3)', fontWeight:700, textTransform:'uppercase', letterSpacing:1, marginBottom:5 }}>{pick(T.importar)}</div>
         <input
           ref={importZonaRef} type="file"
           accept=".kmz,.kml,.geojson,.json,.csv"
@@ -2387,21 +2677,21 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
             disabled={importandoZona}
             style={btn(importandoZona ? 'rgba(124,58,237,.4)' : 'rgba(124,58,237,.8)')}
           >
-            {importandoZona ? '⏳ Importando...' : '⬆ KMZ / KML'}
+            {importandoZona ? pick(T.impProgresso) : '⬆ KMZ / KML'}
           </button>
           <button
             onClick={() => importZonaRef.current?.click()}
             disabled={importandoZona}
             style={btn(importandoZona ? 'rgba(99,102,241,.4)' : 'rgba(99,102,241,.8)')}
           >
-            {importandoZona ? '⏳ Importando...' : '⬆ GeoJSON'}
+            {importandoZona ? pick(T.impProgresso) : '⬆ GeoJSON'}
           </button>
           <button
             onClick={() => importZonaRef.current?.click()}
             disabled={importandoZona}
             style={btn(importandoZona ? 'rgba(16,185,129,.4)' : 'rgba(16,185,129,.8)')}
           >
-            {importandoZona ? '⏳ Importando...' : '⬆ CSV'}
+            {importandoZona ? pick(T.impProgresso) : '⬆ CSV'}
           </button>
         </div>
         {importZonaLog.length > 0 && (
@@ -2424,6 +2714,42 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
 // PAINEL DE RELATÓRIOS GUARD — Firebase Callable + Telegram automático
 // ═══════════════════════════════════════════════════════════════════
 function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
+  const { pick } = useLang();
+  const T = {
+    preencha:   { pt:'✗ Preencha o Token do Bot e o Chat ID', en:'✗ Fill in the Bot Token and Chat ID', es:'✗ Complete el Token del Bot y el Chat ID', ru:'✗ Заполните Token бота и Chat ID' },
+    configSalva:{ pt:'✓ Configuração salva! Token e Chat ID registrados.', en:'✓ Configuration saved! Token and Chat ID registered.', es:'✓ ¡Configuración guardada! Token y Chat ID registrados.', ru:'✓ Конфигурация сохранена! Token и Chat ID зарегистрированы.' },
+    erroSalvar: { pt:'✗ Erro ao salvar:', en:'✗ Error saving:', es:'✗ Error al guardar:', ru:'✗ Ошибка сохранения:' },
+    enviado:    { pt:'enviado', en:'sent', es:'enviado', ru:'отправлено' },
+    registros:  { pt:'registros', en:'records', es:'registros', ru:'записей' },
+    erroEnviar: { pt:'✗ Erro ao enviar:', en:'✗ Error sending:', es:'✗ Error al enviar:', ru:'✗ Ошибка отправки:' },
+    relatAuto:  { pt:'📬 Relatórios Automáticos', en:'📬 Automatic Reports', es:'📬 Informes Automáticos', ru:'📬 Автоматические отчёты' },
+    relatAutoSub:{ pt:'Diário às 7h · Semanal às 7h toda segunda · Firebase Functions', en:'Daily at 7am · Weekly at 7am every Monday · Firebase Functions', es:'Diario a las 7h · Semanal a las 7h cada lunes · Firebase Functions', ru:'Ежедневно в 7:00 · Еженедельно в 7:00 по понедельникам · Firebase Functions' },
+    cfgTelegram:{ pt:'⚙️ Configuração Telegram', en:'⚙️ Telegram Configuration', es:'⚙️ Configuración de Telegram', ru:'⚙️ Настройка Telegram' },
+    cfgTelegramSub:{ pt:'Token do bot (@BotFather) e Chat ID do grupo/canal de destino.', en:'Bot token (@BotFather) and Chat ID of the target group/channel.', es:'Token del bot (@BotFather) y Chat ID del grupo/canal de destino.', ru:'Token бота (@BotFather) и Chat ID целевой группы/канала.' },
+    salvando:   { pt:'⏳ Salvando...', en:'⏳ Saving...', es:'⏳ Guardando...', ru:'⏳ Сохранение...' },
+    salvarCfg:  { pt:'💾 Salvar configuração', en:'💾 Save configuration', es:'💾 Guardar configuración', ru:'💾 Сохранить конфигурацию' },
+    notifRT:    { pt:'🔔 Notificações Telegram em tempo real', en:'🔔 Real-time Telegram notifications', es:'🔔 Notificaciones de Telegram en tiempo real', ru:'🔔 Уведомления Telegram в реальном времени' },
+    ativarAgend:{ pt:'🚀 Ativar agendamento automático', en:'🚀 Enable automatic scheduling', es:'🚀 Activar programación automática', ru:'🚀 Включить автоматическое расписание' },
+    execUmaVez: { pt:'Execute uma vez para ativar os 4 triggers:', en:'Run once to enable the 4 triggers:', es:'Ejecute una vez para activar los 4 disparadores:', ru:'Запустите один раз, чтобы включить 4 триггера:' },
+    triggersCriados:{ pt:'Triggers criados:', en:'Triggers created:', es:'Disparadores creados:', ru:'Созданные триггеры:' },
+    trigGuardD: { pt:'• Guard diário — 7h, seg a sáb', en:'• Daily Guard — 7am, Mon to Sat', es:'• Guard diario — 7h, lun a sáb', ru:'• Guard ежедневно — 7:00, пн–сб' },
+    trigGuardS: { pt:'• Guard semanal — 7h, toda segunda', en:'• Weekly Guard — 7am, every Monday', es:'• Guard semanal — 7h, cada lunes', ru:'• Guard еженедельно — 7:00, по понедельникам' },
+    trigPerdasD:{ pt:'• Perdas diário — 7h, seg a sáb', en:'• Daily Losses — 7am, Mon to Sat', es:'• Pérdidas diario — 7h, lun a sáb', ru:'• Потери ежедневно — 7:00, пн–сб' },
+    trigPerdasS:{ pt:'• Perdas semanal — 7h, toda segunda', en:'• Weekly Losses — 7am, every Monday', es:'• Pérdidas semanal — 7h, cada lunes', ru:'• Потери еженедельно — 7:00, по понедельникам' },
+    guardManual:{ pt:'🛡 Relatório Guard — Envio manual', en:'🛡 Guard Report — Manual send', es:'🛡 Informe Guard — Envío manual', ru:'🛡 Отчёт Guard — Ручная отправка' },
+    perdasManual:{ pt:'💸 Relatório Perdas — Envio manual', en:'💸 Losses Report — Manual send', es:'💸 Informe Pérdidas — Envío manual', ru:'💸 Отчёт Потери — Ручная отправка' },
+    guardDiario:{ pt:'📅 Guard Diário (ontem)', en:'📅 Daily Guard (yesterday)', es:'📅 Guard Diario (ayer)', ru:'📅 Guard ежедневный (вчера)' },
+    guardSemanal:{ pt:'📆 Guard Semanal (sem. ant.)', en:'📆 Weekly Guard (last week)', es:'📆 Guard Semanal (sem. ant.)', ru:'📆 Guard еженедельный (пр. нед.)' },
+    perdasDiario:{ pt:'📅 Perdas Diário (ontem)', en:'📅 Daily Losses (yesterday)', es:'📅 Pérdidas Diario (ayer)', ru:'📅 Потери ежедневно (вчера)' },
+    perdasSemanal:{ pt:'📆 Perdas Semanal (sem. ant.)', en:'📆 Weekly Losses (last week)', es:'📆 Pérdidas Semanal (sem. ant.)', ru:'📆 Потери еженедельно (пр. нед.)' },
+    enviando:   { pt:'⏳ Enviando...', en:'⏳ Sending...', es:'⏳ Enviando...', ru:'⏳ Отправка...' },
+    histAlt:    { pt:'📋 Histórico de Alterações', en:'📋 Change History', es:'📋 Historial de Cambios', ru:'📋 История изменений' },
+    expExcel:   { pt:'📊 Exportar Guard para Excel', en:'📊 Export Guard to Excel', es:'📊 Exportar Guard a Excel', ru:'📊 Экспорт Guard в Excel' },
+    auditoria:  { pt:'🔍 Auditoria de Incidente', en:'🔍 Incident Audit', es:'🔍 Auditoría de Incidente', ru:'🔍 Аудит инцидента' },
+    expCsv:     { pt:'⬇ Exportar Ocorrências (CSV)', en:'⬇ Export Incidents (CSV)', es:'⬇ Exportar Incidencias (CSV)', ru:'⬇ Экспорт инцидентов (CSV)' },
+    notaPdfA:   { pt:'O PDF é gerado server-side e enviado como arquivo .html diretamente no Telegram. O Telegram renderiza o HTML na visualização do arquivo. Para PDF nativo, adicione ', en:'The PDF is generated server-side and sent as an .html file directly on Telegram. Telegram renders the HTML in the file preview. For native PDF, add ', es:'El PDF se genera del lado del servidor y se envía como archivo .html directamente en Telegram. Telegram renderiza el HTML en la vista del archivo. Para PDF nativo, agregue ', ru:'PDF создаётся на стороне сервера и отправляется как файл .html прямо в Telegram. Telegram отображает HTML в предпросмотре файла. Для нативного PDF добавьте ' },
+    notaPdfB:   { pt:' nas functions.', en:' to the functions.', es:' en las functions.', ru:' в functions.' },
+  };
   const [enviando,    setEnviando]    = useState<string|null>(null);
   const [resultado,   setResultado]   = useState<{ok:boolean;msg:string}|null>(null);
   const [config,      setConfig]      = useState({ token:'', chatId:'' });
@@ -2463,7 +2789,7 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
       const chatId = config.chatId.trim();
 
       if (!token || !chatId) {
-        setResultado({ ok:false, msg:'✗ Preencha o Token do Bot e o Chat ID' });
+        setResultado({ ok:false, msg: pick(T.preencha) });
         setSalvando(false); return;
       }
 
@@ -2482,9 +2808,9 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
         setDoc(fDoc(db, 'telegram_config', 'global'), payload, { merge: true }),
       ]);
 
-      setResultado({ ok:true, msg:'✓ Configuração salva! Token e Chat ID registrados.' });
+      setResultado({ ok:true, msg: pick(T.configSalva) });
     } catch(e:any) {
-      setResultado({ ok:false, msg:'✗ Erro ao salvar: '+e.message });
+      setResultado({ ok:false, msg: pick(T.erroSalvar) + ' ' + e.message });
     }
     setSalvando(false);
   };
@@ -2496,13 +2822,20 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
       // relatorioGuardManualFn está deployada e funcionando
       // Passa tipo e periodo — a function ignora o que não conhece (só usa dataStr)
       const fnName = 'relatorioGuardManualFn';
-      const fn = httpsCallable(getFunctions(getApp(), 'southamerica-east1'), fnName);
+      const { functionsProviderSupabase, getEdgeCallable } = await import('./lib/edge-functions');
+      let fn: any;
+      if (functionsProviderSupabase()) {
+        const edge = getEdgeCallable(fnName);
+        fn = edge ? edge() : httpsCallable(getFunctions(getApp(), 'southamerica-east1'), fnName);
+      } else {
+        fn = httpsCallable(getFunctions(getApp(), 'southamerica-east1'), fnName);
+      }
       const res = await fn({ tipo, periodo, lang: reportLang }) as any;
       const d = res.data as any;
       const total = d.totalOcorrencias ?? d.total ?? 0;
-      setResultado({ ok:true, msg:`✓ ${label} enviado${total ? ` — ${total} registros` : ''}` });
+      setResultado({ ok:true, msg:`✓ ${label} ${pick(T.enviado)}${total ? ` — ${total} ${pick(T.registros)}` : ''}` });
     } catch(e:any) {
-      setResultado({ ok:false, msg:`✗ Erro ao enviar: ${(e as any).message || String(e)}` });
+      setResultado({ ok:false, msg:`${pick(T.erroEnviar)} ${(e as any).message || String(e)}` });
     }
     setEnviando(null);
   };
@@ -2520,18 +2853,18 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
 
       {/* Header */}
       <div style={{ padding:'14px 16px', borderBottom:'1px solid rgba(255,255,255,.06)', background:'rgba(167,139,250,.05)' }}>
-        <div style={{ fontSize:13, fontWeight:700, color:'#a78bfa' }}>📬 Relatórios Automáticos</div>
+        <div style={{ fontSize:13, fontWeight:700, color:'#a78bfa' }}>{pick(T.relatAuto)}</div>
         <div style={{ fontSize:10, color:'#4a5a7a', marginTop:3 }}>
-          Diário às 7h · Semanal às 7h toda segunda · Firebase Functions
+          {pick(T.relatAutoSub)}
         </div>
       </div>
 
       {/* Config Telegram — apenas admin */}
       {isAdmin && (
       <div style={sec}>
-        <div style={hdr}>⚙️ Configuração Telegram</div>
+        <div style={hdr}>{pick(T.cfgTelegram)}</div>
         <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:8, lineHeight:1.7 }}>
-          Token do bot (@BotFather) e Chat ID do grupo/canal de destino.
+          {pick(T.cfgTelegramSub)}
         </div>
         <label style={{ fontSize:9, color:'#4a5a7a', marginBottom:3, display:'block' }}>BOT TOKEN</label>
         <input value={config.token} onChange={e => setConfig(c=>({...c,token:e.target.value}))}
@@ -2545,7 +2878,7 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
             background:'#111722', color:'#dce8ff', fontSize:10, boxSizing:'border-box', marginBottom:10 }}/>
         <button onClick={salvarConfig} disabled={salvando}
           style={{ ...btn, marginBottom:0, background:'rgba(167,139,250,.1)', border:'1px solid rgba(167,139,250,.3)', color:'#a78bfa' }}>
-          {salvando ? '⏳ Salvando...' : '💾 Salvar configuração'}
+          {salvando ? pick(T.salvando) : pick(T.salvarCfg)}
         </button>
       </div>
       )}
@@ -2553,33 +2886,33 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
       {/* Config Notificações Telegram — apenas admin */}
       {isAdmin && (
       <div style={sec}>
-        <div style={hdr}>🔔 Notificações Telegram em tempo real</div>
+        <div style={hdr}>{pick(T.notifRT)}</div>
         <GuardNotifConfig />
       </div>
       )}
 
       {/* Deploy instruções */}
       <div style={{ ...sec, background:'rgba(251,191,36,.04)' }}>
-        <div style={hdr}>🚀 Ativar agendamento automático</div>
+        <div style={hdr}>{pick(T.ativarAgend)}</div>
         <div style={{ fontSize:9, color:'rgba(255,255,255,.45)', lineHeight:1.8 }}>
-          Execute uma vez para ativar os 4 triggers:<br/>
+          {pick(T.execUmaVez)}<br/>
           <code style={{ color:'#fbbf24', background:'rgba(0,0,0,.3)', padding:'1px 5px', borderRadius:3 }}>
             cd functions && npm run build
           </code><br/>
           <code style={{ color:'#fbbf24', background:'rgba(0,0,0,.3)', padding:'1px 5px', borderRadius:3 }}>
             firebase deploy --only functions
           </code><br/><br/>
-          <span style={{ color:'#4a5a7a' }}>Triggers criados:</span><br/>
-          • Guard diário — 7h, seg a sáb<br/>
-          • Guard semanal — 7h, toda segunda<br/>
-          • Perdas diário — 7h, seg a sáb<br/>
-          • Perdas semanal — 7h, toda segunda
+          <span style={{ color:'#4a5a7a' }}>{pick(T.triggersCriados)}</span><br/>
+          {pick(T.trigGuardD)}<br/>
+          {pick(T.trigGuardS)}<br/>
+          {pick(T.trigPerdasD)}<br/>
+          {pick(T.trigPerdasS)}
         </div>
       </div>
 
       {/* Envio manual Guard */}
       <div style={sec}>
-        <div style={hdr}>🛡 Relatório Guard — Envio manual</div>
+        <div style={hdr}>{pick(T.guardManual)}</div>
         <div style={{ display:'flex', gap:6, marginBottom:8 }}>
           {(['pt','en','es','ru'] as const).map(l => (
             <button key={l} onClick={() => setReportLang(l)} style={{
@@ -2592,30 +2925,30 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
           ))}
         </div>
         {[
-          { tipo:'guard', periodo:'ontem',  label:'📅 Guard Diário (ontem)',      cor:'#a78bfa' },
-          { tipo:'guard', periodo:'semana', label:'📆 Guard Semanal (sem. ant.)', cor:'#818cf8' },
+          { tipo:'guard', periodo:'ontem',  label:pick(T.guardDiario),  cor:'#a78bfa' },
+          { tipo:'guard', periodo:'semana', label:pick(T.guardSemanal), cor:'#818cf8' },
         ].map(({ tipo, periodo, label, cor }) => (
           <button key={label}
             disabled={!!enviando}
             onClick={() => chamarFunction(tipo, periodo, label)}
             style={{ ...btn, background:'rgba(167,139,250,.08)', border:`1px solid rgba(167,139,250,.2)`, color:cor }}>
-            {enviando === label ? '⏳ Enviando...' : label}
+            {enviando === label ? pick(T.enviando) : label}
           </button>
         ))}
       </div>
 
       {/* Envio manual Perdas */}
       <div style={sec}>
-        <div style={hdr}>💸 Relatório Perdas — Envio manual</div>
+        <div style={hdr}>{pick(T.perdasManual)}</div>
         {[
-          { tipo:'perdas', periodo:'ontem',  label:'📅 Perdas Diário (ontem)',      cor:'#f87171' },
-          { tipo:'perdas', periodo:'semana', label:'📆 Perdas Semanal (sem. ant.)', cor:'#fca5a5' },
+          { tipo:'perdas', periodo:'ontem',  label:pick(T.perdasDiario),  cor:'#f87171' },
+          { tipo:'perdas', periodo:'semana', label:pick(T.perdasSemanal), cor:'#fca5a5' },
         ].map(({ tipo, periodo, label, cor }) => (
           <button key={label}
             disabled={!!enviando}
             onClick={() => chamarFunction(tipo, periodo, label)}
             style={{ ...btn, background:'rgba(239,68,68,.08)', border:`1px solid rgba(239,68,68,.2)`, color:cor }}>
-            {enviando === label ? '⏳ Enviando...' : label}
+            {enviando === label ? pick(T.enviando) : label}
           </button>
         ))}
       </div>
@@ -2632,27 +2965,27 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
 
       {/* Histórico de alterações — gestor e admin */}
       <div style={sec}>
-        <div style={hdr}>📋 Histórico de Alterações</div>
+        <div style={hdr}>{pick(T.histAlt)}</div>
         <GuardHistorico />
       </div>
 
       {/* Exportar Excel */}
       <div style={sec}>
-        <div style={hdr}>📊 Exportar Guard para Excel</div>
+        <div style={hdr}>{pick(T.expExcel)}</div>
         <GuardExportExcel />
       </div>
 
       {/* Auditoria de incidente */}
       {isAdmin && (
       <div style={sec}>
-        <div style={hdr}>🔍 Auditoria de Incidente</div>
+        <div style={hdr}>{pick(T.auditoria)}</div>
         <GuardAuditoriaPanel />
       </div>
       )}
 
       {/* Export CSV Ocorrências */}
       <div style={sec}>
-        <div style={hdr}>⬇ Exportar Ocorrências (CSV)</div>
+        <div style={hdr}>{pick(T.expCsv)}</div>
         <GuardExportCSV />
       </div>
 
@@ -2660,9 +2993,7 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
       <div style={{ margin:'12px 16px 20px', padding:'10px 14px', borderRadius:8,
         background:'rgba(59,130,246,.04)', border:'1px solid rgba(59,130,246,.12)',
         fontSize:9, color:'rgba(255,255,255,.35)', lineHeight:1.8 }}>
-        O PDF é gerado server-side e enviado como arquivo .html diretamente no Telegram.
-        O Telegram renderiza o HTML na visualização do arquivo.
-        Para PDF nativo, adicione <code style={{color:'#60a5fa'}}>puppeteer</code> nas functions.
+        {pick(T.notaPdfA)}<code style={{color:'#60a5fa'}}>puppeteer</code>{pick(T.notaPdfB)}
       </div>
     </div>
   );
@@ -2670,6 +3001,26 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
 
 // ── Export CSV de Ocorrências Guard ──────────────────────────────────────────
 function GuardExportCSV() {
+  const { pick } = useLang();
+  const T = {
+    cID:        { pt:'ID', en:'ID', es:'ID', ru:'ID' },
+    cTipo:      { pt:'Tipo', en:'Type', es:'Tipo', ru:'Тип' },
+    cStatus:    { pt:'Status', en:'Status', es:'Estado', ru:'Статус' },
+    cDescricao: { pt:'Descrição', en:'Description', es:'Descripción', ru:'Описание' },
+    cLocal:     { pt:'Local', en:'Location', es:'Lugar', ru:'Место' },
+    cCidade:    { pt:'Cidade', en:'City', es:'Ciudad', ru:'Город' },
+    cPatinete:  { pt:'Patinete', en:'Scooter', es:'Patinete', ru:'Самокат' },
+    cLat:       { pt:'Lat', en:'Lat', es:'Lat', ru:'Шир' },
+    cLng:       { pt:'Lng', en:'Lng', es:'Lng', ru:'Долг' },
+    cCriadoEm:  { pt:'Criado em', en:'Created at', es:'Creado el', ru:'Создано' },
+    cCriadoPor: { pt:'Criado por', en:'Created by', es:'Creado por', ru:'Создал' },
+    cResolvido: { pt:'Resolvido em', en:'Resolved at', es:'Resuelto el', ru:'Решено' },
+    cRecuperado:{ pt:'Recuperado', en:'Recovered', es:'Recuperado', ru:'Восстановлено' },
+    erroExport: { pt:'Erro ao exportar:', en:'Error exporting:', es:'Error al exportar:', ru:'Ошибка экспорта:' },
+    tudo:       { pt:'Tudo', en:'All', es:'Todo', ru:'Всё' },
+    exportando: { pt:'⏳ Exportando...', en:'⏳ Exporting...', es:'⏳ Exportando...', ru:'⏳ Экспорт...' },
+    baixarCsv:  { pt:'⬇ Baixar CSV', en:'⬇ Download CSV', es:'⬇ Descargar CSV', ru:'⬇ Скачать CSV' },
+  };
   const [periodo,   setPeriodo]   = useLocalState<'7d'|'30d'|'90d'|'todos'>('30d');
   const [exportando, setExportando] = useLocalState(false);
 
@@ -2681,22 +3032,24 @@ function GuardExportCSV() {
         periodo === '30d' ? new Date(Date.now() - 30 * 86400000) :
                             new Date(Date.now() - 90 * 86400000);
 
-      const snap = await getDocs(query(
-        collection(db, 'ocorrencias'),
-        orderBy('criadoEm', 'desc'),
-        limit(2000),
-      ));
+      // Fase 2 / Onda B — leitura do Supabase atrás de flag (read-only).
+      const baseDocs: any[] = guardProviderSupabase()
+        ? await carregarOcorrenciasSupabase({ limit: 2000 })
+        : (await getDocs(query(
+            collection(db, 'ocorrencias'),
+            orderBy('criadoEm', 'desc'),
+            limit(2000),
+          ))).docs.map(d => ({ id: d.id, ...d.data() } as any));
 
-      const docs = snap.docs
-        .map(d => ({ id: d.id, ...d.data() } as any))
+      const docs = baseDocs
         .filter(o => {
           if (periodo === 'todos') return true;
-          const d = o.criadoEm?.toDate?.() ?? new Date(0);
+          const d = o.criadoEm?.toDate?.() ?? (o.criadoEm ? new Date(o.criadoEm) : new Date(0));
           return d >= desde;
         });
 
-      const h = ['ID','Tipo','Status','Descrição','Local','Cidade','Patinete',
-                 'Lat','Lng','Criado em','Criado por','Resolvido em','Recuperado'];
+      const h = [pick(T.cID),pick(T.cTipo),pick(T.cStatus),pick(T.cDescricao),pick(T.cLocal),pick(T.cCidade),pick(T.cPatinete),
+                 pick(T.cLat),pick(T.cLng),pick(T.cCriadoEm),pick(T.cCriadoPor),pick(T.cResolvido),pick(T.cRecuperado)];
       const rows = docs.map((o: any) => {
         const fmtD = (ts: any) => {
           if (!ts) return '';
@@ -2723,7 +3076,7 @@ function GuardExportCSV() {
       a.download = `ocorrencias_guard_${periodo}_${new Date().toISOString().slice(0,10)}.csv`;
       a.click();
     } catch (e: any) {
-      alert('Erro ao exportar: ' + e.message);
+      alert(pick(T.erroExport) + ' ' + e.message);
     } finally {
       setExportando(false);
     }
@@ -2737,14 +3090,14 @@ function GuardExportCSV() {
           fontSize: 10, fontWeight: 600,
           background: periodo === p ? 'rgba(59,130,246,.2)' : 'rgba(255,255,255,.06)',
           color: periodo === p ? '#60a5fa' : 'rgba(255,255,255,.4)',
-        }}>{p === 'todos' ? 'Tudo' : p}</button>
+        }}>{p === 'todos' ? pick(T.tudo) : p}</button>
       ))}
       <button onClick={exportar} disabled={exportando} style={{
         padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
         background: 'rgba(59,130,246,.8)', color: '#fff', fontSize: 11, fontWeight: 700,
         opacity: exportando ? 0.6 : 1,
       }}>
-        {exportando ? '⏳ Exportando...' : '⬇ Baixar CSV'}
+        {exportando ? pick(T.exportando) : pick(T.baixarCsv)}
       </button>
     </div>
   );
@@ -2764,6 +3117,33 @@ function GuardNotifConfig() {
   });
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState('');
+  const { pick } = useLang();
+  const T = {
+    cfgSalva:   { pt:'✓ Configuração salva!', en:'✓ Configuration saved!', es:'✓ ¡Configuración guardada!', ru:'✓ Конфигурация сохранена!' },
+    erro:       { pt:'✗ Erro:', en:'✗ Error:', es:'✗ Error:', ru:'✗ Ошибка:' },
+    intro:      { pt:'Envio imediato no Telegram quando um incidente é registrado no app. Usa o mesmo bot configurado acima.', en:'Immediate Telegram message when an incident is recorded in the app. Uses the same bot configured above.', es:'Envío inmediato en Telegram cuando se registra un incidente en la app. Usa el mismo bot configurado arriba.', ru:'Мгновенная отправка в Telegram при регистрации инцидента в приложении. Использует тот же бот, что настроен выше.' },
+    notifAtivas:{ pt:'🔔 Notificações ATIVAS', en:'🔔 Notifications ON', es:'🔔 Notificaciones ACTIVAS', ru:'🔔 Уведомления ВКЛ' },
+    notifDesat: { pt:'🔕 Notificações desativadas', en:'🔕 Notifications off', es:'🔕 Notificaciones desactivadas', ru:'🔕 Уведомления выкл' },
+    alertasRT:  { pt:'Alertas em tempo real para novos incidentes', en:'Real-time alerts for new incidents', es:'Alertas en tiempo real para nuevos incidentes', ru:'Оповещения в реальном времени о новых инцидентах' },
+    chatIdLabel:{ pt:'Chat ID para notificações (deixe vazio para usar o mesmo dos relatórios)', en:'Chat ID for notifications (leave empty to use the same as reports)', es:'Chat ID para notificaciones (déjelo vacío para usar el mismo de los informes)', ru:'Chat ID для уведомлений (оставьте пустым, чтобы использовать тот же, что для отчётов)' },
+    chatIdPh:   { pt:'-100123456789 (opcional)', en:'-100123456789 (optional)', es:'-100123456789 (opcional)', ru:'-100123456789 (необязательно)' },
+    notificarQuando:{ pt:'Notificar quando:', en:'Notify when:', es:'Notificar cuando:', ru:'Уведомлять, когда:' },
+    chkRoubos:  { pt:'🔴 Novo Roubo ou Furto registrado', en:'🔴 New Robbery or Theft recorded', es:'🔴 Nuevo Robo o Hurto registrado', ru:'🔴 Зарегистрирован новый грабёж или кража' },
+    chkVand:    { pt:'🟡 Novo Vandalismo registrado', en:'🟡 New Vandalism recorded', es:'🟡 Nuevo Vandalismo registrado', ru:'🟡 Зарегистрирован новый вандализм' },
+    chkCrit:    { pt:'⚠️ Incidente com prioridade Alta/Crítica', en:'⚠️ Incident with High/Critical priority', es:'⚠️ Incidente con prioridad Alta/Crítica', ru:'⚠️ Инцидент с высоким/критическим приоритетом' },
+    chkProc:    { pt:'🔍 Ativo marcado como Procurando', en:'🔍 Asset marked as Searching', es:'🔍 Activo marcado como Buscando', ru:'🔍 Актив отмечен как «В поиске»' },
+    prioMin:    { pt:'Prioridade mínima para notificar', en:'Minimum priority to notify', es:'Prioridad mínima para notificar', ru:'Минимальный приоритет для уведомления' },
+    optTodas:   { pt:'Todas (incluir Baixa)', en:'All (include Low)', es:'Todas (incluir Baja)', ru:'Все (включая низкий)' },
+    optMedia:   { pt:'Média ou superior', en:'Medium or higher', es:'Media o superior', ru:'Средний или выше' },
+    optAlta:    { pt:'Apenas Alta/Crítica', en:'High/Critical only', es:'Solo Alta/Crítica', ru:'Только высокий/критический' },
+    salvando:   { pt:'⏳ Salvando...', en:'⏳ Saving...', es:'⏳ Guardando...', ru:'⏳ Сохранение...' },
+    salvarCfg:  { pt:'💾 Salvar configuração', en:'💾 Save configuration', es:'💾 Guardar configuración', ru:'💾 Сохранить конфигурацию' },
+    comoTit:    { pt:'Como funciona:', en:'How it works:', es:'Cómo funciona:', ru:'Как это работает:' },
+    comoA:      { pt:'A Cloud Function ', en:'The Cloud Function ', es:'La Cloud Function ', ru:'Cloud Function ' },
+    comoB:      { pt:' monitora novos documentos na coleção ', en:' monitors new documents in the collection ', es:' monitorea nuevos documentos en la colección ', ru:' отслеживает новые документы в коллекции ' },
+    comoC:      { pt:' e envia alertas instantâneos conforme os filtros acima. Para ativar o trigger em tempo real, adicione um', en:' and sends instant alerts according to the filters above. To enable the real-time trigger, add an', es:' y envía alertas instantáneas según los filtros anteriores. Para activar el disparador en tiempo real, agregue un', ru:' и отправляет мгновенные оповещения согласно фильтрам выше. Чтобы включить триггер реального времени, добавьте', },
+    comoD:      { pt:' nas Cloud Functions.', en:' to the Cloud Functions.', es:' en las Cloud Functions.', ru:' в Cloud Functions.' },
+  };
 
   useEffect(() => {
     getDocs(query(collection(db,'config'), where('tipo','==','notif_guard'))).then(snap => {
@@ -2778,8 +3158,8 @@ function GuardNotifConfig() {
       const ref = doc(collection(db,'config'),'notif_guard');
       batch.set(ref, { tipo:'notif_guard', ...cfg, updatedAt: new Date().toISOString() }, { merge:true });
       await batch.commit();
-      setMsg('✓ Configuração salva!');
-    } catch(e:any) { setMsg('✗ Erro: ' + e.message); }
+      setMsg(pick(T.cfgSalva));
+    } catch(e:any) { setMsg(pick(T.erro) + ' ' + e.message); }
     setSalvando(false);
   };
 
@@ -2800,8 +3180,7 @@ function GuardNotifConfig() {
   return (
     <div>
       <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:10, lineHeight:1.7 }}>
-        Envio imediato no Telegram quando um incidente é registrado no app.
-        Usa o mesmo bot configurado acima.
+        {pick(T.intro)}
       </div>
 
       {/* Ativar/desativar */}
@@ -2814,46 +3193,46 @@ function GuardNotifConfig() {
           style={{ accentColor:'#a78bfa', width:16, height:16 }}/>
         <div>
           <div style={{ fontSize:11, fontWeight:700, color: cfg.ativo ? '#a78bfa' : 'rgba(255,255,255,.5)' }}>
-            {cfg.ativo ? '🔔 Notificações ATIVAS' : '🔕 Notificações desativadas'}
+            {cfg.ativo ? pick(T.notifAtivas) : pick(T.notifDesat)}
           </div>
           <div style={{ fontSize:9, color:'#4a5a7a' }}>
-            Alertas em tempo real para novos incidentes
+            {pick(T.alertasRT)}
           </div>
         </div>
       </label>
 
       {/* Chat ID alternativo */}
       <label style={{ fontSize:9, color:'#4a5a7a', marginBottom:3, display:'block' }}>
-        Chat ID para notificações (deixe vazio para usar o mesmo dos relatórios)
+        {pick(T.chatIdLabel)}
       </label>
       <input value={cfg.chatIdNotif} onChange={e=>setCfg(c=>({...c,chatIdNotif:e.target.value}))}
-        placeholder="-100123456789 (opcional)" style={inp}/>
+        placeholder={pick(T.chatIdPh)} style={inp}/>
 
       {/* Tipos de evento */}
       <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:6, marginTop:4 }}>
-        Notificar quando:
+        {pick(T.notificarQuando)}
       </div>
-      {chk('roubos',    '🔴 Novo Roubo ou Furto registrado', '#ef4444')}
-      {chk('vandalismo','🟡 Novo Vandalismo registrado',       '#f59e0b')}
-      {chk('criticos',  '⚠️ Incidente com prioridade Alta/Crítica', '#f97316')}
-      {chk('procurando','🔍 Ativo marcado como Procurando',   '#ef4444')}
+      {chk('roubos',    pick(T.chkRoubos), '#ef4444')}
+      {chk('vandalismo',pick(T.chkVand),   '#f59e0b')}
+      {chk('criticos',  pick(T.chkCrit), '#f97316')}
+      {chk('procurando',pick(T.chkProc),   '#ef4444')}
 
       {/* Prioridade mínima */}
       <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3, marginTop:8 }}>
-        Prioridade mínima para notificar
+        {pick(T.prioMin)}
       </div>
       <select value={cfg.minPrioridade} onChange={e=>setCfg(c=>({...c,minPrioridade:e.target.value}))}
         style={{...inp, cursor:'pointer', marginBottom:12}}>
-        <option value="Baixa">Todas (incluir Baixa)</option>
-        <option value="Média">Média ou superior</option>
-        <option value="Alta">Apenas Alta/Crítica</option>
+        <option value="Baixa">{pick(T.optTodas)}</option>
+        <option value="Média">{pick(T.optMedia)}</option>
+        <option value="Alta">{pick(T.optAlta)}</option>
       </select>
 
       <button onClick={salvar} disabled={salvando}
         style={{ width:'100%', padding:'10px', borderRadius:8, cursor:'pointer',
           background:'rgba(167,139,250,.1)', border:'1px solid rgba(167,139,250,.3)',
           color:'#a78bfa', fontSize:12, fontWeight:600 }}>
-        {salvando ? '⏳ Salvando...' : '💾 Salvar configuração'}
+        {salvando ? pick(T.salvando) : pick(T.salvarCfg)}
       </button>
 
       {msg && (
@@ -2865,12 +3244,9 @@ function GuardNotifConfig() {
       <div style={{ marginTop:10, padding:'8px 10px', borderRadius:8, fontSize:9,
         color:'rgba(255,255,255,.3)', background:'rgba(255,255,255,.03)',
         border:'1px solid rgba(255,255,255,.06)', lineHeight:1.7 }}>
-        <strong style={{color:'rgba(255,255,255,.5)'}}>Como funciona:</strong><br/>
-        A Cloud Function <code style={{color:'#60a5fa'}}>relatorioGuardDiarioFn</code> monitora novos
-        documentos na coleção <code style={{color:'#60a5fa'}}>ocorrencias</code> e envia alertas
-        instantâneos conforme os filtros acima.
-        Para ativar o trigger em tempo real, adicione um
-        <code style={{color:'#60a5fa'}}> onDocumentCreated</code> nas Cloud Functions.
+        <strong style={{color:'rgba(255,255,255,.5)'}}>{pick(T.comoTit)}</strong><br/>
+        {pick(T.comoA)}<code style={{color:'#60a5fa'}}>relatorioGuardDiarioFn</code>{pick(T.comoB)}<code style={{color:'#60a5fa'}}>ocorrencias</code>{pick(T.comoC)}
+        <code style={{color:'#60a5fa'}}> onDocumentCreated</code>{pick(T.comoD)}
       </div>
     </div>
   );
@@ -2878,6 +3254,14 @@ function GuardNotifConfig() {
 
 // ── Histórico de Alterações de Incidentes ─────────────────────────────
 function GuardHistorico() {
+  const { pick } = useLang();
+  const T = {
+    intro:    { pt:'Digite o ID do incidente (JET-SEC-...) para ver todas as edições registradas.', en:'Enter the incident ID (JET-SEC-...) to see all recorded edits.', es:'Ingrese el ID del incidente (JET-SEC-...) para ver todas las ediciones registradas.', ru:'Введите ID инцидента (JET-SEC-...), чтобы увидеть все зарегистрированные изменения.' },
+    vazio:    { pt:'Nenhuma alteração registrada para este incidente.', en:'No changes recorded for this incident.', es:'Ningún cambio registrado para este incidente.', ru:'Для этого инцидента нет записанных изменений.' },
+    erro:     { pt:'Erro:', en:'Error:', es:'Error:', ru:'Ошибка:' },
+    sistema:  { pt:'Sistema', en:'System', es:'Sistema', ru:'Система' },
+    motivo:   { pt:'Motivo:', en:'Reason:', es:'Motivo:', ru:'Причина:' },
+  };
   const [busca,   setBusca]   = useState('');
   const [itens,   setItens]   = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -2916,7 +3300,7 @@ function GuardHistorico() {
   return (
     <div>
       <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:8 }}>
-        Digite o ID do incidente (JET-SEC-...) para ver todas as edições registradas.
+        {pick(T.intro)}
       </div>
       <div style={{ display:'flex', gap:6 }}>
         <input value={busca} onChange={e=>setBusca(e.target.value)}
@@ -2936,16 +3320,16 @@ function GuardHistorico() {
         <div style={{ marginTop:10 }}>
           {itens.map((it, i) => it._vazio ? (
             <div key={i} style={{ fontSize:10, color:'#4a5a7a', padding:'8px 0' }}>
-              Nenhuma alteração registrada para este incidente.
+              {pick(T.vazio)}
             </div>
           ) : it._erro ? (
-            <div key={i} style={{ fontSize:10, color:'#f87171' }}>Erro: {it._erro}</div>
+            <div key={i} style={{ fontSize:10, color:'#f87171' }}>{pick(T.erro)} {it._erro}</div>
           ) : (
             <div key={it.id} style={{ padding:'8px 10px', marginBottom:6, borderRadius:8,
               background:'rgba(255,255,255,.03)', border:'1px solid rgba(255,255,255,.07)' }}>
               <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
                 <span style={{ fontSize:10, color:'#a78bfa', fontWeight:600 }}>
-                  ✏️ {it.alteradoPor || 'Sistema'}
+                  ✏️ {it.alteradoPor || pick(T.sistema)}
                 </span>
                 <span style={{ fontSize:9, color:'#4a5a7a' }}>{fmtDt(it.alteradoEm)}</span>
               </div>
@@ -2959,7 +3343,7 @@ function GuardHistorico() {
               ))}
               {it.motivo && (
                 <div style={{ fontSize:9, color:'#fbbf24', marginTop:4 }}>
-                  Motivo: {it.motivo}
+                  {pick(T.motivo)} {it.motivo}
                 </div>
               )}
             </div>
@@ -2973,6 +3357,41 @@ function GuardHistorico() {
 
 // ── Exportar Guard para Excel ──────────────────────────────────────────
 function GuardExportExcel() {
+  const { pick } = useLang();
+  const T = {
+    erroExport: { pt:'Erro ao exportar:', en:'Error exporting:', es:'Error al exportar:', ru:'Ошибка экспорта:' },
+    sheetGuard: { pt:'Guard', en:'Guard', es:'Guard', ru:'Guard' },
+    sheetResumo:{ pt:'Resumo por Cidade', en:'Summary by City', es:'Resumen por Ciudad', ru:'Сводка по городам' },
+    desconhecida:{ pt:'Desconhecida', en:'Unknown', es:'Desconocida', ru:'Неизвестно' },
+    introFiltros:{ pt:'Filtros opcionais — deixe em branco para exportar tudo', en:'Optional filters — leave blank to export everything', es:'Filtros opcionales — deje en blanco para exportar todo', ru:'Необязательные фильтры — оставьте пустыми для экспорта всего' },
+    todosTipos: { pt:'Todos os tipos', en:'All types', es:'Todos los tipos', ru:'Все типы' },
+    todosStatus:{ pt:'Todos os status', en:'All statuses', es:'Todos los estados', ru:'Все статусы' },
+    filtrarCidade:{ pt:'Filtrar por cidade...', en:'Filter by city...', es:'Filtrar por ciudad...', ru:'Фильтр по городу...' },
+    de:         { pt:'De', en:'From', es:'Desde', ru:'С' },
+    ate:        { pt:'Até', en:'To', es:'Hasta', ru:'По' },
+    gerando:    { pt:'⏳ Gerando...', en:'⏳ Generating...', es:'⏳ Generando...', ru:'⏳ Создание...' },
+    expExcel:   { pt:'📊 Exportar Excel (.xlsx)', en:'📊 Export Excel (.xlsx)', es:'📊 Exportar Excel (.xlsx)', ru:'📊 Экспорт Excel (.xlsx)' },
+    // cabeçalhos da planilha
+    hID:        { pt:'ID', en:'ID', es:'ID', ru:'ID' },
+    hData:      { pt:'Data', en:'Date', es:'Fecha', ru:'Дата' },
+    hHora:      { pt:'Hora', en:'Time', es:'Hora', ru:'Время' },
+    hTipo:      { pt:'Tipo', en:'Type', es:'Tipo', ru:'Тип' },
+    hStatus:    { pt:'Status', en:'Status', es:'Estado', ru:'Статус' },
+    hPrioridade:{ pt:'Prioridade', en:'Priority', es:'Prioridad', ru:'Приоритет' },
+    hAtivoTipo: { pt:'Ativo Tipo', en:'Asset Type', es:'Tipo de Activo', ru:'Тип актива' },
+    hAssetId:   { pt:'Asset ID', en:'Asset ID', es:'Asset ID', ru:'Asset ID' },
+    hCidade:    { pt:'Cidade', en:'City', es:'Ciudad', ru:'Город' },
+    hBairro:    { pt:'Bairro', en:'Neighborhood', es:'Barrio', ru:'Район' },
+    hEndereco:  { pt:'Endereço', en:'Address', es:'Dirección', ru:'Адрес' },
+    hResponsavel:{ pt:'Responsável', en:'Responsible', es:'Responsable', ru:'Ответственный' },
+    hDescricao: { pt:'Descrição', en:'Description', es:'Descripción', ru:'Описание' },
+    hObservacao:{ pt:'Observação', en:'Note', es:'Observación', ru:'Примечание' },
+    hResultado: { pt:'Resultado', en:'Result', es:'Resultado', ru:'Результат' },
+    hProcurando:{ pt:'Procurando', en:'Searching', es:'Buscando', ru:'В поиске' },
+    hLat:       { pt:'Lat', en:'Lat', es:'Lat', ru:'Шир' },
+    hLng:       { pt:'Lng', en:'Lng', es:'Lng', ru:'Долг' },
+    colTotal:   { pt:'Total', en:'Total', es:'Total', ru:'Всего' },
+  };
   const [carregando, setCarregando] = useState(false);
   const [filtros, setFiltros] = useState({
     tipo:   '',
@@ -2996,10 +3415,10 @@ function GuardExportExcel() {
         });
       }
 
-      // Buscar ocorrências com filtros
-      let q: any = collection(db, 'ocorrencias');
-      const snap = await getDocs(q);
-      let docs = snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })) as any[];
+      // Buscar ocorrências com filtros — Fase 2 / Onda B: Supabase atrás de flag (read-only).
+      let docs: any[] = guardProviderSupabase()
+        ? await carregarOcorrenciasSupabase({ limit: 10000 })
+        : (await getDocs(collection(db, 'ocorrencias'))).docs.map(d => ({ id: d.id, ...(d.data() as any) }));
 
       // Filtrar client-side
       if (filtros.tipo)   docs = docs.filter(d => d.tipo   === filtros.tipo);
@@ -3008,6 +3427,7 @@ function GuardExportExcel() {
       if (filtros.de || filtros.ate) {
         docs = docs.filter(d => {
           const ts = d.criadoEm?.toDate?.() ? d.criadoEm.toDate()
+            : d.criadoEm ? new Date(d.criadoEm)
             : d.created_at ? new Date(d.created_at) : null;
           if (!ts) return true;
           if (filtros.de  && ts < new Date(filtros.de))  return false;
@@ -3021,24 +3441,24 @@ function GuardExportExcel() {
         const ts = d.criadoEm?.toDate?.() ? d.criadoEm.toDate()
           : d.created_at ? new Date(d.created_at) : null;
         return {
-          'ID':            d.id || '',
-          'Data':          ts ? ts.toLocaleDateString('pt-BR') : '',
-          'Hora':          ts ? ts.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'}) : '',
-          'Tipo':          d.tipo || '',
-          'Status':        d.status || '',
-          'Prioridade':    d.prioridade || '',
-          'Ativo Tipo':    d.ativo_tipo || '',
-          'Asset ID':      d.asset_id || '',
-          'Cidade':        d.cidade_inicial || '',
-          'Bairro':        d.bairro_inicial || '',
-          'Endereço':      d.endereco_inicial || '',
-          'Responsável':   d.responsavel || '',
-          'Descrição':     d.descricao || '',
-          'Observação':    d.observacao_fechamento || '',
-          'Resultado':     d.resultado || '',
-          'Procurando':    d.procurando ? 'Sim' : '',
-          'Lat':           d.lat_inicial || '',
-          'Lng':           d.lng_inicial || '',
+          [pick(T.hID)]:         d.id || '',
+          [pick(T.hData)]:       ts ? ts.toLocaleDateString('pt-BR') : '',
+          [pick(T.hHora)]:       ts ? ts.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'}) : '',
+          [pick(T.hTipo)]:       d.tipo || '',
+          [pick(T.hStatus)]:     d.status || '',
+          [pick(T.hPrioridade)]: d.prioridade || '',
+          [pick(T.hAtivoTipo)]:  d.ativo_tipo || '',
+          [pick(T.hAssetId)]:    d.asset_id || '',
+          [pick(T.hCidade)]:     d.cidade_inicial || '',
+          [pick(T.hBairro)]:     d.bairro_inicial || '',
+          [pick(T.hEndereco)]:   d.endereco_inicial || '',
+          [pick(T.hResponsavel)]:d.responsavel || '',
+          [pick(T.hDescricao)]:  d.descricao || '',
+          [pick(T.hObservacao)]: d.observacao_fechamento || '',
+          [pick(T.hResultado)]:  d.resultado || '',
+          [pick(T.hProcurando)]: d.procurando ? 'Sim' : '',
+          [pick(T.hLat)]:        d.lat_inicial || '',
+          [pick(T.hLng)]:        d.lng_inicial || '',
         };
       });
 
@@ -3051,20 +3471,20 @@ function GuardExportExcel() {
       }));
       ws['!cols'] = colWidths;
 
-      w.XLSX.utils.book_append_sheet(wb, ws, 'Guard');
+      w.XLSX.utils.book_append_sheet(wb, ws, pick(T.sheetGuard));
 
       // Segunda aba — resumo por cidade
       const porCidade: Record<string,number> = {};
-      docs.forEach(d => { const c = d.cidade_inicial||'Desconhecida'; porCidade[c]=(porCidade[c]||0)+1; });
+      docs.forEach(d => { const c = d.cidade_inicial||pick(T.desconhecida); porCidade[c]=(porCidade[c]||0)+1; });
       const resumo = Object.entries(porCidade).sort((a,b)=>b[1]-a[1])
-        .map(([c,n])=>({'Cidade':c,'Total':n}));
+        .map(([c,n])=>({[pick(T.hCidade)]:c,[pick(T.colTotal)]:n}));
       const ws2 = w.XLSX.utils.json_to_sheet(resumo);
-      w.XLSX.utils.book_append_sheet(wb, ws2, 'Resumo por Cidade');
+      w.XLSX.utils.book_append_sheet(wb, ws2, pick(T.sheetResumo));
 
       const data = new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
       w.XLSX.writeFile(wb, `guard_export_${data}.xlsx`);
     } catch(e:any) {
-      alert('Erro ao exportar: ' + e.message);
+      alert(pick(T.erroExport) + ' ' + e.message);
     }
     setCarregando(false);
   };
@@ -3078,31 +3498,31 @@ function GuardExportExcel() {
   return (
     <div>
       <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:8 }}>
-        Filtros opcionais — deixe em branco para exportar tudo
+        {pick(T.introFiltros)}
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:8 }}>
         <select value={filtros.tipo} onChange={e=>setFiltros(f=>({...f,tipo:e.target.value}))} style={sel}>
-          <option value=''>Todos os tipos</option>
+          <option value=''>{pick(T.todosTipos)}</option>
           {['Roubo','Furto','Vandalismo','Tentativa','Alarme','Recuperacao'].map(t=>(
             <option key={t} value={t}>{t}</option>
           ))}
         </select>
         <select value={filtros.status} onChange={e=>setFiltros(f=>({...f,status:e.target.value}))} style={sel}>
-          <option value=''>Todos os status</option>
+          <option value=''>{pick(T.todosStatus)}</option>
           {['Aberto','Em apuracao','Encerrado','Recuperado'].map(s=>(
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
       </div>
       <input value={filtros.cidade} onChange={e=>setFiltros(f=>({...f,cidade:e.target.value}))}
-        placeholder='Filtrar por cidade...' style={inp}/>
+        placeholder={pick(T.filtrarCidade)} style={inp}/>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:10 }}>
         <div>
-          <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>De</div>
+          <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.de)}</div>
           <input type='date' value={filtros.de} onChange={e=>setFiltros(f=>({...f,de:e.target.value}))} style={inp}/>
         </div>
         <div>
-          <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>Até</div>
+          <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.ate)}</div>
           <input type='date' value={filtros.ate} onChange={e=>setFiltros(f=>({...f,ate:e.target.value}))} style={inp}/>
         </div>
       </div>
@@ -3110,7 +3530,7 @@ function GuardExportExcel() {
         style={{ width:'100%', padding:'10px', borderRadius:8, cursor:'pointer',
           background:'rgba(34,197,94,.1)', border:'1px solid rgba(34,197,94,.3)',
           color:'#4ade80', fontSize:12, fontWeight:600 }}>
-        {carregando ? '⏳ Gerando...' : '📊 Exportar Excel (.xlsx)'}
+        {carregando ? pick(T.gerando) : pick(T.expExcel)}
       </button>
     </div>
   );
@@ -3118,6 +3538,41 @@ function GuardExportExcel() {
 
 // ── Auditoria de Incidente — alterar data/campos ───────────────────────
 function GuardAuditoriaPanel() {
+  const { pick } = useLang();
+  const T = {
+    naoEnc:    { pt:'Incidente não encontrado:', en:'Incident not found:', es:'Incidente no encontrado:', ru:'Инцидент не найден:' },
+    erro:      { pt:'Erro:', en:'Error:', es:'Error:', ru:'Ошибка:' },
+    salvoOk:   { pt:'✓ Incidente auditado e salvo com sucesso!', en:'✓ Incident audited and saved successfully!', es:'✓ ¡Incidente auditado y guardado con éxito!', ru:'✓ Инцидент проверен и успешно сохранён!' },
+    erroSalvar:{ pt:'Erro ao salvar:', en:'Error saving:', es:'Error al guardar:', ru:'Ошибка сохранения:' },
+    intro:     { pt:'Busque por ID do incidente (JET-SEC-...) ou Asset ID para editar data, tipo, status e outros campos.', en:'Search by incident ID (JET-SEC-...) or Asset ID to edit date, type, status and other fields.', es:'Busque por ID del incidente (JET-SEC-...) o Asset ID para editar fecha, tipo, estado y otros campos.', ru:'Найдите по ID инцидента (JET-SEC-...) или Asset ID, чтобы изменить дату, тип, статус и другие поля.' },
+    idPh:      { pt:'ID ou Asset ID...', en:'ID or Asset ID...', es:'ID o Asset ID...', ru:'ID или Asset ID...' },
+    buscar:    { pt:'🔍 Buscar', en:'🔍 Search', es:'🔍 Buscar', ru:'🔍 Поиск' },
+    editando:  { pt:'✏️ Editando:', en:'✏️ Editing:', es:'✏️ Editando:', ru:'✏️ Редактирование:' },
+    dataInc:   { pt:'📅 Data do incidente', en:'📅 Incident date', es:'📅 Fecha del incidente', ru:'📅 Дата инцидента' },
+    tipo:      { pt:'Tipo', en:'Type', es:'Tipo', ru:'Тип' },
+    status:    { pt:'Status', en:'Status', es:'Estado', ru:'Статус' },
+    assetId:   { pt:'Asset ID', en:'Asset ID', es:'Asset ID', ru:'Asset ID' },
+    responsavel:{ pt:'Responsável', en:'Responsible', es:'Responsable', ru:'Ответственный' },
+    cidade:    { pt:'Cidade', en:'City', es:'Ciudad', ru:'Город' },
+    obsAudit:  { pt:'Observação de auditoria', en:'Audit note', es:'Observación de auditoría', ru:'Примечание аудита' },
+    salvando:  { pt:'⏳ Salvando...', en:'⏳ Saving...', es:'⏳ Guardando...', ru:'⏳ Сохранение...' },
+    salvarAudit:{ pt:'💾 Salvar auditoria', en:'💾 Save audit', es:'💾 Guardar auditoría', ru:'💾 Сохранить аудит' },
+  };
+  // Rótulos de exibição (valor interno PT inalterado — só o texto exibido muda)
+  const tipoLabels: Record<string, TL> = {
+    'Roubo':       { pt:'Roubo', en:'Robbery', es:'Robo', ru:'Грабёж' },
+    'Furto':       { pt:'Furto', en:'Theft', es:'Hurto', ru:'Кража' },
+    'Vandalismo':  { pt:'Vandalismo', en:'Vandalism', es:'Vandalismo', ru:'Вандализм' },
+    'Tentativa':   { pt:'Tentativa', en:'Attempt', es:'Intento', ru:'Попытка' },
+    'Alarme':      { pt:'Alarme', en:'Alarm', es:'Alarma', ru:'Тревога' },
+    'Recuperacao': { pt:'Recuperação', en:'Recovery', es:'Recuperación', ru:'Восстановление' },
+  };
+  const statusLabels: Record<string, TL> = {
+    'Aberto':       { pt:'Aberto', en:'Open', es:'Abierto', ru:'Открыто' },
+    'Em apuracao':  { pt:'Em apuração', en:'Under investigation', es:'En investigación', ru:'На расследовании' },
+    'Encerrado':    { pt:'Encerrado', en:'Closed', es:'Cerrado', ru:'Закрыто' },
+    'Recuperado':   { pt:'Recuperado', en:'Recovered', es:'Recuperado', ru:'Восстановлено' },
+  };
   const [busca,    setBusca]    = useState('');
   const [ocorr,    setOcorr]    = useState<any>(null);
   const [salvando, setSalvando] = useState(false);
@@ -3128,7 +3583,13 @@ function GuardAuditoriaPanel() {
     if (!busca.trim()) return;
     setOcorr(null); setMsg('');
     try {
-      // Busca por ID exato ou asset_id
+      // Busca por ID exato ou asset_id — Fase 2 / Onda B: Supabase atrás de flag (read-only).
+      if (guardProviderSupabase()) {
+        const d = await buscarOcorrenciaSupabase(busca.trim());
+        if (d) { setOcorr(d); setForm(d); return; }
+        setMsg(pick(T.naoEnc) + ' ' + busca);
+        return;
+      }
       const snapId = await getDocs(query(collection(db,'ocorrencias'), where('id','==',busca.trim())));
       if (!snapId.empty) {
         const d = { id: snapId.docs[0].id, ...snapId.docs[0].data() };
@@ -3139,8 +3600,8 @@ function GuardAuditoriaPanel() {
         const d = { id: snapAsset.docs[0].id, ...snapAsset.docs[0].data() };
         setOcorr(d); setForm(d); return;
       }
-      setMsg('Incidente não encontrado: ' + busca);
-    } catch(e:any) { setMsg('Erro: ' + e.message); }
+      setMsg(pick(T.naoEnc) + ' ' + busca);
+    } catch(e:any) { setMsg(pick(T.erro) + ' ' + e.message); }
   };
 
   const salvarAuditoria = async () => {
@@ -3165,8 +3626,13 @@ function GuardAuditoriaPanel() {
         auditadoEm:    new Date().toISOString(),
         observacao_fechamento: form.observacao_fechamento,
       });
-      setMsg('✓ Incidente auditado e salvo com sucesso!');
-    } catch(e:any) { setMsg('Erro ao salvar: ' + e.message); }
+      if (guardWriteSupabase()) atualizarOcorrenciaSupabase(ocorr.id, {
+        tipo: form.tipo, status: form.status, prioridade: form.prioridade, asset_id: form.asset_id,
+        descricao: form.descricao, cidade_inicial: form.cidade_inicial, bairro_inicial: form.bairro_inicial,
+        observacao_fechamento: form.observacao_fechamento,
+      }).catch(err => console.error('[guard-write] update Supabase:', err));
+      setMsg(pick(T.salvoOk));
+    } catch(e:any) { setMsg(pick(T.erroSalvar) + ' ' + e.message); }
     setSalvando(false);
   };
 
@@ -3184,17 +3650,17 @@ function GuardAuditoriaPanel() {
   return (
     <div>
       <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:8 }}>
-        Busque por ID do incidente (JET-SEC-...) ou Asset ID para editar data, tipo, status e outros campos.
+        {pick(T.intro)}
       </div>
       <div style={{ display:'flex', gap:6, marginBottom:10 }}>
         <input value={busca} onChange={e=>setBusca(e.target.value)}
           onKeyDown={e=>e.key==='Enter'&&buscarIncidente()}
-          placeholder='ID ou Asset ID...' style={{...inp, marginBottom:0, flex:1}}/>
+          placeholder={pick(T.idPh)} style={{...inp, marginBottom:0, flex:1}}/>
         <button onClick={buscarIncidente}
           style={{ padding:'6px 12px', borderRadius:6, cursor:'pointer',
             background:'rgba(99,102,241,.15)', border:'1px solid rgba(99,102,241,.3)',
             color:'#818cf8', fontSize:11, fontWeight:600, whiteSpace:'nowrap' as const }}>
-          🔍 Buscar
+          {pick(T.buscar)}
         </button>
       </div>
 
@@ -3202,47 +3668,47 @@ function GuardAuditoriaPanel() {
         <div style={{ background:'rgba(255,255,255,.03)', borderRadius:10,
           border:'1px solid rgba(255,255,255,.08)', padding:'12px' }}>
           <div style={{ fontSize:10, color:'#a78bfa', fontWeight:700, marginBottom:10 }}>
-            ✏️ Editando: {ocorr.id}
+            {pick(T.editando)} {ocorr.id}
           </div>
 
-          <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>📅 Data do incidente</div>
+          <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.dataInc)}</div>
           <input type='datetime-local' style={inp}
             defaultValue={fmtDateInput(ocorr.created_at || ocorr.criadoEm)}
             onChange={e=>setForm((f:any)=>({...f,created_at_edit:e.target.value}))}/>
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
             <div>
-              <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>Tipo</div>
+              <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.tipo)}</div>
               <select value={form.tipo||''} onChange={e=>setForm((f:any)=>({...f,tipo:e.target.value}))}
                 style={{...inp, cursor:'pointer'}}>
                 {['Roubo','Furto','Vandalismo','Tentativa','Alarme','Recuperacao'].map(t=>(
-                  <option key={t} value={t}>{t}</option>
+                  <option key={t} value={t}>{tipoLabels[t] ? pick(tipoLabels[t]) : t}</option>
                 ))}
               </select>
             </div>
             <div>
-              <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>Status</div>
+              <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.status)}</div>
               <select value={form.status||''} onChange={e=>setForm((f:any)=>({...f,status:e.target.value}))}
                 style={{...inp, cursor:'pointer'}}>
                 {['Aberto','Em apuracao','Encerrado','Recuperado'].map(s=>(
-                  <option key={s} value={s}>{s}</option>
+                  <option key={s} value={s}>{statusLabels[s] ? pick(statusLabels[s]) : s}</option>
                 ))}
               </select>
             </div>
             <div>
-              <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>Asset ID</div>
+              <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.assetId)}</div>
               <input value={form.asset_id||''} onChange={e=>setForm((f:any)=>({...f,asset_id:e.target.value}))} style={inp}/>
             </div>
             <div>
-              <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>Responsável</div>
+              <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.responsavel)}</div>
               <input value={form.responsavel||''} onChange={e=>setForm((f:any)=>({...f,responsavel:e.target.value}))} style={inp}/>
             </div>
           </div>
 
-          <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>Cidade</div>
+          <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.cidade)}</div>
           <input value={form.cidade_inicial||''} onChange={e=>setForm((f:any)=>({...f,cidade_inicial:e.target.value}))} style={inp}/>
 
-          <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>Observação de auditoria</div>
+          <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.obsAudit)}</div>
           <textarea value={form.observacao_fechamento||''} rows={2}
             onChange={e=>setForm((f:any)=>({...f,observacao_fechamento:e.target.value}))}
             style={{...inp, resize:'vertical' as const}}/>
@@ -3251,7 +3717,7 @@ function GuardAuditoriaPanel() {
             style={{ width:'100%', padding:'10px', borderRadius:8, cursor:'pointer', marginTop:4,
               background:'rgba(167,139,250,.1)', border:'1px solid rgba(167,139,250,.3)',
               color:'#a78bfa', fontSize:12, fontWeight:600 }}>
-            {salvando ? '⏳ Salvando...' : '💾 Salvar auditoria'}
+            {salvando ? pick(T.salvando) : pick(T.salvarAudit)}
           </button>
         </div>
       )}
@@ -3272,6 +3738,40 @@ function GuardAuditoriaPanel() {
 
 // ── Painel de Usuários — aprovação + senha temporária ─────────────────
 function UsuariosPanel() {
+  const { pick } = useLang();
+  const T = {
+    whats:     { pt:'Olá! Seu acesso ao JET OS foi aprovado.\n\nE-mail: {EMAIL}\nSenha: {SENHA}\n\nAcesse: https://jet-os-7.web.app\n\nRecomendamos trocar a senha após o primeiro acesso.', en:'Hi! Your access to JET OS has been approved.\n\nEmail: {EMAIL}\nPassword: {SENHA}\n\nAccess: https://jet-os-7.web.app\n\nWe recommend changing your password after your first login.', es:'¡Hola! Su acceso a JET OS fue aprobado.\n\nCorreo: {EMAIL}\nContraseña: {SENHA}\n\nAcceda: https://jet-os-7.web.app\n\nRecomendamos cambiar la contraseña después del primer acceso.', ru:'Здравствуйте! Ваш доступ к JET OS одобрен.\n\nЭл. почта: {EMAIL}\nПароль: {SENHA}\n\nВход: https://jet-os-7.web.app\n\nРекомендуем сменить пароль после первого входа.' },
+    erroAprovar:{ pt:'Erro ao aprovar:', en:'Error approving:', es:'Error al aprobar:', ru:'Ошибка одобрения:' },
+    erro:      { pt:'Erro:', en:'Error:', es:'Error:', ru:'Ошибка:' },
+    usuarioAprovado:{ pt:'✅ Usuário aprovado!', en:'✅ User approved!', es:'✅ ¡Usuario aprobado!', ru:'✅ Пользователь одобрен!' },
+    copieCred: { pt:'Copie as credenciais e envie pelo WhatsApp.', en:'Copy the credentials and send via WhatsApp.', es:'Copie las credenciales y envíelas por WhatsApp.', ru:'Скопируйте учётные данные и отправьте через WhatsApp.' },
+    email:     { pt:'E-mail', en:'Email', es:'Correo', ru:'Эл. почта' },
+    senhaTemp: { pt:'Senha temporária', en:'Temporary password', es:'Contraseña temporal', ru:'Временный пароль' },
+    copiado:   { pt:'✓ Copiado!', en:'✓ Copied!', es:'✓ ¡Copiado!', ru:'✓ Скопировано!' },
+    copiarWhats:{ pt:'📱 Copiar mensagem para WhatsApp', en:'📱 Copy message for WhatsApp', es:'📱 Copiar mensaje para WhatsApp', ru:'📱 Скопировать сообщение для WhatsApp' },
+    deveTrocar:{ pt:'O usuário deverá trocar a senha após o primeiro acesso.', en:'The user must change the password after the first login.', es:'El usuario deberá cambiar la contraseña después del primer acceso.', ru:'Пользователь должен сменить пароль после первого входа.' },
+    fechar:    { pt:'Fechar', en:'Close', es:'Cerrar', ru:'Закрыть' },
+    abaPend:   { pt:'⏳ Pendentes', en:'⏳ Pending', es:'⏳ Pendientes', ru:'⏳ Ожидают' },
+    abaAtivos: { pt:'✅ Ativos', en:'✅ Active', es:'✅ Activos', ru:'✅ Активные' },
+    carregando:{ pt:'Carregando...', en:'Loading...', es:'Cargando...', ru:'Загрузка...' },
+    nenhumaPend:{ pt:'Nenhuma solicitação pendente.', en:'No pending requests.', es:'Ninguna solicitud pendiente.', ru:'Нет ожидающих заявок.' },
+    aprovarComo:{ pt:'Aprovar como:', en:'Approve as:', es:'Aprobar como:', ru:'Одобрить как:' },
+    rCampo:    { pt:'Campo', en:'Field', es:'Campo', ru:'Поле' },
+    rGuard:    { pt:'Guard', en:'Guard', es:'Guard', ru:'Guard' },
+    rGestSeg:  { pt:'Gest. Seg', en:'Sec. Mgr', es:'Ges. Seg', ru:'Менедж. без.' },
+    rGestor:   { pt:'Gestor', en:'Manager', es:'Gestor', ru:'Менеджер' },
+    rejeitar:  { pt:'✗ Rejeitar', en:'✗ Reject', es:'✗ Rechazar', ru:'✗ Отклонить' },
+    buscarPh:  { pt:'🔍 Buscar por nome ou e-mail...', en:'🔍 Search by name or email...', es:'🔍 Buscar por nombre o correo...', ru:'🔍 Поиск по имени или эл. почте...' },
+    todosRoles:{ pt:'Todos os roles', en:'All roles', es:'Todos los roles', ru:'Все роли' },
+    usuarioEnc:{ pt:'usuário', en:'user', es:'usuario', ru:'пользователь' },
+    usuariosEnc:{ pt:'usuários', en:'users', es:'usuarios', ru:'пользователей' },
+    encontrado:{ pt:'encontrado', en:'found', es:'encontrado', ru:'найден' },
+    encontrados:{ pt:'encontrados', en:'found', es:'encontrados', ru:'найдено' },
+    nenhumUsuario:{ pt:'Nenhum usuário encontrado.', en:'No user found.', es:'Ningún usuario encontrado.', ru:'Пользователи не найдены.' },
+    cidadesBtn:{ pt:'Cidades', en:'Cities', es:'Ciudades', ru:'Города' },
+    cidAbrev:  { pt:'cid.', en:'cit.', es:'ciud.', ru:'гор.' },
+  };
+  const roleAprovarLabels: Record<string, TL> = { campo: T.rCampo, guard: T.rGuard, gestor_seg: T.rGestSeg, gestor: T.rGestor };
   const [solicitacoes, setSolicitacoes] = useState<any[]>([]);
   const [usuarios,     setUsuarios]     = useState<any[]>([]);
   const [loading,      setLoading]      = useState(true);
@@ -3318,9 +3818,17 @@ function UsuariosPanel() {
     try {
       const senhaGerada = gerarSenha();
       // Chama CF para aprovar e criar usuário Firebase Auth
-      const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const { getApp } = await import('firebase/app');
-      const fnAprovar = httpsCallable(getFunctions(getApp(), 'southamerica-east1'), 'aprovarSolicitacaoFn');
+      const { functionsProviderSupabase, getEdgeCallable } = await import('./lib/edge-functions');
+      let fnAprovar: any;
+      if (functionsProviderSupabase()) {
+        const edge = getEdgeCallable('aprovarSolicitacaoFn');
+        fnAprovar = edge ? edge() : null;
+      }
+      if (!fnAprovar) {
+        const { getFunctions, httpsCallable } = await import('firebase/functions');
+        const { getApp } = await import('firebase/app');
+        fnAprovar = httpsCallable(getFunctions(getApp(), 'southamerica-east1'), 'aprovarSolicitacaoFn');
+      }
       const res = await fnAprovar({ solicitacaoId: sol.id, role, senhaTemporaria: senhaGerada }) as any;
       const uid = res.data?.uid || sol.id;
 
@@ -3333,7 +3841,7 @@ function UsuariosPanel() {
       setSenhaTemp({ uid, email: sol.email, senha: senhaGerada });
       setSolicitacoes(s => s.filter(x => x.id !== sol.id));
     } catch(e:any) {
-      alert('Erro ao aprovar: ' + e.message);
+      alert(pick(T.erroAprovar) + ' ' + e.message);
     }
   };
 
@@ -3341,18 +3849,11 @@ function UsuariosPanel() {
     try {
       await updateDoc(doc(collection(db,'usuarios'), uid), { role: novoRole });
       setUsuarios(u => u.map(x => x.id === uid ? { ...x, role: novoRole } : x));
-    } catch(e:any) { alert('Erro: ' + e.message); }
+    } catch(e:any) { alert(pick(T.erro) + ' ' + e.message); }
   };
 
   const copiarWhats = (email: string, senha: string) => {
-    const txt = `Olá! Seu acesso ao JET OS foi aprovado.
-
-E-mail: ${email}
-Senha: ${senha}
-
-Acesse: https://jet-os-7.web.app
-
-Recomendamos trocar a senha após o primeiro acesso.`;
+    const txt = pick(T.whats).replace('{EMAIL}', email).replace('{SENHA}', senha);
     navigator.clipboard.writeText(txt).then(() => { setCopiado(true); setTimeout(() => setCopiado(false), 2500); });
   };
 
@@ -3389,18 +3890,18 @@ cidadesDisponiveis={[...new Set<string>(
           <div style={{ background:'#0d1521', border:'1px solid rgba(255,255,255,.1)',
             borderRadius:16, padding:24, width:'100%', maxWidth:380 }}>
             <div style={{ fontSize:15, fontWeight:700, color:'#4ade80', marginBottom:4 }}>
-              ✅ Usuário aprovado!
+              {pick(T.usuarioAprovado)}
             </div>
             <div style={{ fontSize:11, color:'#4a5a7a', marginBottom:16 }}>
-              Copie as credenciais e envie pelo WhatsApp.
+              {pick(T.copieCred)}
             </div>
 
             <div style={{ background:'rgba(255,255,255,.04)', borderRadius:10,
               padding:'12px 14px', marginBottom:14,
               border:'1px solid rgba(255,255,255,.08)' }}>
-              <div style={{ fontSize:10, color:'#4a5a7a', marginBottom:4 }}>E-mail</div>
+              <div style={{ fontSize:10, color:'#4a5a7a', marginBottom:4 }}>{pick(T.email)}</div>
               <div style={{ fontSize:13, color:'#dce8ff', fontWeight:600 }}>{senhaTemp.email}</div>
-              <div style={{ fontSize:10, color:'#4a5a7a', marginTop:10, marginBottom:4 }}>Senha temporária</div>
+              <div style={{ fontSize:10, color:'#4a5a7a', marginTop:10, marginBottom:4 }}>{pick(T.senhaTemp)}</div>
               <div style={{ fontSize:20, color:'#fbbf24', fontWeight:800,
                 fontFamily:'monospace', letterSpacing:2 }}>{senhaTemp.senha}</div>
             </div>
@@ -3411,18 +3912,18 @@ cidadesDisponiveis={[...new Set<string>(
                 border: `1px solid ${copiado ? 'rgba(74,222,128,.4)' : 'rgba(37,211,102,.3)'}`,
                 color: copiado ? '#4ade80' : '#25d366',
                 fontSize:13, fontWeight:700, marginBottom:8 }}>
-              {copiado ? '✓ Copiado!' : '📱 Copiar mensagem para WhatsApp'}
+              {copiado ? pick(T.copiado) : pick(T.copiarWhats)}
             </button>
 
             <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:12, textAlign:'center' }}>
-              O usuário deverá trocar a senha após o primeiro acesso.
+              {pick(T.deveTrocar)}
             </div>
 
             <button onClick={() => setSenhaTemp(null)}
               style={{ width:'100%', padding:'9px', borderRadius:10, cursor:'pointer',
                 background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.1)',
                 color:'rgba(255,255,255,.5)', fontSize:12 }}>
-              Fechar
+              {pick(T.fechar)}
             </button>
           </div>
         </div>
@@ -3430,7 +3931,7 @@ cidadesDisponiveis={[...new Set<string>(
 
       {/* Abas */}
       <div style={{ display:'flex', borderBottom:'1px solid rgba(255,255,255,.06)', flexShrink:0 }}>
-        {([['pendentes','⏳ Pendentes',solicitacoes.length],['ativos','✅ Ativos',usuarios.length]] as any[]).map(([k,l,n]) => (
+        {([['pendentes',pick(T.abaPend),solicitacoes.length],['ativos',pick(T.abaAtivos),usuarios.length]] as any[]).map(([k,l,n]) => (
           <button key={k} onClick={() => setAbaU(k)}
             style={{ flex:1, padding:'10px 8px', border:'none', cursor:'pointer', fontSize:11, fontWeight:600,
               background:'transparent', borderBottom:`2px solid ${aba===k?'#60a5fa':'transparent'}`,
@@ -3442,7 +3943,7 @@ cidadesDisponiveis={[...new Set<string>(
       </div>
 
       {loading && (
-        <div style={{ padding:20, textAlign:'center', color:'#4a5a7a', fontSize:12 }}>Carregando...</div>
+        <div style={{ padding:20, textAlign:'center', color:'#4a5a7a', fontSize:12 }}>{pick(T.carregando)}</div>
       )}
 
       {/* Solicitações pendentes */}
@@ -3450,7 +3951,7 @@ cidadesDisponiveis={[...new Set<string>(
         <div>
           {solicitacoes.length === 0 ? (
             <div style={{ padding:20, textAlign:'center', color:'#4a5a7a', fontSize:12 }}>
-              Nenhuma solicitação pendente.
+              {pick(T.nenhumaPend)}
             </div>
           ) : solicitacoes.map(sol => (
             <div key={sol.id} style={{ ...sec }}>
@@ -3458,14 +3959,14 @@ cidadesDisponiveis={[...new Set<string>(
               <div style={{ fontSize:10, color:'#4a5a7a', marginBottom:8 }}>{sol.email} · {sol.cargo || ''} · {sol.empresa || ''}</div>
               {sol.motivo && <div style={{ fontSize:10, color:'rgba(255,255,255,.4)', marginBottom:10,
                 padding:'6px 10px', background:'rgba(255,255,255,.03)', borderRadius:6 }}>{sol.motivo}</div>}
-              <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:6 }}>Aprovar como:</div>
+              <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:6 }}>{pick(T.aprovarComo)}</div>
               <div style={{ display:'flex', gap:6, flexWrap:'wrap' as const }}>
-                {[['campo','Campo'],['guard','Guard'],['gestor_seg','Gest. Seg'],['gestor','Gestor']].map(([r,l]) => (
+                {['campo','guard','gestor_seg','gestor'].map((r) => (
                   <button key={r} onClick={() => aprovar(sol, r)}
                     style={{ padding:'6px 14px', borderRadius:8, cursor:'pointer', fontSize:11, fontWeight:600,
                       background:`${(ROLE_CORES[r]||'#f97316')}15`, border:`1px solid ${(ROLE_CORES[r]||'#f97316')}40`,
                       color: ROLE_CORES[r]||'#f97316' }}>
-                    ✓ {l}
+                    ✓ {pick(roleAprovarLabels[r])}
                   </button>
                 ))}
                 <button onClick={async () => {
@@ -3473,7 +3974,7 @@ cidadesDisponiveis={[...new Set<string>(
                   setSolicitacoes(s => s.filter(x => x.id !== sol.id));
                 }} style={{ padding:'6px 14px', borderRadius:8, cursor:'pointer', fontSize:11,
                   background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.2)', color:'#f87171' }}>
-                  ✗ Rejeitar
+                  {pick(T.rejeitar)}
                 </button>
               </div>
             </div>
@@ -3489,7 +3990,7 @@ cidadesDisponiveis={[...new Set<string>(
             display:'flex', gap:8, flexWrap:'wrap' as const }}>
             <input
               value={busca} onChange={e => setBusca(e.target.value)}
-              placeholder="🔍 Buscar por nome ou e-mail..."
+              placeholder={pick(T.buscarPh)}
               style={{ flex:1, minWidth:140, padding:'7px 10px', borderRadius:8,
                 border:'1px solid rgba(255,255,255,.1)', background:'rgba(255,255,255,.05)',
                 color:'#dce8ff', fontSize:11, outline:'none' }}
@@ -3497,7 +3998,7 @@ cidadesDisponiveis={[...new Set<string>(
             <select value={filtroRole} onChange={e => setFiltroRole(e.target.value)}
               style={{ padding:'7px 10px', borderRadius:8, border:'1px solid rgba(255,255,255,.1)',
                 background:'#111722', color:'#dce8ff', fontSize:11, cursor:'pointer' }}>
-              <option value="todos">Todos os roles</option>
+              <option value="todos">{pick(T.todosRoles)}</option>
               {['viewer','campo','guard','gestor','supergestor','admin'].map(r => (
                 <option key={r} value={r}>{r}</option>
               ))}
@@ -3516,11 +4017,11 @@ cidadesDisponiveis={[...new Set<string>(
             return (
               <>
                 <div style={{ padding:'4px 12px', fontSize:9, color:'#4a5a7a' }}>
-                  {filtrados.length} usuário{filtrados.length !== 1 ? 's' : ''} encontrado{filtrados.length !== 1 ? 's' : ''}
+                  {filtrados.length} {filtrados.length !== 1 ? pick(T.usuariosEnc) : pick(T.usuarioEnc)} {filtrados.length !== 1 ? pick(T.encontrados) : pick(T.encontrado)}
                 </div>
                 {filtrados.length === 0 ? (
                   <div style={{ padding:20, textAlign:'center', color:'#4a5a7a', fontSize:12 }}>
-                    Nenhum usuário encontrado.
+                    {pick(T.nenhumUsuario)}
                   </div>
                 ) : filtrados.map(u => (
                   <div key={u.id} style={{ ...sec, display:'flex', alignItems:'center', gap:10 }}>
@@ -3552,7 +4053,7 @@ cidadesDisponiveis={[...new Set<string>(
                         style={{ padding:'4px 8px', borderRadius:6, border:'1px solid rgba(59,130,246,.3)',
                           background:'rgba(59,130,246,.1)', color:'#60a5fa',
                           fontSize:10, cursor:'pointer', whiteSpace:'nowrap' as const }}>
-                        🏙 {u.cidadesPermitidas?.length ? u.cidadesPermitidas.length + ' cid.' : 'Cidades'}
+                        🏙 {u.cidadesPermitidas?.length ? u.cidadesPermitidas.length + ' ' + pick(T.cidAbrev) : pick(T.cidadesBtn)}
                       </button>
                     )}
                   </div>
@@ -3569,6 +4070,30 @@ cidadesDisponiveis={[...new Set<string>(
 
 // ── GRÁFICO DE ESTAÇÕES ──────────────────────────────────────────
 function GraficoEstacoes({ estacoes, cidade }: { estacoes: any[]; cidade: string }) {
+  const { pick } = useLang();
+  const T = {
+    tPublica:    { pt:'Pública', en:'Public', es:'Pública', ru:'Публичная' },
+    tPrivada:    { pt:'Privada', en:'Private', es:'Privada', ru:'Частная' },
+    tConcorrente:{ pt:'Concorrente', en:'Competitor', es:'Competidor', ru:'Конкурент' },
+    sSolicitado: { pt:'Solicitado', en:'Requested', es:'Solicitado', ru:'Запрошено' },
+    sAprovado:   { pt:'Aprovado', en:'Approved', es:'Aprobado', ru:'Одобрено' },
+    sInstalado:  { pt:'Instalado', en:'Installed', es:'Instalado', ru:'Установлено' },
+    sReprovado:  { pt:'Reprovado', en:'Rejected', es:'Rechazado', ru:'Отклонено' },
+    sCancelado:  { pt:'Cancelado', en:'Cancelled', es:'Cancelado', ru:'Отменено' },
+    analiseTit:  { pt:'📊 Análise de Estações', en:'📊 Station Analysis', es:'📊 Análisis de Estaciones', ru:'📊 Анализ станций' },
+    todasCidades:{ pt:'— Todas as cidades', en:'— All cities', es:'— Todas las ciudades', ru:'— Все города' },
+    pDia:        { pt:'Diário', en:'Daily', es:'Diario', ru:'Ежедневно' },
+    pSemana:     { pt:'Semanal', en:'Weekly', es:'Semanal', ru:'Еженедельно' },
+    pMes:        { pt:'Mensal', en:'Monthly', es:'Mensual', ru:'Ежемесячно' },
+    pAno:        { pt:'Anual', en:'Annual', es:'Anual', ru:'Ежегодно' },
+    pCustom:     { pt:'Personalizado', en:'Custom', es:'Personalizado', ru:'Свой период' },
+    ate:         { pt:'até', en:'to', es:'hasta', ru:'по' },
+    porTipo:     { pt:'Por tipo', en:'By type', es:'Por tipo', ru:'По типу' },
+    porStatus:   { pt:'Por status', en:'By status', es:'Por estado', ru:'По статусу' },
+    evolucao:    { pt:'Evolução por status no período', en:'Status evolution over the period', es:'Evolución por estado en el período', ru:'Динамика по статусу за период' },
+    totalLabel:  { pt:'Total:', en:'Total:', es:'Total:', ru:'Всего:' },
+    estacoes:    { pt:'estações', en:'stations', es:'estaciones', ru:'станций' },
+  };
   const [periodo, setPeriodo] = useState<'dia'|'semana'|'mes'|'ano'|'custom'>('mes');
   const [customDe, setCustomDe] = useState('');
   const [customAte, setCustomAte] = useState('');
@@ -3577,19 +4102,19 @@ function GraficoEstacoes({ estacoes, cidade }: { estacoes: any[]; cidade: string
 
   // Contagem por tipo
   const porTipo = [
-    { label:'Pública',      cor:'#3b82f6', count: filtradas.filter(e=>e.tipo==='PUBLICA').length },
-    { label:'Privada',      cor:'#a78bfa', count: filtradas.filter(e=>e.tipo==='PRIVADA').length },
-    { label:'Concorrente',  cor:'#f97316', count: filtradas.filter(e=>e.tipo==='CONCORRENTE').length },
+    { label:pick(T.tPublica),      cor:'#3b82f6', count: filtradas.filter(e=>e.tipo==='PUBLICA').length },
+    { label:pick(T.tPrivada),      cor:'#a78bfa', count: filtradas.filter(e=>e.tipo==='PRIVADA').length },
+    { label:pick(T.tConcorrente),  cor:'#f97316', count: filtradas.filter(e=>e.tipo==='CONCORRENTE').length },
   ];
   const total = filtradas.length;
 
   // Contagem por status
   const porStatus = [
-    { label:'Solicitado',  cor:'#fbbf24', count: filtradas.filter(e=>e.status==='SOLICITADO').length },
-    { label:'Aprovado',    cor:'#60a5fa', count: filtradas.filter(e=>e.status==='APROVADO').length },
-    { label:'Instalado',   cor:'#4ade80', count: filtradas.filter(e=>e.status==='INSTALADO').length },
-    { label:'Reprovado',   cor:'#f87171', count: filtradas.filter(e=>e.status==='REPROVADO').length },
-    { label:'Cancelado',   cor:'#6b7280', count: filtradas.filter(e=>e.status==='CANCELADO').length },
+    { label:pick(T.sSolicitado),  cor:'#fbbf24', count: filtradas.filter(e=>e.status==='SOLICITADO').length },
+    { label:pick(T.sAprovado),    cor:'#60a5fa', count: filtradas.filter(e=>e.status==='APROVADO').length },
+    { label:pick(T.sInstalado),   cor:'#4ade80', count: filtradas.filter(e=>e.status==='INSTALADO').length },
+    { label:pick(T.sReprovado),   cor:'#f87171', count: filtradas.filter(e=>e.status==='REPROVADO').length },
+    { label:pick(T.sCancelado),   cor:'#6b7280', count: filtradas.filter(e=>e.status==='CANCELADO').length },
   ];
 
   // Série temporal — agrupar por período
@@ -3641,12 +4166,12 @@ function GraficoEstacoes({ estacoes, cidade }: { estacoes: any[]; cidade: string
   return (
     <div style={{ padding:'16px', fontFamily:'Inter,sans-serif' }}>
       <div style={{ fontSize:13, fontWeight:700, color:'#dce8ff', marginBottom:16 }}>
-        📊 Análise de Estações {cidade ? `— ${cidade}` : '— Todas as cidades'}
+        {pick(T.analiseTit)} {cidade ? `— ${cidade}` : pick(T.todasCidades)}
       </div>
 
       {/* Seletor de período */}
       <div style={{ display:'flex', gap:6, marginBottom:16, flexWrap:'wrap' as const }}>
-        {([['dia','Diário'],['semana','Semanal'],['mes','Mensal'],['ano','Anual'],['custom','Personalizado']] as const).map(([k,l]) => (
+        {([['dia',pick(T.pDia)],['semana',pick(T.pSemana)],['mes',pick(T.pMes)],['ano',pick(T.pAno)],['custom',pick(T.pCustom)]] as const).map(([k,l]) => (
           <button key={k} onClick={()=>setPeriodo(k)}
             style={{ padding:'5px 10px', borderRadius:8, cursor:'pointer', fontSize:11, fontWeight:600,
               background: periodo===k?'rgba(59,130,246,.2)':'rgba(255,255,255,.04)',
@@ -3661,7 +4186,7 @@ function GraficoEstacoes({ estacoes, cidade }: { estacoes: any[]; cidade: string
           <input type="date" value={customDe} onChange={e=>setCustomDe(e.target.value)}
             style={{ padding:'6px 10px', borderRadius:8, background:'rgba(255,255,255,.05)',
               border:'1px solid rgba(255,255,255,.1)', color:'#dce8ff', fontSize:12, colorScheme:'dark' as any }}/>
-          <span style={{ color:'#4a5a7a', fontSize:12 }}>até</span>
+          <span style={{ color:'#4a5a7a', fontSize:12 }}>{pick(T.ate)}</span>
           <input type="date" value={customAte} onChange={e=>setCustomAte(e.target.value)}
             style={{ padding:'6px 10px', borderRadius:8, background:'rgba(255,255,255,.05)',
               border:'1px solid rgba(255,255,255,.1)', color:'#dce8ff', fontSize:12, colorScheme:'dark' as any }}/>
@@ -3683,7 +4208,7 @@ function GraficoEstacoes({ estacoes, cidade }: { estacoes: any[]; cidade: string
 
       {/* Barras por tipo */}
       <div style={{ ...card, marginBottom:12 }}>
-        <div style={{ fontSize:11, fontWeight:600, color:'rgba(255,255,255,.5)', marginBottom:10 }}>Por tipo</div>
+        <div style={{ fontSize:11, fontWeight:600, color:'rgba(255,255,255,.5)', marginBottom:10 }}>{pick(T.porTipo)}</div>
         {porTipo.map(t => (
           <div key={t.label} style={{ marginBottom:8 }}>
             <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
@@ -3700,7 +4225,7 @@ function GraficoEstacoes({ estacoes, cidade }: { estacoes: any[]; cidade: string
 
       {/* Barras por status */}
       <div style={{ ...card, marginBottom:12 }}>
-        <div style={{ fontSize:11, fontWeight:600, color:'rgba(255,255,255,.5)', marginBottom:10 }}>Por status</div>
+        <div style={{ fontSize:11, fontWeight:600, color:'rgba(255,255,255,.5)', marginBottom:10 }}>{pick(T.porStatus)}</div>
         {porStatus.filter(s=>s.count>0).map(s => (
           <div key={s.label} style={{ marginBottom:8 }}>
             <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
@@ -3720,10 +4245,10 @@ function GraficoEstacoes({ estacoes, cidade }: { estacoes: any[]; cidade: string
         <div style={{ ...card }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
             <div style={{ fontSize:11, fontWeight:600, color:'rgba(255,255,255,.5)' }}>
-              Evolução por status no período
+              {pick(T.evolucao)}
             </div>
             <div style={{ fontSize:9, color:'#4a5a7a' }}>
-              Total: {filtradas.length} estações
+              {pick(T.totalLabel)} {filtradas.length} {pick(T.estacoes)}
             </div>
           </div>
 
@@ -3821,6 +4346,16 @@ function CidadeViewerModal({ usuario, cidadesDisponiveis, onFechar, onSalvo }: {
   onFechar: () => void;
   onSalvo: (cidades: string[]) => void;
 }) {
+  const { pick } = useLang();
+  const T = {
+    erro:        { pt:'Erro:', en:'Error:', es:'Error:', ru:'Ошибка:' },
+    titulo:      { pt:'🏙 Cidades permitidas', en:'🏙 Allowed cities', es:'🏙 Ciudades permitidas', ru:'🏙 Разрешённые города' },
+    carregando:  { pt:'Carregando cidades...', en:'Loading cities...', es:'Cargando ciudades...', ru:'Загрузка городов...' },
+    cancelar:    { pt:'Cancelar', en:'Cancel', es:'Cancelar', ru:'Отмена' },
+    salvando:    { pt:'⏳ Salvando...', en:'⏳ Saving...', es:'⏳ Guardando...', ru:'⏳ Сохранение...' },
+    salvar:      { pt:'💾 Salvar', en:'💾 Save', es:'💾 Guardar', ru:'💾 Сохранить' },
+    cidades:     { pt:'cidades', en:'cities', es:'ciudades', ru:'городов' },
+  };
   const [selecionadas, setSelecionadas] = useState<string[]>(usuario.cidadesPermitidas || []);
   const [salvando, setSalvando] = useState(false);
   const [cidadesReais, setCidadesReais] = useState<string[]>(cidadesDisponiveis);
@@ -3852,7 +4387,7 @@ function CidadeViewerModal({ usuario, cidadesDisponiveis, onFechar, onSalvo }: {
       });
       onSalvo(selecionadas);
     } catch(e: any) {
-      alert('Erro: ' + e.message);
+      alert(pick(T.erro) + ' ' + e.message);
     } finally {
       setSalvando(false);
     }
@@ -3864,7 +4399,7 @@ function CidadeViewerModal({ usuario, cidadesDisponiveis, onFechar, onSalvo }: {
       <div style={{ background:'#0d1521', border:'1px solid rgba(59,130,246,.2)',
         borderRadius:16, padding:24, width:'100%', maxWidth:400 }}>
         <div style={{ fontSize:14, fontWeight:700, color:'#60a5fa', marginBottom:4 }}>
-          🏙 Cidades permitidas
+          {pick(T.titulo)}
         </div>
         <div style={{ fontSize:11, color:'#4a5a7a', marginBottom:16 }}>
           {usuario.nome || usuario.email}
@@ -3872,7 +4407,7 @@ function CidadeViewerModal({ usuario, cidadesDisponiveis, onFechar, onSalvo }: {
 
         {cidadesReais.length === 0 ? (
           <div style={{ color:'#4a5a7a', fontSize:12, marginBottom:16 }}>
-            Carregando cidades...
+            {pick(T.carregando)}
           </div>
         ) : (
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:16,
@@ -3900,13 +4435,13 @@ function CidadeViewerModal({ usuario, cidadesDisponiveis, onFechar, onSalvo }: {
             style={{ flex:1, padding:'8px', borderRadius:8, border:'1px solid rgba(255,255,255,.1)',
               background:'rgba(255,255,255,.05)', color:'rgba(255,255,255,.5)',
               fontSize:12, cursor:'pointer' }}>
-            Cancelar
+            {pick(T.cancelar)}
           </button>
           <button onClick={salvar} disabled={salvando}
             style={{ flex:2, padding:'8px', borderRadius:8, border:'none',
               background: salvando ? 'rgba(59,130,246,.4)' : '#3b82f6',
               color:'#fff', fontSize:12, fontWeight:700, cursor: salvando ? 'not-allowed' : 'pointer' }}>
-            {salvando ? '⏳ Salvando...' : `💾 Salvar (${selecionadas.length} cidades)`}
+            {salvando ? pick(T.salvando) : `${pick(T.salvar)} (${selecionadas.length} ${pick(T.cidades)})`}
           </button>
         </div>
       </div>
@@ -3915,6 +4450,90 @@ function CidadeViewerModal({ usuario, cidadesDisponiveis, onFechar, onSalvo }: {
 }
 
 export default function DashboardManager({ cidades, pais, onFechar, roleAtual }: Props) {
+  const { pick } = useLang();
+  const T = {
+    // logs de importação XLSX
+    lendoXlsx:   { pt:'Lendo XLSX...', en:'Reading XLSX...', es:'Leyendo XLSX...', ru:'Чтение XLSX...' },
+    encontradas: { pt:'Encontradas:', en:'Found:', es:'Encontradas:', ru:'Найдено:' },
+    entradas:    { pt:'entradas', en:'entries', es:'entradas', ru:'записей' },
+    validas:     { pt:'Válidas:', en:'Valid:', es:'Válidas:', ru:'Действительные:' },
+    ignoradas:   { pt:'Ignoradas:', en:'Ignored:', es:'Ignoradas:', ru:'Пропущено:' },
+    normalizando:{ pt:'Normalizando endereços via geocode...', en:'Normalizing addresses via geocode...', es:'Normalizando direcciones vía geocode...', ru:'Нормализация адресов через геокодирование...' },
+    processando: { pt:'Processando', en:'Processing', es:'Procesando', ru:'Обработка' },
+    impXlsxOk:   { pt:'✓ Importação XLSX concluída —', en:'✓ XLSX import complete —', es:'✓ Importación XLSX completada —', ru:'✓ Импорт XLSX завершён —' },
+    novas:       { pt:'novas,', en:'new,', es:'nuevas,', ru:'новых,' },
+    atualizadas: { pt:'atualizadas', en:'updated', es:'actualizadas', ru:'обновлено' },
+    impConcl:    { pt:'✓ Importação concluída', en:'✓ Import complete', es:'✓ Importación completada', ru:'✓ Импорт завершён' },
+    impErro:     { pt:'✗ Erro:', en:'✗ Error:', es:'✗ Error:', ru:'✗ Ошибка:' },
+    // tabs
+    tStats:      { pt:'📊 Stats', en:'📊 Stats', es:'📊 Stats', ru:'📊 Статистика' },
+    tDados:      { pt:'↕ Dados', en:'↕ Data', es:'↕ Datos', ru:'↕ Данные' },
+    tCroquis:    { pt:'📐 Croquis', en:'📐 Sketches', es:'📐 Croquis', ru:'📐 Эскизы' },
+    tFotos:      { pt:'📸 Fotos', en:'📸 Photos', es:'📸 Fotos', ru:'📸 Фото' },
+    tStatusMassa:{ pt:'⚡ Status em massa', en:'⚡ Bulk Status', es:'⚡ Estado masivo', ru:'⚡ Массовый статус' },
+    tRelatorio:  { pt:'📋 Relatório', en:'📋 Report', es:'📋 Informe', ru:'📋 Отчёт' },
+    tGuard:      { pt:'🛡 Guard', en:'🛡 Guard', es:'🛡 Guard', ru:'🛡 Guard' },
+    tUsuarios:   { pt:'👥 Usuários', en:'👥 Users', es:'👥 Usuarios', ru:'👥 Пользователи' },
+    tConfig:     { pt:'⚙️ Config', en:'⚙️ Config', es:'⚙️ Config', ru:'⚙️ Настройки' },
+    todasCidades:{ pt:'Todas as cidades', en:'All cities', es:'Todas las ciudades', ru:'Все города' },
+    carregando:  { pt:'Carregando...', en:'Loading...', es:'Cargando...', ru:'Загрузка...' },
+    cTotal:      { pt:'Total', en:'Total', es:'Total', ru:'Всего' },
+    cInstaladas: { pt:'Instaladas', en:'Installed', es:'Instaladas', ru:'Установлено' },
+    porTipo:     { pt:'POR TIPO', en:'BY TYPE', es:'POR TIPO', ru:'ПО ТИПУ' },
+    publicas:    { pt:'Públicas', en:'Public', es:'Públicas', ru:'Публичные' },
+    privadas:    { pt:'Privadas', en:'Private', es:'Privadas', ru:'Частные' },
+    concorrentes:{ pt:'Concorrentes', en:'Competitors', es:'Competidores', ru:'Конкуренты' },
+    porStatus:   { pt:'POR STATUS', en:'BY STATUS', es:'POR ESTADO', ru:'ПО СТАТУСУ' },
+    solicitadas: { pt:'Solicitadas', en:'Requested', es:'Solicitadas', ru:'Запрошено' },
+    aprovadas:   { pt:'Aprovadas', en:'Approved', es:'Aprobadas', ru:'Одобрено' },
+    canceladas:  { pt:'Canceladas', en:'Cancelled', es:'Canceladas', ru:'Отменено' },
+    cobertura:   { pt:'COBERTURA DE DADOS', en:'DATA COVERAGE', es:'COBERTURA DE DATOS', ru:'ПОКРЫТИЕ ДАННЫХ' },
+    comSV:       { pt:'Com Street View', en:'With Street View', es:'Con Street View', ru:'Со Street View' },
+    comFoto:     { pt:'Com foto', en:'With photo', es:'Con foto', ru:'С фото' },
+    comCroqui:   { pt:'Com croqui', en:'With sketch', es:'Con croquis', ru:'С эскизом' },
+    iaAnalisada: { pt:'IA analisada', en:'AI analyzed', es:'IA analizada', ru:'Проанализировано ИИ' },
+    topBairros:  { pt:'TOP BAIRROS', en:'TOP NEIGHBORHOODS', es:'TOP BARRIOS', ru:'ТОП РАЙОНОВ' },
+    expansao:    { pt:'🌍 Expansão —', en:'🌍 Expansion —', es:'🌍 Expansión —', ru:'🌍 Расширение —' },
+    cidadesWord: { pt:'cidades', en:'cities', es:'ciudades', ru:'городов' },
+    mes:         { pt:'/mês', en:'/mo', es:'/mes', ru:'/мес' },
+    selCidadeRel:{ pt:'Selecione uma cidade acima para gerar o relatório completo da cidade', en:'Select a city above to generate the full city report', es:'Seleccione una ciudad arriba para generar el informe completo de la ciudad', ru:'Выберите город выше, чтобы создать полный отчёт по городу' },
+    impInteligente:{ pt:'Importação inteligente:', en:'Smart import:', es:'Importación inteligente:', ru:'Умный импорт:' },
+    impInteligenteTxt:{ pt:' registros com o mesmo código são atualizados. Novos são criados. Dados existentes são preservados quando o campo estiver vazio no arquivo.', en:' records with the same code are updated. New ones are created. Existing data is preserved when the field is empty in the file.', es:' los registros con el mismo código se actualizan. Los nuevos se crean. Los datos existentes se preservan cuando el campo está vacío en el archivo.', ru:' записи с тем же кодом обновляются. Новые создаются. Существующие данные сохраняются, если поле в файле пустое.' },
+    selArquivo:  { pt:'📁 Selecionar arquivo CSV ou JSON', en:'📁 Select CSV or JSON file', es:'📁 Seleccionar archivo CSV o JSON', ru:'📁 Выбрать файл CSV или JSON' },
+    importando:  { pt:'Importando...', en:'Importing...', es:'Importando...', ru:'Импорт...' },
+    iniciarImp:  { pt:'Iniciar importação', en:'Start import', es:'Iniciar importación', ru:'Начать импорт' },
+    impConclTit: { pt:'✓ Importação concluída', en:'✓ Import complete', es:'✓ Importación completada', ru:'✓ Импорт завершён' },
+    totalProc:   { pt:'Total processados', en:'Total processed', es:'Total procesados', ru:'Всего обработано' },
+    novosCriados:{ pt:'Novos criados', en:'New created', es:'Nuevos creados', ru:'Создано новых' },
+    atualizadosLbl:{ pt:'Atualizados', en:'Updated', es:'Actualizados', ru:'Обновлено' },
+    ignoradosLbl:{ pt:'Ignorados', en:'Ignored', es:'Ignorados', ru:'Пропущено' },
+    errosClique: { pt:'erros (clique para ver)', en:'errors (click to view)', es:'errores (clic para ver)', ru:'ошибок (нажмите для просмотра)' },
+    novaImp:     { pt:'Nova importação', en:'New import', es:'Nueva importación', ru:'Новый импорт' },
+    baixarTpl:   { pt:'⬇️ Baixar template CSV com todos os campos', en:'⬇️ Download CSV template with all fields', es:'⬇️ Descargar plantilla CSV con todos los campos', ru:'⬇️ Скачать шаблон CSV со всеми полями' },
+    camposAceitos:{ pt:'Campos aceitos no CSV/JSON', en:'Accepted fields in CSV/JSON', es:'Campos aceptados en CSV/JSON', ru:'Принимаемые поля в CSV/JSON' },
+    obrigatorios:{ pt:'Obrigatórios:', en:'Required:', es:'Obligatorios:', ru:'Обязательные:' },
+    opcionais:   { pt:'Opcionais:', en:'Optional:', es:'Opcionales:', ru:'Необязательные:' },
+    // AbaAtualizarStatus
+    asApenasGestores:{ pt:'Apenas gestores podem usar essa função', en:'Only managers can use this function', es:'Solo gestores pueden usar esta función', ru:'Эту функцию могут использовать только менеджеры' },
+    asSelecione: { pt:'Selecione estações para atualizar', en:'Select stations to update', es:'Seleccione estaciones para actualizar', ru:'Выберите станции для обновления' },
+    asTitulo:    { pt:'Atualizar Status em Massa', en:'Bulk Status Update', es:'Actualizar Estado en Masa', ru:'Массовое обновление статуса' },
+    asDesc:      { pt:'Selecione o status de origem e destino. Todas as estações com o status de origem serão atualizadas.', en:'Select the source and target status. All stations with the source status will be updated.', es:'Seleccione el estado de origen y destino. Todas las estaciones con el estado de origen serán actualizadas.', ru:'Выберите исходный и целевой статус. Все станции с исходным статусом будут обновлены.' },
+    asEstacoesMud:{ pt:'estações mudadas de', en:'stations changed from', es:'estaciones cambiadas de', ru:'станций изменено с' },
+    asPara:      { pt:'para', en:'to', es:'a', ru:'на' },
+    asErro:      { pt:'❌ Erro:', en:'❌ Error:', es:'❌ Error:', ru:'❌ Ошибка:' },
+    asDeOrigem:  { pt:'De (Status Origem):', en:'From (Source Status):', es:'De (Estado Origen):', ru:'Из (исходный статус):' },
+    asParaDestino:{ pt:'Para (Status Destino):', en:'To (Target Status):', es:'A (Estado Destino):', ru:'В (целевой статус):' },
+    asEstacoesCom:{ pt:'Estações', en:'Stations', es:'Estaciones', ru:'Станции' },
+    asComStatus: { pt:'com status', en:'with status', es:'con estado', ru:'со статусом' },
+    asTodas:     { pt:'Todas', en:'All', es:'Todas', ru:'Все' },
+    asSelecionadas:{ pt:'Selecionadas', en:'Selected', es:'Seleccionadas', ru:'Выбранные' },
+    asSemEndereco:{ pt:'(sem endereço)', en:'(no address)', es:'(sin dirección)', ru:'(без адреса)' },
+    asNenhumaStatus:{ pt:'ℹ️ Nenhuma estação com status', en:'ℹ️ No station with status', es:'ℹ️ Ninguna estación con estado', ru:'ℹ️ Нет станций со статусом' },
+    asAtualizando:{ pt:'⏳ Atualizando...', en:'⏳ Updating...', es:'⏳ Actualizando...', ru:'⏳ Обновление...' },
+    asAtualizar: { pt:'⚡ Atualizar', en:'⚡ Update', es:'⚡ Actualizar', ru:'⚡ Обновить' },
+    asEstacaoSing:{ pt:'estação', en:'station', es:'estación', ru:'станцию' },
+    asEstacaoPlur:{ pt:'estações', en:'stations', es:'estaciones', ru:'станций' },
+  };
   const cidade = cidades[0] || '';
   const cidadesExp = useCidadesExpansao();
   const [aba,          setAba]          = useState<'dashboard'|'exportar'|'importar'|'relatorio'|'croquis'|'fotos'|'guard'|'usuarios'|'atualizar-status'|'configuracoes'>('dashboard');
@@ -3985,13 +4604,13 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
 
   // Handler XLSX Urent — normaliza geocode e salva no Firestore
   const handleImportarXlsxUrent = async (file: File) => {
-    setImportLog(['Lendo XLSX...']);
+    setImportLog([pick(T.lendoXlsx)]);
     const { validos, ignorados } = await parseXlsxUrent(file);
 
     setImportLog(prev => [...prev,
-      `Encontradas: ${validos.length + ignorados.length} entradas`,
-      `Válidas: ${validos.length}`,
-      `Ignoradas: ${ignorados.length} (${ignorados.slice(0,3).map(i => i.motivo).join('; ')}${ignorados.length > 3 ? '...' : ''})`,
+      `${pick(T.encontradas)} ${validos.length + ignorados.length} ${pick(T.entradas)}`,
+      `${pick(T.validas)} ${validos.length}`,
+      `${pick(T.ignoradas)} ${ignorados.length} (${ignorados.slice(0,3).map(i => i.motivo).join('; ')}${ignorados.length > 3 ? '...' : ''})`,
     ]);
 
     if (validos.length === 0) {
@@ -4000,7 +4619,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
     }
 
     // Para cada entrada válida: geocode reverso para obter bairro/cidade
-    setImportLog(prev => [...prev, 'Normalizando endereços via geocode...']);
+    setImportLog(prev => [...prev, pick(T.normalizando)]);
     let novos = 0, atualizados = 0, erros: string[] = [];
 
     const { doc: fsDoc, setDoc: fSetDoc, getDoc: fGetDoc, collection: fCol, serverTimestamp: fTs } = await import('firebase/firestore');
@@ -4008,7 +4627,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
 
     for (let i = 0; i < validos.length; i++) {
       const v = validos[i];
-      setImportLog(prev => { const n = [...prev]; n[n.length-1] = `Processando ${i+1}/${validos.length}: ${v.nome.slice(0,40)}...`; return n; });
+      setImportLog(prev => { const n = [...prev]; n[n.length-1] = `${pick(T.processando)} ${i+1}/${validos.length}: ${v.nome.slice(0,40)}...`; return n; });
 
       try {
         // Geocode reverso para bairro/cidade
@@ -4081,7 +4700,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
     }
 
     setImportResult({ total: validos.length + ignorados.length, novos, atualizados, ignorados: ignorados.length, erros });
-    setImportLog(prev => [...prev, '✓ Importação XLSX concluída — ' + novos + ' novas, ' + atualizados + ' atualizadas']);
+    setImportLog(prev => [...prev, pick(T.impXlsxOk) + ' ' + novos + ' ' + pick(T.novas) + ' ' + atualizados + ' ' + pick(T.atualizadas)]);
   };
 
   const handleImportar = async () => {
@@ -4102,9 +4721,9 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
         msg => setImportLog(prev => [...prev, msg])
       );
       setImportResult(result);
-      setImportLog(prev => [...prev, '✓ Importação concluída']);
+      setImportLog(prev => [...prev, pick(T.impConcl)]);
     } catch(e: unknown) {
-      setImportLog(prev => [...prev, '✗ Erro: ' + (e instanceof Error ? e.message : String(e))]);
+      setImportLog(prev => [...prev, pick(T.impErro) + ' ' + (e instanceof Error ? e.message : String(e))]);
     }
     setImportando(false);
   };
@@ -4129,8 +4748,8 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
     };
 
     const handleAtualizar = async () => {
-      if (!isGestor) { alert('Apenas gestores podem usar essa função'); return; }
-      if (paraProcesar.length === 0) { alert('Selecione estações para atualizar'); return; }
+      if (!isGestor) { alert(pick(T.asApenasGestores)); return; }
+      if (paraProcesar.length === 0) { alert(pick(T.asSelecione)); return; }
       
       setAtualizando(true);
       setResultado(null);
@@ -4163,10 +4782,10 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
       <div style={{ padding: '16px 20px' }}>
         <div style={{ marginBottom: 20 }}>
           <h3 style={{ color: '#fff', fontSize: 14, fontWeight: 700, marginBottom: 12 }}>
-            Atualizar Status em Massa
+            {pick(T.asTitulo)}
           </h3>
           <p style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 16 }}>
-            Selecione o status de origem e destino. Todas as estações com o status de origem serão atualizadas.
+            {pick(T.asDesc)}
           </p>
 
           {resultado && (
@@ -4179,17 +4798,17 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
             }}>
               {resultado.sucesso ? (
                 <>
-                  ✅ {resultado.total} estações mudadas de <strong>{resultado.statusOrigem}</strong> para <strong>{resultado.statusDestino}</strong>
+                  ✅ {resultado.total} {pick(T.asEstacoesMud)} <strong>{resultado.statusOrigem}</strong> {pick(T.asPara)} <strong>{resultado.statusDestino}</strong>
                 </>
               ) : (
-                <>❌ Erro: {resultado.erro}</>
+                <>{pick(T.asErro)} {resultado.erro}</>
               )}
             </div>
           )}
 
           <div style={{ marginBottom: 12 }}>
             <label style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 6, fontWeight: 600 }}>
-              De (Status Origem):
+              {pick(T.asDeOrigem)}
             </label>
             <select value={statusOrigem} onChange={(e) => setStatusOrigem(e.target.value)} style={{
               width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,.06)',
@@ -4201,7 +4820,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
 
           <div style={{ marginBottom: 16 }}>
             <label style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 6, fontWeight: 600 }}>
-              Para (Status Destino):
+              {pick(T.asParaDestino)}
             </label>
             <select value={statusDestino} onChange={(e) => setStatusDestino(e.target.value)} style={{
               width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,.06)',
@@ -4215,19 +4834,19 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
             <>
               <div style={{ marginBottom: 12 }}>
                 <label style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 6, fontWeight: 600 }}>
-                  Estações ({filtradas.length} com status {statusOrigem}):
+                  {pick(T.asEstacoesCom)} ({filtradas.length} {pick(T.asComStatus)} {statusOrigem}):
                 </label>
                 <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
                   <button onClick={() => setModoSelecao('todas')} style={{
                     flex: 1, padding: '6px', fontSize: 10, borderRadius: 4, border: 'none', cursor: 'pointer',
                     background: modoSelecao === 'todas' ? '#60a5fa' : 'rgba(255,255,255,.08)',
                     color: modoSelecao === 'todas' ? '#fff' : 'rgba(255,255,255,.4)'
-                  }}>Todas ({filtradas.length})</button>
+                  }}>{pick(T.asTodas)} ({filtradas.length})</button>
                   <button onClick={() => setModoSelecao('selecionadas')} style={{
                     flex: 1, padding: '6px', fontSize: 10, borderRadius: 4, border: 'none', cursor: 'pointer',
                     background: modoSelecao === 'selecionadas' ? '#60a5fa' : 'rgba(255,255,255,.08)',
                     color: modoSelecao === 'selecionadas' ? '#fff' : 'rgba(255,255,255,.4)'
-                  }}>Selecionadas ({selecionadas.size})</button>
+                  }}>{pick(T.asSelecionadas)} ({selecionadas.size})</button>
                 </div>
               </div>
 
@@ -4245,7 +4864,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
                         onChange={() => toggleSelecao(est.codigo)}
                         style={{ cursor: 'pointer' }} />
                       <span style={{ fontSize: 10, color: 'rgba(255,255,255,.7)', flex: 1 }}>
-                        {est.codigo} - {est.endereco || est.cidade || '(sem endereço)'}
+                        {est.codigo} - {est.endereco || est.cidade || pick(T.asSemEndereco)}
                       </span>
                     </div>
                   ))}
@@ -4260,7 +4879,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
               border: '1px solid rgba(99,102,241,.2)', color: '#a5b4fc', fontSize: 11,
               marginBottom: 16
             }}>
-              ℹ️ Nenhuma estação com status "{statusOrigem}"
+              {pick(T.asNenhumaStatus)} "{statusOrigem}"
             </div>
           )}
 
@@ -4270,7 +4889,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
             color: '#fff', fontSize: 12, fontWeight: 600, cursor: (statusOrigem === statusDestino || paraProcesar.length === 0) ? 'not-allowed' : 'pointer',
             opacity: atualizando ? 0.6 : 1
           }}>
-            {atualizando ? '⏳ Atualizando...' : `⚡ Atualizar ${paraProcesar.length} estação${paraProcesar.length !== 1 ? 's' : ''}`}
+            {atualizando ? pick(T.asAtualizando) : `${pick(T.asAtualizar)} ${paraProcesar.length} ${paraProcesar.length !== 1 ? pick(T.asEstacaoPlur) : pick(T.asEstacaoSing)}`}
           </button>
         </div>
       </div>
@@ -4282,15 +4901,15 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
   };
 
   const ABAS_ALL = [
-    { k: 'dashboard', label: '📊 Stats',          show: isGestor },
-    { k: 'exportar',  label: '↕ Dados',            show: isGestor },
-    { k: 'croquis',   label: '📐 Croquis',          show: isGestor },
-    { k: 'fotos',     label: '📸 Fotos',             show: isGestor },
-    { k: 'atualizar-status', label: '⚡ Status em massa', show: isGestor },
-    { k: 'relatorio', label: '📋 Relatório',        show: isGestor },
-    { k: 'guard',     label: '🛡 Guard',            show: isGestor || isGestorSeg },
-    { k: 'usuarios',  label: '👥 Usuários',          show: isAdmin  || isGestorSeg },
-    { k: 'configuracoes', label: '⚙️ Config',       show: isAdmin  },
+    { k: 'dashboard', label: pick(T.tStats),       show: isGestor },
+    { k: 'exportar',  label: pick(T.tDados),       show: isGestor },
+    { k: 'croquis',   label: pick(T.tCroquis),     show: isGestor },
+    { k: 'fotos',     label: pick(T.tFotos),       show: isGestor },
+    { k: 'atualizar-status', label: pick(T.tStatusMassa), show: isGestor },
+    { k: 'relatorio', label: pick(T.tRelatorio),   show: isGestor },
+    { k: 'guard',     label: pick(T.tGuard),       show: isGestor || isGestorSeg },
+    { k: 'usuarios',  label: pick(T.tUsuarios),    show: isAdmin  || isGestorSeg },
+    { k: 'configuracoes', label: pick(T.tConfig),  show: isAdmin  },
   ] as const;
   const ABAS = ABAS_ALL.filter(a => a.show);
 
@@ -4305,7 +4924,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
       <div style={{ padding: '14px 18px', borderBottom: '1px solid rgba(255,255,255,.06)',
         display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>
-          {cidades.length > 0 ? cidades.join(' + ') : 'Todas as cidades'}
+          {cidades.length > 0 ? cidades.join(' + ') : pick(T.todasCidades)}
         </div>
         <button onClick={onFechar} style={{
           marginLeft: 'auto', background: 'rgba(255,255,255,.06)',
@@ -4331,13 +4950,13 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
         {/* ── DASHBOARD ── */}
         {aba === 'dashboard' && (
           carregando ? (
-            <div style={{ textAlign: 'center', padding: 40, color: 'rgba(255,255,255,.3)' }}>Carregando...</div>
+            <div style={{ textAlign: 'center', padding: 40, color: 'rgba(255,255,255,.3)' }}>{pick(T.carregando)}</div>
           ) : (
             <>
               {/* Cards principais */}
               <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-                <StatCard label="Total"      valor={total}     cor="#60a5fa" />
-                <StatCard label="Instaladas" valor={instaladas} cor="#6ee7b7" sub={`${pct(instaladas,total)}%`} />
+                <StatCard label={pick(T.cTotal)}      valor={total}     cor="#60a5fa" />
+                <StatCard label={pick(T.cInstaladas)} valor={instaladas} cor="#6ee7b7" sub={`${pct(instaladas,total)}%`} />
                 <StatCard label="IA ✓"       valor={iaAprovadas} cor="#a78bfa" sub={`${pct(iaAprovadas,total)}%`} />
               </div>
 
@@ -4356,11 +4975,11 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
               <div style={{ padding: 14, borderRadius: 10, background: 'rgba(255,255,255,.03)',
                 border: '1px solid rgba(255,255,255,.06)', marginBottom: 12 }}>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', fontWeight: 700,
-                  letterSpacing: '.06em', marginBottom: 12 }}>POR TIPO</div>
+                  letterSpacing: '.06em', marginBottom: 12 }}>{pick(T.porTipo)}</div>
                 {[
-                  { label: 'Públicas',     n: publicas, cor: '#3b82f6' },
-                  { label: 'Privadas',     n: privadas, cor: '#f59e0b' },
-                  { label: 'Concorrentes', n: concorr,  cor: '#ef4444' }
+                  { label: pick(T.publicas),     n: publicas, cor: '#3b82f6' },
+                  { label: pick(T.privadas),     n: privadas, cor: '#f59e0b' },
+                  { label: pick(T.concorrentes), n: concorr,  cor: '#ef4444' }
                 ].map(item => (
                   <div key={item.label} style={{ marginBottom: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -4378,11 +4997,11 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
               <div style={{ padding: 14, borderRadius: 10, background: 'rgba(255,255,255,.03)',
                 border: '1px solid rgba(255,255,255,.06)', marginBottom: 12 }}>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', fontWeight: 700,
-                  letterSpacing: '.06em', marginBottom: 12 }}>POR STATUS</div>
+                  letterSpacing: '.06em', marginBottom: 12 }}>{pick(T.porStatus)}</div>
                 {[
-                  { label: 'Solicitadas', n: solicitadas, cor: '#60a5fa' },
-                  { label: 'Aprovadas',   n: aprovadas,   cor: '#6ee7b7' },
-                  { label: 'Canceladas',  n: estacoes.filter(e=>e.status==='CANCELADO'||e.status==='REPROVADO').length, cor: '#f87171' }
+                  { label: pick(T.solicitadas), n: solicitadas, cor: '#60a5fa' },
+                  { label: pick(T.aprovadas),   n: aprovadas,   cor: '#6ee7b7' },
+                  { label: pick(T.canceladas),  n: estacoes.filter(e=>e.status==='CANCELADO'||e.status==='REPROVADO').length, cor: '#f87171' }
                 ].map(item => (
                   <div key={item.label} style={{ marginBottom: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -4400,12 +5019,12 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
               <div style={{ padding: 14, borderRadius: 10, background: 'rgba(255,255,255,.03)',
                 border: '1px solid rgba(255,255,255,.06)', marginBottom: 12 }}>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', fontWeight: 700,
-                  letterSpacing: '.06em', marginBottom: 12 }}>COBERTURA DE DADOS</div>
+                  letterSpacing: '.06em', marginBottom: 12 }}>{pick(T.cobertura)}</div>
                 {[
-                  { label: 'Com Street View', n: comSV,     cor: '#fbbf24' },
-                  { label: 'Com foto',         n: comFoto,   cor: '#f472b6' },
-                  { label: 'Com croqui',       n: comCroqui, cor: '#34d399' },
-                  { label: 'IA analisada',     n: iaAprovadas + estacoes.filter(e => e.ia && !e.ia.aprovado).length, cor: '#a78bfa' }
+                  { label: pick(T.comSV),     n: comSV,     cor: '#fbbf24' },
+                  { label: pick(T.comFoto),    n: comFoto,   cor: '#f472b6' },
+                  { label: pick(T.comCroqui),  n: comCroqui, cor: '#34d399' },
+                  { label: pick(T.iaAnalisada),n: iaAprovadas + estacoes.filter(e => e.ia && !e.ia.aprovado).length, cor: '#a78bfa' }
                 ].map(item => (
                   <div key={item.label} style={{ marginBottom: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
@@ -4424,7 +5043,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
                 <div style={{ padding: 14, borderRadius: 10, background: 'rgba(255,255,255,.03)',
                   border: '1px solid rgba(255,255,255,.06)' }}>
                   <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', fontWeight: 700,
-                    letterSpacing: '.06em', marginBottom: 12 }}>TOP BAIRROS</div>
+                    letterSpacing: '.06em', marginBottom: 12 }}>{pick(T.topBairros)}</div>
                   {topBairros.map(([bairro, n]) => (
                     <div key={bairro} style={{ display: 'flex', justifyContent: 'space-between',
                       alignItems: 'center', marginBottom: 8 }}>
@@ -4454,7 +5073,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
         {aba === 'dashboard' && cidadesExp.length > 0 && (
           <div style={{ margin:'0 -16px', padding:'12px 16px', borderTop:'1px solid rgba(255,255,255,.06)', marginTop:8 }}>
             <div style={{ fontSize:9, fontWeight:700, letterSpacing:1, textTransform:'uppercase' as any, color:'rgba(255,255,255,.25)', marginBottom:10 }}>
-              🌍 Expansão — {cidadesExp.length} cidades
+              {pick(T.expansao)} {cidadesExp.length} {pick(T.cidadesWord)}
             </div>
             <div style={{ display:'flex', flexDirection:'column' as any, gap:5 }}>
               {cidadesExp.map(c => {
@@ -4466,7 +5085,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
                       <div style={{ fontSize:12, fontWeight:600, color:'#dce8ff', whiteSpace:'nowrap' as any, overflow:'hidden', textOverflow:'ellipsis' }}>{c.nome}</div>
                       <div style={{ fontSize:9, color:'rgba(255,255,255,.3)' }}>{m.label}{c.dataPrevista ? ' · 📅 ' + c.dataPrevista : ''}</div>
                     </div>
-                    {c.mercadoEst && <div style={{ fontSize:10, color:m.cor, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace" }}>{c.mercadoEst.toLocaleString()}/mês</div>}
+                    {c.mercadoEst && <div style={{ fontSize:10, color:m.cor, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace" }}>{c.mercadoEst.toLocaleString()}{pick(T.mes)}</div>}
                   </div>
                 );
               })}
@@ -4492,7 +5111,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
         )}
         {aba === 'relatorio' && !cidade && (
           <div style={{ padding:'0 24px 24px', textAlign: 'center', color: 'rgba(255,255,255,.4)', fontSize: 13 }}>
-            Selecione uma cidade acima para gerar o relatório completo da cidade
+            {pick(T.selCidadeRel)}
           </div>
         )}
 
@@ -4511,9 +5130,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
             <div style={{ padding: 12, borderRadius: 8, marginBottom: 14,
               background: 'rgba(245,158,11,.06)', border: '1px solid rgba(245,158,11,.15)',
               fontSize: 11, color: 'rgba(255,255,255,.5)' }}>
-              <b style={{ color: '#fbbf24' }}>Importação inteligente:</b> registros com o mesmo
-              código são atualizados. Novos são criados. Dados existentes são preservados
-              quando o campo estiver vazio no arquivo.
+              <b style={{ color: '#fbbf24' }}>{pick(T.impInteligente)}</b>{pick(T.impInteligenteTxt)}
             </div>
 
             {/* Upload */}
@@ -4526,7 +5143,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
               background: 'rgba(255,255,255,.04)', border: '1px dashed rgba(255,255,255,.15)',
               color: 'rgba(255,255,255,.5)', fontSize: 13, marginBottom: 12
             }}>
-              {importFile ? `📁 ${importFile.name}` : '📁 Selecionar arquivo CSV ou JSON'}
+              {importFile ? `📁 ${importFile.name}` : pick(T.selArquivo)}
             </button>
 
             {importFile && !importResult && (
@@ -4536,7 +5153,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
                 border: 'none', borderRadius: 10, color: '#fff',
                 fontSize: 13, fontWeight: 600, cursor: importando ? 'not-allowed' : 'pointer',
                 marginBottom: 12
-              }}>{importando ? 'Importando...' : 'Iniciar importação'}</button>
+              }}>{importando ? pick(T.importando) : pick(T.iniciarImp)}</button>
             )}
 
             {/* Log */}
@@ -4553,13 +5170,13 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
               <div style={{ padding: 14, borderRadius: 10,
                 background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.2)' }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: '#6ee7b7', marginBottom: 10 }}>
-                  ✓ Importação concluída
+                  {pick(T.impConclTit)}
                 </div>
                 {[
-                  { label: 'Total processados', n: importResult.total,      cor: '#fff' },
-                  { label: 'Novos criados',      n: importResult.novos,      cor: '#6ee7b7' },
-                  { label: 'Atualizados',        n: importResult.atualizados,cor: '#60a5fa' },
-                  { label: 'Ignorados',          n: importResult.ignorados,  cor: '#fbbf24' }
+                  { label: pick(T.totalProc), n: importResult.total,      cor: '#fff' },
+                  { label: pick(T.novosCriados),      n: importResult.novos,      cor: '#6ee7b7' },
+                  { label: pick(T.atualizadosLbl),        n: importResult.atualizados,cor: '#60a5fa' },
+                  { label: pick(T.ignoradosLbl),          n: importResult.ignorados,  cor: '#fbbf24' }
                 ].map(item => (
                   <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                     <span style={{ fontSize: 12, color: 'rgba(255,255,255,.5)' }}>{item.label}</span>
@@ -4569,7 +5186,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
                 {importResult.erros.length > 0 && (
                   <details style={{ marginTop: 10 }}>
                     <summary style={{ fontSize: 11, color: '#f87171', cursor: 'pointer' }}>
-                      {importResult.erros.length} erros (clique para ver)
+                      {importResult.erros.length} {pick(T.errosClique)}
                     </summary>
                     <div style={{ marginTop: 8, fontSize: 10, color: '#f87171', maxHeight: 100, overflowY: 'auto' }}>
                       {importResult.erros.map((e, i) => <div key={i}>{e}</div>)}
@@ -4580,7 +5197,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
                   style={{ width: '100%', marginTop: 10, padding: 8,
                     background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)',
                     borderRadius: 8, color: 'rgba(255,255,255,.5)', fontSize: 11, cursor: 'pointer'
-                  }}>Nova importação</button>
+                  }}>{pick(T.novaImp)}</button>
               </div>
             )}
 
@@ -4589,17 +5206,17 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
               width: '100%', padding: '10px 14px', marginBottom: 12, borderRadius: 10,
               background: 'rgba(168,85,247,.08)', border: '1px solid rgba(168,85,247,.2)',
               color: '#c084fc', fontSize: 12, cursor: 'pointer'
-            }}>⬇️ Baixar template CSV com todos os campos</button>
+            }}>{pick(T.baixarTpl)}</button>
 
             {/* Guia de campos */}
             <details style={{ marginTop: 16 }}>
               <summary style={{ fontSize: 11, color: 'rgba(255,255,255,.35)', cursor: 'pointer' }}>
-                Campos aceitos no CSV/JSON
+                {pick(T.camposAceitos)}
               </summary>
               <div style={{ marginTop: 8, fontSize: 10, color: 'rgba(255,255,255,.3)',
                 background: 'rgba(255,255,255,.02)', padding: 10, borderRadius: 8 }}>
-                <b style={{ color: 'rgba(255,255,255,.5)' }}>Obrigatórios:</b> codigo, lat, lng<br/>
-                <b style={{ color: 'rgba(255,255,255,.5)' }}>Opcionais:</b> cidade, bairro, tipo (PUBLICA/PRIVADA/CONCORRENTE),
+                <b style={{ color: 'rgba(255,255,255,.5)' }}>{pick(T.obrigatorios)}</b> codigo, lat, lng<br/>
+                <b style={{ color: 'rgba(255,255,255,.5)' }}>{pick(T.opcionais)}</b> cidade, bairro, tipo (PUBLICA/PRIVADA/CONCORRENTE),
                 status (SOLICITADO/APROVADO/REPROVADO/INSTALADO),
                 larguraFaixa, endereco, croquiStatus
               </div>
@@ -4624,6 +5241,50 @@ const FONTES: { k: FonteFoto; label: string; desc: string; cor: string }[] = [
 function AbaFotos({ estacoes, cidade, isGestor }: {
   estacoes: Estacao[]; cidade: string; isGestor: boolean;
 }) {
+  const { pick } = useLang();
+  const T = {
+    fonteLabels: {
+      streetview: { pt:'🗺 Street View', en:'🗺 Street View', es:'🗺 Street View', ru:'🗺 Street View' } as TL,
+      mapillary:  { pt:'📡 Mapillary', en:'📡 Mapillary', es:'📡 Mapillary', ru:'📡 Mapillary' } as TL,
+      kartaview:  { pt:'🛣 KartaView', en:'🛣 KartaView', es:'🛣 KartaView', ru:'🛣 KartaView' } as TL,
+      manual:     { pt:'📷 Manual', en:'📷 Manual', es:'📷 Manual', ru:'📷 Вручную' } as TL,
+    } as Record<FonteFoto, TL>,
+    fonteDesc: {
+      streetview: { pt:'URL embed gratuita (sem API key)', en:'Free embed URL (no API key)', es:'URL de inserción gratuita (sin API key)', ru:'Бесплатный embed URL (без API-ключа)' } as TL,
+      mapillary:  { pt:'Fotos colaborativas — requer token free', en:'Crowdsourced photos — requires free token', es:'Fotos colaborativas — requiere token gratis', ru:'Совместные фото — нужен бесплатный токен' } as TL,
+      kartaview:  { pt:'OpenStreetCam, sem API key', en:'OpenStreetCam, no API key', es:'OpenStreetCam, sin API key', ru:'OpenStreetCam, без API-ключа' } as TL,
+      manual:     { pt:'Upload individual por estação', en:'Individual upload per station', es:'Carga individual por estación', ru:'Индивидуальная загрузка для станции' } as TL,
+    } as Record<FonteFoto, TL>,
+    semCoords:   { pt:'sem coordenadas', en:'no coordinates', es:'sin coordenadas', ru:'нет координат' },
+    semCobertura:{ pt:'sem cobertura Street View', en:'no Street View coverage', es:'sin cobertura Street View', ru:'нет покрытия Street View' },
+    fotoSalva:   { pt:'foto salva', en:'photo saved', es:'foto guardada', ru:'фото сохранено' },
+    erroTrace:   { pt:'erro —', en:'error —', es:'error —', ru:'ошибка —' },
+    concluidoA:  { pt:'Concluído:', en:'Done:', es:'Completado:', ru:'Готово:' },
+    concluidoAtual:{ pt:'atualizadas,', en:'updated,', es:'actualizadas,', ru:'обновлено,' },
+    concluidoErr:{ pt:'erros', en:'errors', es:'errores', ru:'ошибок' },
+    alertNenhuma:{ pt:'Nenhuma estação com esses filtros.', en:'No station matches these filters.', es:'Ninguna estación con estos filtros.', ru:'Нет станций по этим фильтрам.' },
+    alertToken:  { pt:'Informe o token Mapillary (gratuito em mapillary.com/dashboard/developers).', en:'Enter the Mapillary token (free at mapillary.com/dashboard/developers).', es:'Ingrese el token de Mapillary (gratis en mapillary.com/dashboard/developers).', ru:'Введите токен Mapillary (бесплатно на mapillary.com/dashboard/developers).' },
+    confirmA:    { pt:'Atualizar foto de', en:'Update photo of', es:'Actualizar foto de', ru:'Обновить фото' },
+    confirmB:    { pt:'estações via', en:'stations via', es:'estaciones vía', ru:'станций через' },
+    apenasGestores:{ pt:'Apenas gestores e admins podem atualizar fotos em lote.', en:'Only managers and admins can update photos in bulk.', es:'Solo gestores y admins pueden actualizar fotos en lote.', ru:'Только менеджеры и админы могут массово обновлять фото.' },
+    fonteFoto:   { pt:'Fonte da foto', en:'Photo source', es:'Fuente de la foto', ru:'Источник фото' },
+    tokenPh:     { pt:'Token Mapillary (mapillary.com/dashboard/developers)', en:'Mapillary token (mapillary.com/dashboard/developers)', es:'Token Mapillary (mapillary.com/dashboard/developers)', ru:'Токен Mapillary (mapillary.com/dashboard/developers)' },
+    manualInfoA: { pt:'No modo manual, clique na estação no mapa → botão 📷 Foto → selecione a imagem.', en:'In manual mode, click the station on the map → 📷 Photo button → select the image.', es:'En modo manual, haga clic en la estación en el mapa → botón 📷 Foto → seleccione la imagen.', ru:'В ручном режиме нажмите станцию на карте → кнопка 📷 Фото → выберите изображение.' },
+    manualInfoB: { pt:'Use as opções abaixo para filtrar quais estações ver no mapa.', en:'Use the options below to filter which stations to see on the map.', es:'Use las opciones abajo para filtrar qué estaciones ver en el mapa.', ru:'Используйте параметры ниже, чтобы отфильтровать станции на карте.' },
+    filtros:     { pt:'Filtros', en:'Filters', es:'Filtros', ru:'Фильтры' },
+    apenasVazias:{ pt:'Apenas estações sem foto Street View', en:'Only stations without a Street View photo', es:'Solo estaciones sin foto de Street View', ru:'Только станции без фото Street View' },
+    status:      { pt:'Status', en:'Status', es:'Estado', ru:'Статус' },
+    todos:       { pt:'Todos', en:'All', es:'Todos', ru:'Все' },
+    bairro:      { pt:'Bairro', en:'Neighborhood', es:'Barrio', ru:'Район' },
+    todosBairros:{ pt:'Todos os bairros', en:'All neighborhoods', es:'Todos los barrios', ru:'Все районы' },
+    seraoAtual:  { pt:'estações serão atualizadas', en:'stations will be updated', es:'estaciones serán actualizadas', ru:'станций будет обновлено' },
+    nenhumaFiltro:{ pt:'Nenhuma estação com esses filtros', en:'No station matches these filters', es:'Ninguna estación con estos filtros', ru:'Нет станций по этим фильтрам' },
+    atualizadas: { pt:'atualizadas', en:'updated', es:'actualizadas', ru:'обновлено' },
+    erros:       { pt:'erros', en:'errors', es:'errores', ru:'ошибок' },
+    restantes:   { pt:'restantes', en:'remaining', es:'restantes', ru:'осталось' },
+    iniciarAtual:{ pt:'📸 Iniciar atualização', en:'📸 Start update', es:'📸 Iniciar actualización', ru:'📸 Начать обновление' },
+    parar:       { pt:'⏹ Parar', en:'⏹ Stop', es:'⏹ Detener', ru:'⏹ Стоп' },
+  };
   const [fonte,        setFonte]        = useState<FonteFoto>('streetview');
   const [filtroStatus, setFiltroStatus] = useState<string>('todos');
   const [filtroBairro, setFiltroBairro] = useState<string>('');
@@ -4675,12 +5336,12 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
   };
 
   const iniciar = async () => {
-    if (!alvo.length) { alert('Nenhuma estação com esses filtros.'); return; }
+    if (!alvo.length) { alert(pick(T.alertNenhuma)); return; }
     if (fonte === 'mapillary' && !mapillaryTok) {
-      alert('Informe o token Mapillary (gratuito em mapillary.com/dashboard/developers).');
+      alert(pick(T.alertToken));
       return;
     }
-    if (!confirm(`Atualizar foto de ${alvo.length} estações via ${FONTES.find(f=>f.k===fonte)?.label}?`)) return;
+    if (!confirm(`${pick(T.confirmA)} ${alvo.length} ${pick(T.confirmB)} ${pick(T.fonteLabels[fonte])}?`)) return;
 
     setRodando(true); abortRef.current = false;
     setLog([]); setProgresso({ ok:0, erro:0, total: alvo.length });
@@ -4693,7 +5354,7 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
       const url = buildUrl(e);
       if (!url) {
         erro++;
-        setLog(prev => [...prev, { msg: `${e.codigo||e.id}: sem coordenadas`, ok: false }]);
+        setLog(prev => [...prev, { msg: `${e.codigo||e.id}: ${pick(T.semCoords)}`, ok: false }]);
         setProgresso({ ok, erro, total: alvo.length });
         continue;
       }
@@ -4704,7 +5365,7 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
           const temFoto = await checkStreetView(e.lat, e.lng);
           if (!temFoto) {
             erro++;
-            setLog(prev => [...prev, { msg: `${e.codigo||e.id}: sem cobertura Street View`, ok: false }]);
+            setLog(prev => [...prev, { msg: `${e.codigo||e.id}: ${pick(T.semCobertura)}`, ok: false }]);
             setProgresso({ ok, erro, total: alvo.length });
             await new Promise(r => setTimeout(r, 200));
             continue;
@@ -4716,10 +5377,10 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
           'imagens.foto': url,        // Também salva como foto para aparecer no InfoWindow
         });
         ok++;
-        setLog(prev => [...prev, { msg: `${e.codigo||e.id} (${e.bairro||''}): foto salva`, ok: true }]);
+        setLog(prev => [...prev, { msg: `${e.codigo||e.id} (${e.bairro||''}): ${pick(T.fotoSalva)}`, ok: true }]);
       } catch (err: any) {
         erro++;
-        setLog(prev => [...prev, { msg: `${e.codigo||e.id}: erro — ${err.message}`, ok: false }]);
+        setLog(prev => [...prev, { msg: `${e.codigo||e.id}: ${pick(T.erroTrace)} ${err.message}`, ok: false }]);
       }
 
       setProgresso({ ok, erro, total: alvo.length });
@@ -4728,7 +5389,7 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
     }
 
     setRodando(false);
-    setLog(prev => [...prev, { msg: `Concluído: ${ok} atualizadas, ${erro} erros`, ok: true }]);
+    setLog(prev => [...prev, { msg: `${pick(T.concluidoA)} ${ok} ${pick(T.concluidoAtual)} ${erro} ${pick(T.concluidoErr)}`, ok: true }]);
   };
 
   const parar = () => { abortRef.current = true; };
@@ -4740,7 +5401,7 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
 
   if (!isGestor) return (
     <div style={{ padding: 24, textAlign: 'center', color: 'rgba(255,255,255,.3)', fontSize: 12 }}>
-      Apenas gestores e admins podem atualizar fotos em lote.
+      {pick(T.apenasGestores)}
     </div>
   );
 
@@ -4749,7 +5410,7 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
 
       {/* Fonte */}
       <div>
-        <div style={secTitle}>Fonte da foto</div>
+        <div style={secTitle}>{pick(T.fonteFoto)}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
           {FONTES.map(f => (
             <div key={f.k} onClick={() => setFonte(f.k)} style={{
@@ -4762,9 +5423,9 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
                 background: fonte === f.k ? f.cor : 'rgba(255,255,255,.2)', flexShrink: 0 }} />
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: fonte === f.k ? f.cor : 'rgba(255,255,255,.6)' }}>
-                  {f.label}
+                  {pick(T.fonteLabels[f.k])}
                 </div>
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)' }}>{f.desc}</div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)' }}>{pick(T.fonteDesc[f.k])}</div>
               </div>
             </div>
           ))}
@@ -4774,7 +5435,7 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
         {fonte === 'mapillary' && (
           <div style={{ marginTop: 8 }}>
             <input value={mapillaryTok} onChange={e => setMapillaryTok(e.target.value)}
-              placeholder="Token Mapillary (mapillary.com/dashboard/developers)"
+              placeholder={pick(T.tokenPh)}
               style={{ width: '100%', padding: '8px 10px', borderRadius: 7,
                 background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)',
                 color: '#fff', fontSize: 11, outline: 'none' }} />
@@ -4785,8 +5446,8 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
           <div style={{ padding: 10, borderRadius: 7, background: 'rgba(167,139,250,.08)',
             border: '1px solid rgba(167,139,250,.2)', fontSize: 11, color: 'rgba(255,255,255,.4)',
             marginTop: 8, lineHeight: 1.5 }}>
-            No modo manual, clique na estação no mapa → botão 📷 Foto → selecione a imagem.<br/>
-            Use as opções abaixo para filtrar quais estações ver no mapa.
+            {pick(T.manualInfoA)}<br/>
+            {pick(T.manualInfoB)}
           </div>
         )}
       </div>
@@ -4794,19 +5455,19 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
       {/* Filtros */}
       {fonte !== 'manual' && (
         <div>
-          <div style={secTitle}>Filtros</div>
+          <div style={secTitle}>{pick(T.filtros)}</div>
 
           {/* Apenas vazias */}
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
             fontSize: 12, color: 'rgba(255,255,255,.6)', marginBottom: 8 }}>
             <input type="checkbox" checked={apenasVazias}
               onChange={e => setApenasVazias(e.target.checked)} />
-            Apenas estações sem foto Street View
+            {pick(T.apenasVazias)}
           </label>
 
           {/* Status */}
           <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', marginBottom: 4 }}>Status</div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', marginBottom: 4 }}>{pick(T.status)}</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {['todos', 'SOLICITADO', 'APROVADO', 'CANCELADO'].map(s => (
                 <button key={s} onClick={() => setFiltroStatus(s)} style={{
@@ -4815,19 +5476,19 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
                   background: filtroStatus === s ? 'rgba(61,155,255,.2)' : 'rgba(255,255,255,.04)',
                   color: filtroStatus === s ? '#3d9bff' : 'rgba(255,255,255,.35)',
                   outline: filtroStatus === s ? '1px solid rgba(61,155,255,.3)' : '1px solid rgba(255,255,255,.06)',
-                }}>{s === 'todos' ? 'Todos' : s}</button>
+                }}>{s === 'todos' ? pick(T.todos) : s}</button>
               ))}
             </div>
           </div>
 
           {/* Bairro */}
           <div>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', marginBottom: 4 }}>Bairro</div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', marginBottom: 4 }}>{pick(T.bairro)}</div>
             <select value={filtroBairro} onChange={e => setFiltroBairro(e.target.value)}
               style={{ width: '100%', padding: '7px 10px', borderRadius: 7,
                 background: '#111722', border: '1px solid rgba(255,255,255,.1)',
                 color: '#dce8ff', fontSize: 11 }}>
-              <option value="">Todos os bairros</option>
+              <option value="">{pick(T.todosBairros)}</option>
               {bairros.map(b => (
                 <option key={b} value={b}>{b} ({estacoes.filter(e=>e.bairro===b&&(!apenasVazias||!e.imagens?.streetView)).length})</option>
               ))}
@@ -4839,8 +5500,8 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
             background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.06)',
             fontSize: 11, color: 'rgba(255,255,255,.5)', textAlign: 'center' }}>
             {alvo.length > 0
-              ? `${alvo.length} estações serão atualizadas`
-              : 'Nenhuma estação com esses filtros'}
+              ? `${alvo.length} ${pick(T.seraoAtual)}`
+              : pick(T.nenhumaFiltro)}
           </div>
         </div>
       )}
@@ -4860,9 +5521,9 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10,
             color: 'rgba(255,255,255,.4)', marginBottom: 8 }}>
-            <span>✅ {progresso.ok} atualizadas</span>
-            <span>❌ {progresso.erro} erros</span>
-            <span>⏳ {progresso.total - progresso.ok - progresso.erro} restantes</span>
+            <span>✅ {progresso.ok} {pick(T.atualizadas)}</span>
+            <span>❌ {progresso.erro} {pick(T.erros)}</span>
+            <span>⏳ {progresso.total - progresso.ok - progresso.erro} {pick(T.restantes)}</span>
           </div>
           {/* Log */}
           <div style={{ maxHeight: 120, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -4888,14 +5549,14 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
               color: alvo.length === 0 ? 'rgba(255,255,255,.2)' : '#fff',
               fontSize: 13, fontWeight: 700,
             }}>
-              📸 Iniciar atualização ({alvo.length})
+              {pick(T.iniciarAtual)} ({alvo.length})
             </button>
           ) : (
             <button onClick={parar} style={{
               flex: 1, padding: '12px', borderRadius: 10,
               border: '1px solid rgba(239,68,68,.3)', background: 'rgba(239,68,68,.1)',
               color: '#f87171', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-            }}>⏹ Parar</button>
+            }}>{pick(T.parar)}</button>
           )}
         </div>
       )}

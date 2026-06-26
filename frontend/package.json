@@ -27,6 +27,7 @@
     "@supabase/supabase-js": "^2.108.1",
     "deck.gl": "^9.3.2",
     "firebase": "^10.12.0",
+    "heic2any": "^0.0.4",
     "i18next": "^23.11.0",
     "jszip": "^3.10.1",
     "konva": "^9.3.22",
@@ -38,7 +39,8 @@
     "react-i18next": "^14.1.0",
     "react-konva": "^18.2.10",
     "react-map-gl": "^8.1.1",
-    "react-router-dom": "^6.24.0"
+    "react-router-dom": "^6.24.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.3.4",

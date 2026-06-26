@@ -13,7 +13,7 @@ export const usuariosWriteSupabase = (): boolean => {
     if (v === 'supabase') return true;
     if (v === 'firebase') return false;
   } catch { /* sem localStorage */ }
-  return (import.meta.env.VITE_USUARIOS_WRITE as string) === 'supabase';
+  return (import.meta.env.VITE_USUARIOS_WRITE as string) !== 'firebase';
 };
 
 // Atualiza um usuário (por firebase uid) via Edge Function. `patch` em camelCase; a função

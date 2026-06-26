@@ -20,6 +20,7 @@ export interface BikeForClassify {
   booked?:       boolean;
   service_mode?: boolean;
   battery_percent?: number;
+  last_order_at?: string | null;
 }
 
 export function classifyBike(b: BikeForClassify): BikeStatus {
@@ -78,6 +79,57 @@ export const BIKE_STATUS_LABEL: Record<BikeStatus, string> = {
   oficina:     'Em oficina',
   apreendidos: 'Apreendido',
 };
+
+/** Verifica se bike está ociosa (sem aluguel) há mais de N horas */
+export function isBikeIdleOverHours(b: BikeForClassify, hours: number, now = Date.now()): boolean {
+  const sub = (b.business_sub_status ?? '').toLowerCase();
+  const status = (b.business_status ?? '').toLowerCase();
+  if (sub.includes('rent') || status.includes('rent')) return false;
+
+  if (!b.last_order_at) return true;
+  const lastMs = new Date(b.last_order_at).getTime();
+  if (!Number.isFinite(lastMs)) return true;
+  return (now - lastMs) > hours * 3_600_000;
+}
+
+/** Conta bikes por status, separando operacionais de oficina/apreendidos */
+export function computeFleetStats(bikes: BikeForClassify[]) {
+  let total = 0, available = 0, renting = 0, reserved = 0,
+      maintenance = 0, lowBattery = 0, oficina = 0, apreendidos = 0,
+      outOfParking = 0, outOfParkingAvailable = 0, idle48h = 0;
+  const now = Date.now();
+
+  for (const b of bikes) {
+    total++;
+    const st = classifyBike(b);
+    switch (st) {
+      case 'available':   available++; break;
+      case 'renting':     renting++; break;
+      case 'reserved':    reserved++; break;
+      case 'maintenance': maintenance++; break;
+      case 'low_battery': lowBattery++; break;
+      case 'oficina':     oficina++; break;
+      case 'apreendidos': apreendidos++; break;
+    }
+
+    const bAny = b as any;
+    if (!bAny.parking_id) {
+      outOfParking++;
+      if (st === 'available' || st === 'low_battery') outOfParkingAvailable++;
+    }
+
+    if (st !== 'oficina' && st !== 'apreendidos' && isBikeIdleOverHours(b, 48, now)) {
+      idle48h++;
+    }
+  }
+
+  const operational = total - oficina - apreendidos;
+  return {
+    total, operational, available, renting, reserved,
+    maintenance, lowBattery, oficina, apreendidos,
+    outOfParking, outOfParkingAvailable, idle48h,
+  };
+}
 
 /** Converte battery_percent (0-1) para string legível */
 export function formatBattery(pct?: number): string {

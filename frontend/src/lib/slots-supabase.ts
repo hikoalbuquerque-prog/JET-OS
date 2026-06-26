@@ -6,8 +6,14 @@
 
 import { supabase } from './supabase';
 
-export const slotsProviderSupabase = () =>
-  (import.meta.env.VITE_ANALYTICS_PROVIDER as string) === 'supabase';
+export const slotsProviderSupabase = (): boolean => {
+  try {
+    const v = localStorage.getItem('jet_slots_provider');
+    if (v === 'supabase') return true;
+    if (v === 'firebase') return false;
+  } catch { /* sem localStorage */ }
+  return (import.meta.env.VITE_SLOTS_PROVIDER as string) === 'supabase';
+};
 
 // linha do Postgres -> forma Slot que o SlotsModule consome
 function mapRow(r: any): any {

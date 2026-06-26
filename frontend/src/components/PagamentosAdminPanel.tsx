@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   collection,
   query,
@@ -14,6 +15,77 @@ import {
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { getFunctions, httpsCallable } from 'firebase/functions';
+
+// ---------------------------------------------------------------------------
+// i18n (pt fonte fiel) — padrão objeto T + pick, sem chaves json
+// ---------------------------------------------------------------------------
+
+type Lang = 'pt' | 'en' | 'es' | 'ru';
+type Tr = { pt: string; en: string; es: string; ru: string };
+
+function useT() {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
+  return { lang, pick };
+}
+
+const T = {
+  // Header / abas
+  titulo: { pt: 'Gestão de Pagamentos', en: 'Payment Management', es: 'Gestión de Pagos', ru: 'Управление платежами' },
+  fechar: { pt: 'Fechar', en: 'Close', es: 'Cerrar', ru: 'Закрыть' },
+  abaNfs: { pt: 'NFs Pendentes', en: 'Pending Invoices', es: 'Facturas Pendientes', ru: 'Ожидающие счета' },
+  abaPagamentos: { pt: 'Pagamentos', en: 'Payments', es: 'Pagos', ru: 'Платежи' },
+  abaConfig: { pt: 'Configuração', en: 'Settings', es: 'Configuración', ru: 'Настройки' },
+
+  // Status
+  stAberto: { pt: 'Aberto', en: 'Open', es: 'Abierto', ru: 'Открыто' },
+  stNfEnviada: { pt: 'NF Enviada', en: 'Invoice Sent', es: 'Factura Enviada', ru: 'Счёт отправлен' },
+  stNfAprovada: { pt: 'NF Aprovada', en: 'Invoice Approved', es: 'Factura Aprobada', ru: 'Счёт одобрен' },
+  stRejeitada: { pt: 'Rejeitada', en: 'Rejected', es: 'Rechazada', ru: 'Отклонено' },
+  stPago: { pt: 'Pago', en: 'Paid', es: 'Pagado', ru: 'Оплачено' },
+
+  // Card de pagamento
+  periodo: { pt: 'Período', en: 'Period', es: 'Período', ru: 'Период' },
+  tarefas: { pt: 'Tarefas', en: 'Tasks', es: 'Tareas', ru: 'Задачи' },
+  valorUnitario: { pt: 'Valor Unitário', en: 'Unit Value', es: 'Valor Unitario', ru: 'Цена за единицу' },
+  valorTotal: { pt: 'Valor Total', en: 'Total Value', es: 'Valor Total', ru: 'Итоговая сумма' },
+
+  // Comum
+  carregando: { pt: 'Carregando...', en: 'Loading...', es: 'Cargando...', ru: 'Загрузка...' },
+  salvar: { pt: 'Salvar', en: 'Save', es: 'Guardar', ru: 'Сохранить' },
+  salvando: { pt: 'Salvando...', en: 'Saving...', es: 'Guardando...', ru: 'Сохранение...' },
+  cancelar: { pt: 'Cancelar', en: 'Cancel', es: 'Cancelar', ru: 'Отмена' },
+  editar: { pt: 'Editar', en: 'Edit', es: 'Editar', ru: 'Редактировать' },
+  confirmar: { pt: 'Confirmar', en: 'Confirm', es: 'Confirmar', ru: 'Подтвердить' },
+  exportarCsv: { pt: '⬇ Exportar CSV', en: '⬇ Export CSV', es: '⬇ Exportar CSV', ru: '⬇ Экспорт CSV' },
+
+  // Aba NFs Pendentes
+  nfsVazio: { pt: 'Nenhuma NF aguardando validação', en: 'No invoices awaiting validation', es: 'Ninguna factura esperando validación', ru: 'Нет счетов, ожидающих проверки' },
+  verNf: { pt: 'Ver NF', en: 'View Invoice', es: 'Ver Factura', ru: 'Посмотреть счёт' },
+  aprovarNf: { pt: 'Aprovar NF', en: 'Approve Invoice', es: 'Aprobar Factura', ru: 'Одобрить счёт' },
+  rejeitar: { pt: 'Rejeitar', en: 'Reject', es: 'Rechazar', ru: 'Отклонить' },
+  motivoRejeicao: { pt: 'Motivo da rejeição...', en: 'Reason for rejection...', es: 'Motivo del rechazo...', ru: 'Причина отклонения...' },
+
+  // Aba Pagamentos
+  subPendentes: { pt: 'A Pagar', en: 'To Pay', es: 'Por Pagar', ru: 'К оплате' },
+  subHistorico: { pt: 'Histórico de Pagos', en: 'Payment History', es: 'Historial de Pagos', ru: 'История платежей' },
+  totalAPagar: { pt: 'Total a pagar', en: 'Total to pay', es: 'Total a pagar', ru: 'Итого к оплате' },
+  registro: { pt: 'registro', en: 'record', es: 'registro', ru: 'запись' },
+  registros: { pt: 'registros', en: 'records', es: 'registros', ru: 'записей' },
+  pagamentosVazio: { pt: 'Nenhuma NF aprovada aguardando pagamento', en: 'No approved invoices awaiting payment', es: 'Ninguna factura aprobada esperando pago', ru: 'Нет одобренных счетов, ожидающих оплаты' },
+  marcarPago: { pt: 'Marcar como Pago', en: 'Mark as Paid', es: 'Marcar como Pagado', ru: 'Отметить как оплачено' },
+  filtrarSemanaAno: { pt: 'Filtrar por semana ou ano...', en: 'Filter by week or year...', es: 'Filtrar por semana o año...', ru: 'Фильтр по неделе или году...' },
+  historicoVazio: { pt: 'Nenhum pagamento encontrado', en: 'No payments found', es: 'Ningún pago encontrado', ru: 'Платежи не найдены' },
+
+  // Aba Configuração
+  configCarregando: { pt: 'Carregando configurações...', en: 'Loading settings...', es: 'Cargando configuración...', ru: 'Загрузка настроек...' },
+  valorPorTarefaCidade: { pt: 'Valor por tarefa por cidade', en: 'Value per task by city', es: 'Valor por tarea por ciudad', ru: 'Цена за задачу по городам' },
+  novaCidade: { pt: '+ Nova cidade', en: '+ New city', es: '+ Nueva ciudad', ru: '+ Новый город' },
+  nomeCidade: { pt: 'Nome da cidade', en: 'City name', es: 'Nombre de la ciudad', ru: 'Название города' },
+  valorMoeda: { pt: 'Valor R$', en: 'Value R$', es: 'Valor R$', ru: 'Сумма R$' },
+  porTarefa: { pt: '/ tarefa', en: '/ task', es: '/ tarea', ru: '/ задача' },
+};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -242,12 +314,13 @@ const S = {
 // ---------------------------------------------------------------------------
 
 function StatusBadge({ status }: { status: PagamentoSemana['status'] }) {
+  const { pick } = useT();
   const MAP: Record<string, [string, string]> = {
-    aberto: ['#64748b', 'Aberto'],
-    nf_enviada: ['#d97706', 'NF Enviada'],
-    nf_aprovada: ['#059669', 'NF Aprovada'],
-    rejeitada: ['#ef4444', 'Rejeitada'],
-    pago: ['#1a6fd4', 'Pago'],
+    aberto: ['#64748b', pick(T.stAberto)],
+    nf_enviada: ['#d97706', pick(T.stNfEnviada)],
+    nf_aprovada: ['#059669', pick(T.stNfAprovada)],
+    rejeitada: ['#ef4444', pick(T.stRejeitada)],
+    pago: ['#1a6fd4', pick(T.stPago)],
   };
   const [color, label] = MAP[status] ?? ['#64748b', status];
   return <span style={S.badge(color)}>{label}</span>;
@@ -260,6 +333,7 @@ function CardPagamento({
   p: PagamentoSemana;
   acoes: React.ReactNode;
 }) {
+  const { pick } = useT();
   return (
     <div style={S.card}>
       <div style={{ ...S.row, marginBottom: 10 }}>
@@ -270,19 +344,19 @@ function CardPagamento({
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 12 }}>
         <div>
-          <div style={S.label}>Período</div>
+          <div style={S.label}>{pick(T.periodo)}</div>
           <div style={S.value}>{fmtSemana(p.semana_inicio, p.semana_fim)}</div>
         </div>
         <div>
-          <div style={S.label}>Tarefas</div>
+          <div style={S.label}>{pick(T.tarefas)}</div>
           <div style={S.value}>{p.tarefas_count}</div>
         </div>
         <div>
-          <div style={S.label}>Valor Unitário</div>
+          <div style={S.label}>{pick(T.valorUnitario)}</div>
           <div style={S.value}>R$ {p.valor_unitario?.toFixed(2)}</div>
         </div>
         <div>
-          <div style={S.label}>Valor Total</div>
+          <div style={S.label}>{pick(T.valorTotal)}</div>
           <div style={{ ...S.value, color: '#4ade80', fontWeight: 700 }}>R$ {p.valor_total?.toFixed(2)}</div>
         </div>
       </div>
@@ -316,6 +390,7 @@ function AbaNFsPendentes({
 }: {
   usuario: Props['usuario'];
 }) {
+  const { pick } = useT();
   const [lista, setLista] = useState<PagamentoSemana[]>([]);
   const [loading, setLoading] = useState(true);
   const [rejeitandoId, setRejeitandoId] = useState<string | null>(null);
@@ -396,8 +471,8 @@ function AbaNFsPendentes({
     }
   };
 
-  if (loading) return <div style={S.emptyMsg}>Carregando...</div>;
-  if (!lista.length) return <div style={S.emptyMsg}>Nenhuma NF aguardando validação</div>;
+  if (loading) return <div style={S.emptyMsg}>{pick(T.carregando)}</div>;
+  if (!lista.length) return <div style={S.emptyMsg}>{pick(T.nfsVazio)}</div>;
 
   return (
     <>
@@ -412,7 +487,7 @@ function AbaNFsPendentes({
                   style={S.btn('#334155')}
                   onClick={() => window.open(p.nf_url!, '_blank')}
                 >
-                  Ver NF
+                  {pick(T.verNf)}
                 </button>
               )}
               <button
@@ -420,20 +495,20 @@ function AbaNFsPendentes({
                 disabled={processando === p.id}
                 onClick={() => aprovar(p)}
               >
-                Aprovar NF
+                {pick(T.aprovarNf)}
               </button>
               {rejeitandoId !== p.id ? (
                 <button
                   style={S.btn('#ef4444')}
                   onClick={() => setRejeitandoId(p.id)}
                 >
-                  Rejeitar
+                  {pick(T.rejeitar)}
                 </button>
               ) : (
                 <div style={{ display: 'flex', gap: 8, flex: 1, minWidth: 260 }}>
                   <input
                     style={{ ...S.input, flex: 1 }}
-                    placeholder="Motivo da rejeição..."
+                    placeholder={pick(T.motivoRejeicao)}
                     value={motivoMap[p.id] ?? ''}
                     onChange={(e) => setMotivoMap((m) => ({ ...m, [p.id]: e.target.value }))}
                   />
@@ -442,13 +517,13 @@ function AbaNFsPendentes({
                     disabled={processando === p.id}
                     onClick={() => rejeitar(p)}
                   >
-                    Confirmar
+                    {pick(T.confirmar)}
                   </button>
                   <button
                     style={S.btn('#334155')}
                     onClick={() => setRejeitandoId(null)}
                   >
-                    Cancelar
+                    {pick(T.cancelar)}
                   </button>
                 </div>
               )}
@@ -465,6 +540,7 @@ function AbaNFsPendentes({
 // ---------------------------------------------------------------------------
 
 function AbaPagamentos({ usuario }: { usuario: Props['usuario'] }) {
+  const { pick } = useT();
   const [aprovados, setAprovados] = useState<PagamentoSemana[]>([]);
   const [pagos, setPagos] = useState<PagamentoSemana[]>([]);
   const [loading, setLoading] = useState(true);
@@ -540,7 +616,22 @@ function AbaPagamentos({ usuario }: { usuario: Props['usuario'] }) {
 
   const exportCSV = (lista: PagamentoSemana[], nomeArquivo: string) => {
     const fmtTs = (ts: any) => { if (!ts) return ''; const d = ts?.toDate?.() ?? new Date(ts); return d.toLocaleDateString('pt-BR'); };
-    const h = ['Nome','Email','Cidade','Cargo','Semana','Ano','Tarefas','Valor Unit.','Valor Total','Status','NF enviada em','NF validada em','Pago em'];
+    const H: Record<string, Tr> = {
+      nome: { pt: 'Nome', en: 'Name', es: 'Nombre', ru: 'Имя' },
+      email: { pt: 'Email', en: 'Email', es: 'Correo', ru: 'Эл. почта' },
+      cidade: { pt: 'Cidade', en: 'City', es: 'Ciudad', ru: 'Город' },
+      cargo: { pt: 'Cargo', en: 'Role', es: 'Cargo', ru: 'Должность' },
+      semana: { pt: 'Semana', en: 'Week', es: 'Semana', ru: 'Неделя' },
+      ano: { pt: 'Ano', en: 'Year', es: 'Año', ru: 'Год' },
+      tarefas: { pt: 'Tarefas', en: 'Tasks', es: 'Tareas', ru: 'Задачи' },
+      valorUnit: { pt: 'Valor Unit.', en: 'Unit Value', es: 'Valor Unit.', ru: 'Цена за ед.' },
+      valorTotal: { pt: 'Valor Total', en: 'Total Value', es: 'Valor Total', ru: 'Итоговая сумма' },
+      status: { pt: 'Status', en: 'Status', es: 'Estado', ru: 'Статус' },
+      nfEnviadaEm: { pt: 'NF enviada em', en: 'Invoice sent on', es: 'Factura enviada el', ru: 'Счёт отправлен' },
+      nfValidadaEm: { pt: 'NF validada em', en: 'Invoice validated on', es: 'Factura validada el', ru: 'Счёт проверен' },
+      pagoEm: { pt: 'Pago em', en: 'Paid on', es: 'Pagado el', ru: 'Оплачено' },
+    };
+    const h = [H.nome,H.email,H.cidade,H.cargo,H.semana,H.ano,H.tarefas,H.valorUnit,H.valorTotal,H.status,H.nfEnviadaEm,H.nfValidadaEm,H.pagoEm].map(pick);
     const rows = lista.map(p => [
       p.nome, p.email, p.cidade, p.cargo,
       p.semana_iso, p.ano, p.tarefas_count,
@@ -561,7 +652,7 @@ function AbaPagamentos({ usuario }: { usuario: Props['usuario'] }) {
     ? pagos.filter((p) => String(p.semana_iso).includes(filtroSemana) || String(p.ano).includes(filtroSemana))
     : pagos;
 
-  if (loading) return <div style={S.emptyMsg}>Carregando...</div>;
+  if (loading) return <div style={S.emptyMsg}>{pick(T.carregando)}</div>;
 
   return (
     <>
@@ -577,7 +668,7 @@ function AbaPagamentos({ usuario }: { usuario: Props['usuario'] }) {
             }}
             onClick={() => setSubAba(a)}
           >
-            {a === 'pendentes' ? `A Pagar (${aprovados.length})` : 'Histórico de Pagos'}
+            {a === 'pendentes' ? `${pick(T.subPendentes)} (${aprovados.length})` : pick(T.subHistorico)}
           </button>
         ))}
       </div>
@@ -586,15 +677,15 @@ function AbaPagamentos({ usuario }: { usuario: Props['usuario'] }) {
         <>
           {aprovados.length > 0 && (
             <div style={{ ...S.subtotal, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-              <span>Total a pagar: R$ {subtotal.toFixed(2)} ({aprovados.length} registro{aprovados.length !== 1 ? 's' : ''})</span>
+              <span>{pick(T.totalAPagar)}: R$ {subtotal.toFixed(2)} ({aprovados.length} {aprovados.length !== 1 ? pick(T.registros) : pick(T.registro)})</span>
               <button style={{ ...S.btn('rgba(255,255,255,.08)', '#dce6ff'), fontSize: 11, padding: '6px 12px' }}
                 onClick={() => exportCSV(aprovados, `pagamentos_a_pagar_${new Date().toISOString().slice(0,10)}.csv`)}>
-                ⬇ Exportar CSV
+                {pick(T.exportarCsv)}
               </button>
             </div>
           )}
           {aprovados.length === 0 ? (
-            <div style={S.emptyMsg}>Nenhuma NF aprovada aguardando pagamento</div>
+            <div style={S.emptyMsg}>{pick(T.pagamentosVazio)}</div>
           ) : (
             aprovados.map((p) => (
               <CardPagamento
@@ -606,7 +697,7 @@ function AbaPagamentos({ usuario }: { usuario: Props['usuario'] }) {
                     disabled={processando === p.id}
                     onClick={() => marcarPago(p)}
                   >
-                    Marcar como Pago
+                    {pick(T.marcarPago)}
                   </button>
                 }
               />
@@ -620,19 +711,19 @@ function AbaPagamentos({ usuario }: { usuario: Props['usuario'] }) {
           <div style={{ marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <input
               style={{ ...S.input, maxWidth: 260 }}
-              placeholder="Filtrar por semana ou ano..."
+              placeholder={pick(T.filtrarSemanaAno)}
               value={filtroSemana}
               onChange={(e) => setFiltroSemana(e.target.value)}
             />
             {pagosFiltrados.length > 0 && (
               <button style={{ ...S.btn('rgba(255,255,255,.08)', '#dce6ff'), fontSize: 11, padding: '6px 12px' }}
                 onClick={() => exportCSV(pagosFiltrados, `historico_pagamentos_${new Date().toISOString().slice(0,10)}.csv`)}>
-                ⬇ Exportar CSV
+                {pick(T.exportarCsv)}
               </button>
             )}
           </div>
           {pagosFiltrados.length === 0 ? (
-            <div style={S.emptyMsg}>Nenhum pagamento encontrado</div>
+            <div style={S.emptyMsg}>{pick(T.historicoVazio)}</div>
           ) : (
             pagosFiltrados.map((p) => (
               <CardPagamento key={p.id} p={p} acoes={null} />
@@ -649,6 +740,7 @@ function AbaPagamentos({ usuario }: { usuario: Props['usuario'] }) {
 // ---------------------------------------------------------------------------
 
 function AbaConfiguracao({ usuario }: { usuario: Props['usuario'] }) {
+  const { pick } = useT();
   const [configs, setConfigs] = useState<PagamentoConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [editando, setEditando] = useState<Record<string, string>>({});
@@ -722,17 +814,17 @@ function AbaConfiguracao({ usuario }: { usuario: Props['usuario'] }) {
     }
   };
 
-  if (loading) return <div style={S.emptyMsg}>Carregando configurações...</div>;
+  if (loading) return <div style={S.emptyMsg}>{pick(T.configCarregando)}</div>;
 
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <span style={{ color: '#8896b3', fontSize: 13 }}>Valor por tarefa por cidade</span>
+        <span style={{ color: '#8896b3', fontSize: 13 }}>{pick(T.valorPorTarefaCidade)}</span>
         <button
           style={S.btn('#1a6fd4')}
           onClick={() => setNovasCidades((arr) => [...arr, { nome: '', valor: '' }])}
         >
-          + Nova cidade
+          {pick(T.novaCidade)}
         </button>
       </div>
 
@@ -740,7 +832,7 @@ function AbaConfiguracao({ usuario }: { usuario: Props['usuario'] }) {
         <div key={idx} style={{ ...S.card, display: 'flex', gap: 8, alignItems: 'center' }}>
           <input
             style={{ ...S.input, flex: 1 }}
-            placeholder="Nome da cidade"
+            placeholder={pick(T.nomeCidade)}
             value={nc.nome}
             onChange={(e) =>
               setNovasCidades((arr) =>
@@ -753,7 +845,7 @@ function AbaConfiguracao({ usuario }: { usuario: Props['usuario'] }) {
             type="number"
             step="0.50"
             min="0"
-            placeholder="Valor R$"
+            placeholder={pick(T.valorMoeda)}
             value={nc.valor}
             onChange={(e) =>
               setNovasCidades((arr) =>
@@ -766,13 +858,13 @@ function AbaConfiguracao({ usuario }: { usuario: Props['usuario'] }) {
             disabled={salvando === `nova_${idx}`}
             onClick={() => adicionarCidade(idx)}
           >
-            Salvar
+            {pick(T.salvar)}
           </button>
           <button
             style={S.btn('#334155')}
             onClick={() => setNovasCidades((arr) => arr.filter((_, i) => i !== idx))}
           >
-            Cancelar
+            {pick(T.cancelar)}
           </button>
         </div>
       ))}
@@ -796,25 +888,25 @@ function AbaConfiguracao({ usuario }: { usuario: Props['usuario'] }) {
                 disabled={salvando === c.cidade}
                 onClick={() => salvar(c.cidade)}
               >
-                {salvando === c.cidade ? 'Salvando...' : 'Salvar'}
+                {salvando === c.cidade ? pick(T.salvando) : pick(T.salvar)}
               </button>
               <button
                 style={S.btn('#334155')}
                 onClick={() => setEditando((e) => { const n = { ...e }; delete n[c.cidade]; return n; })}
               >
-                Cancelar
+                {pick(T.cancelar)}
               </button>
             </>
           ) : (
             <>
               <span style={{ color: '#4ade80', fontWeight: 700, fontSize: 15 }}>
-                R$ {c.valor_por_tarefa?.toFixed(2) ?? '0,00'} / tarefa
+                R$ {c.valor_por_tarefa?.toFixed(2) ?? '0,00'} {pick(T.porTarefa)}
               </span>
               <button
                 style={S.btn('#334155')}
                 onClick={() => setEditando((e) => ({ ...e, [c.cidade]: String(c.valor_por_tarefa ?? 0) }))}
               >
-                Editar
+                {pick(T.editar)}
               </button>
             </>
           )}
@@ -829,6 +921,7 @@ function AbaConfiguracao({ usuario }: { usuario: Props['usuario'] }) {
 // ---------------------------------------------------------------------------
 
 export default function PagamentosAdminPanel({ usuario, onFechar }: Props) {
+  const { pick } = useT();
   const [aba, setAba] = useState<Aba>('nfs');
 
   const podeConfig =
@@ -837,9 +930,9 @@ export default function PagamentosAdminPanel({ usuario, onFechar }: Props) {
     usuario.role === 'gestor';
 
   const ABAS: { key: Aba; label: string; visivel: boolean }[] = [
-    { key: 'nfs', label: 'NFs Pendentes', visivel: true },
-    { key: 'pagamentos', label: 'Pagamentos', visivel: true },
-    { key: 'config', label: 'Configuração', visivel: podeConfig },
+    { key: 'nfs', label: pick(T.abaNfs), visivel: true },
+    { key: 'pagamentos', label: pick(T.abaPagamentos), visivel: true },
+    { key: 'config', label: pick(T.abaConfig), visivel: podeConfig },
   ];
 
   return (
@@ -847,8 +940,8 @@ export default function PagamentosAdminPanel({ usuario, onFechar }: Props) {
       <div style={S.panel}>
         {/* Header */}
         <div style={S.header}>
-          <h2 style={S.title}>Gestão de Pagamentos</h2>
-          <button style={S.closeBtn} onClick={onFechar} aria-label="Fechar">
+          <h2 style={S.title}>{pick(T.titulo)}</h2>
+          <button style={S.closeBtn} onClick={onFechar} aria-label={pick(T.fechar)}>
             ×
           </button>
         </div>

@@ -8,7 +8,10 @@ import {
 } from 'firebase/firestore';
 import { db } from './lib/firebase';
 import { uploadComRetry } from './lib/uploadUtils';
+import { comprimirImagem, capturarFotoNativa } from './lib/imageUtils';
 import { capturarPosicaoUnica } from './lib/gps-background';
+import { isAndroidNative } from './lib/gps-native';
+import { guardProviderSupabase, carregarMinhasOcorrenciasSupabase, guardWriteSupabase, criarOcorrenciaSupabase, atualizarOcorrenciaSupabase, deletarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
 
 // ── TIPOS ─────────────────────────────────────────────────────────
 interface Ocorrencia {
@@ -118,8 +121,20 @@ async function reverseGeocode(lat: number, lng: number): Promise<{ endereco: str
   }
 }
 
+// Compressão HEIC-safe (ver lib/imageUtils). Converte HEIC→JPEG antes de comprimir,
+// evitando o bug de foto "quebrada" (HEIC enviado como .jpg que o WebView não renderiza).
+async function comprimir(file: File, maxW = 1280, q = 0.82): Promise<File> {
+  try {
+    return await comprimirImagem(file, maxW, q);
+  } catch (e) {
+    console.warn('[comprimir] falha ao processar imagem, enviando original', e);
+    return file;
+  }
+}
+
 async function uploadFotoStorage(file: File, path: string): Promise<string> {
-  return uploadComRetry(file, path);
+  const comp = await comprimir(file);
+  return uploadComRetry(comp, path);
 }
 
 // ── BOTÃO DE FOTO — câmera OU galeria ────────────────────────────
@@ -160,7 +175,17 @@ function BotaoFoto({ slot, preview, onArquivo, onRemover }: {
         onChange={e => pick(e, cameraRef)} />
       <input ref={galeriaRef} type="file" accept="image/*" style={{ display: 'none' }}
         onChange={e => pick(e, galeriaRef)} />
-      <button onClick={() => cameraRef.current?.click()} style={{
+      <button onClick={async () => {
+        if (isAndroidNative()) {
+          try {
+            const f = await capturarFotoNativa();
+            if (f) onArquivo(f);
+            // f === null => usuário cancelou; não abre o input
+            return;
+          } catch { /* plugin indisponível: cai no fallback do input abaixo */ }
+        }
+        cameraRef.current?.click();
+      }} style={{
         padding: '10px 0', borderRadius: 10, cursor: 'pointer', fontSize: 13,
         background: 'rgba(255,255,255,.04)', border: '1px dashed rgba(255,255,255,.15)',
         color: 'rgba(255,255,255,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -323,15 +348,27 @@ function ModalEdicao({ ocorrencia, onFechar, onSalvo, showToast, roleUsuario = '
       }
 
       await updateDoc(doc(db, 'ocorrencias', ocorrencia.id), update);
+      if (guardWriteSupabase()) {
+        atualizarOcorrenciaSupabase(ocorrencia.id, update)
+          .catch(err => console.error('[guard-write] update Supabase falhou:', err));
+      }
 
       // Notificação Telegram ao recuperar
       if ((status === 'Recuperado' || status === 'Encerrado') &&
           (['roubo','vandalismo','tentativa'].includes(tipo.toLowerCase())) &&
           ocorrencia.status !== status) {
         try {
-          const { getFunctions, httpsCallable } = await import('firebase/functions');
-          const { getApp } = await import('firebase/app');
-          const fn = httpsCallable(getFunctions(getApp(), 'southamerica-east1'), 'notificarOcorrencia');
+          const { functionsProviderSupabase, getEdgeCallable } = await import('./lib/edge-functions');
+          let fn: any;
+          if (functionsProviderSupabase()) {
+            const edge = getEdgeCallable('notificarOcorrencia');
+            fn = edge ? edge() : null;
+          }
+          if (!fn) {
+            const { getFunctions, httpsCallable } = await import('firebase/functions');
+            const { getApp } = await import('firebase/app');
+            fn = httpsCallable(getFunctions(getApp(), 'southamerica-east1'), 'notificarOcorrencia');
+          }
           fn({ ocorrenciaId: ocorrencia.id, statusAtualizado: status }).catch(() => {});
         } catch { /* best-effort */ }
       }
@@ -601,7 +638,16 @@ function ModalEdicao({ ocorrencia, onFechar, onSalvo, showToast, roleUsuario = '
             </div>
           ) : (
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => boRef.current?.click()} style={{
+              <button onClick={async () => {
+                if (isAndroidNative()) {
+                  try {
+                    const f = await capturarFotoNativa();
+                    if (f) handleBoFile(f);
+                    return;
+                  } catch { /* plugin indisponível: fallback ao input */ }
+                }
+                boRef.current?.click();
+              }} style={{
                 flex: 1, padding: '10px 0', borderRadius: 10, cursor: 'pointer', fontSize: 12,
                 background: 'rgba(255,255,255,.04)', border: '1px dashed rgba(255,255,255,.12)',
                 color: 'rgba(255,255,255,.4)',
@@ -633,6 +679,7 @@ function ModalEdicao({ ocorrencia, onFechar, onSalvo, showToast, roleUsuario = '
             try {
               const { doc: fsDoc, deleteDoc: fsDel, collection: col } = await import('firebase/firestore');
               await fsDel(fsDoc(col(db, 'ocorrencias'), ocorrencia.id));
+              if (guardWriteSupabase()) deletarOcorrenciaSupabase(ocorrencia.id).catch(err => console.error('[guard-write] delete Supabase:', err));
               showToast('Ocorrência excluída', 'ok');
               onSalvo();
             } catch { showToast('Erro ao excluir', 'erro'); }
@@ -730,6 +777,14 @@ export default function TelaGuard({ usuario, onLogout, onVoltarMapa }: Props) {
   };
 
   useEffect(() => {
+    // Fase 2 / Onda B — leitura do Supabase atrás de flag (read-only; escrita ainda Firestore).
+    if (guardProviderSupabase()) {
+      let vivo = true;
+      carregarMinhasOcorrenciasSupabase(usuario.uid)
+        .then(rows => { if (vivo) setOcorrencias(rows as Ocorrencia[]); })
+        .catch(err => console.error('[guard] leitura Supabase falhou:', err));
+      return () => { vivo = false; };
+    }
     const ontemTs = Timestamp.fromDate(new Date(Date.now() - 24 * 60 * 60 * 1000));
     const q = query(
       collection(db, 'ocorrencias'),
@@ -1126,7 +1181,7 @@ export function FormNovaOcorrenciaExport({ usuario, showToast, onSucesso }: {
       if (foto2)  foto2Url = await uploadFotoStorage(foto2,  'ocorrencias/' + id + '_foto2.' + (foto2.name.split('.').pop()  || 'jpg'));
       if (boFile) boUrl    = await uploadFotoStorage(boFile, 'ocorrencias/' + id + '_bo.'    + (boFile.name.split('.').pop() || 'jpg'));
 
-      const ocorrenciaDoc = await addDoc(collection(db, 'ocorrencias'), {
+      const novaOcorrencia = {
         id,
         tipo,
         ativo_tipo:  ativoTipo,
@@ -1155,7 +1210,13 @@ export function FormNovaOcorrenciaExport({ usuario, showToast, onSucesso }: {
         criadoEm:    serverTimestamp(),
         dataManual:  dataOcorr,
         updated_at:  serverTimestamp(),
-      });
+      };
+      const ocorrenciaDoc = await addDoc(collection(db, 'ocorrencias'), novaOcorrencia);
+      // Cutover de writes (Onda C): dual-write no Supabase atrás de flag (best-effort).
+      if (guardWriteSupabase()) {
+        criarOcorrenciaSupabase(ocorrenciaDoc.id, { ...novaOcorrencia, lat_inicial: gps.lat, lng_inicial: gps.lng })
+          .catch(err => console.error('[guard-write] create Supabase falhou:', err));
+      }
 
       // Dispara notificação Telegram para roubos e ocorrências urgentes
       try {
@@ -1345,7 +1406,16 @@ export function FormNovaOcorrenciaExport({ usuario, showToast, onSucesso }: {
           </div>
         ) : (
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => boRef.current?.click()} style={{
+            <button onClick={async () => {
+              if (isAndroidNative()) {
+                try {
+                  const f = await capturarFotoNativa();
+                  if (f) handleBoFile(f);
+                  return;
+                } catch { /* plugin indisponível: fallback ao input */ }
+              }
+              boRef.current?.click();
+            }} style={{
               flex: 1, padding: '10px 0', borderRadius: 10, cursor: 'pointer', fontSize: 12,
               background: 'rgba(255,255,255,.04)', border: '1px dashed rgba(255,255,255,.12)',
               color: 'rgba(255,255,255,.4)',
@@ -1549,6 +1619,7 @@ function ListaOcorrencias({ ocorrencias, showToast, roleUsuario = 'guard' }: {
                       try {
                         const { doc: fsDoc, deleteDoc: fsDel, collection: col } = await import('firebase/firestore');
                         await fsDel(fsDoc(col(db, 'ocorrencias'), o.id));
+                        if (guardWriteSupabase()) deletarOcorrenciaSupabase(o.id).catch(err => console.error('[guard-write] delete Supabase:', err));
                         showToast('Ocorrência excluída', 'ok');
                       } catch { showToast('Erro ao excluir', 'erro'); }
                     }} style={{ flex: 1, padding: '11px 0', borderRadius: 10,

@@ -37,18 +37,21 @@ exports.notificarTarefaAtribuida = exports.notificarStatusNF = exports.notificar
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const crypto_1 = require("crypto");
+const supabase_admin_1 = require("./lib/supabase-admin");
 // functions/src/telegram-vinculo.ts
 // Cloud Functions para vincular Telegram ao usuário JET OS
-// Adicionar ao index.ts: export * from './telegram-vinculo';
-//
-// FLUXO COMPLETO:
-//   1. Usuário abre bot → /start
-//   2. Bot chama webhook /telegramWebhook com o chat_id e user_id do Telegram
-//   3. Webhook gera código 6 dígitos e salva em telegram_vinculos/{codigo}
-//   4. Bot responde ao usuário com o código
-//   5. Usuário digita código no JET OS
-//   6. validarVinculoTelegram verifica, salva telegramChatId no usuário, deleta código
+// Fase 2: notificações puras (notificarAprovacaoPrestador, notificarStatusNF,
+// notificarTarefaAtribuida) leem do Supabase; vinculação ainda usa Firestore
+// (telegram_vinculos + transações atômicas).
 const db = admin.firestore();
+async function getBotTokenSupa() {
+    const { data } = await (0, supabase_admin_1.supaAdmin)().from('telegram_config').select('bot_token').eq('id', 'global').maybeSingle();
+    return data?.bot_token ?? '';
+}
+async function getChatIdSupa(firebaseUid) {
+    const { data } = await (0, supabase_admin_1.supaAdmin)().from('usuarios').select('telegram_chat_id').eq('firebase_uid', firebaseUid).maybeSingle();
+    return data?.telegram_chat_id ?? null;
+}
 // ─── FUNCTION: telegramWebhook (onRequest — chamado pelo bot) ─────────────────
 // Configurar no BotFather:
 //   https://api.telegram.org/bot{TOKEN}/setWebhook?url=https://southamerica-east1-jet-os-1.cloudfunctions.net/telegramWebhook
@@ -264,16 +267,10 @@ exports.notificarAprovacaoPrestador = (0, https_1.onCall)({ region: 'southameric
         throw new https_1.HttpsError('unauthenticated', 'Autenticação necessária');
     }
     const { uid, aprovado, motivo } = request.data;
-    // Busca o doc do usuário
-    const usuarioSnap = await db.collection('usuarios').doc(uid).get();
-    const usuario = usuarioSnap.data();
-    const chatId = usuario?.telegramChatId;
-    if (!chatId) {
+    const chatId = await getChatIdSupa(uid);
+    if (!chatId)
         return { enviado: false, motivo: 'sem_chatid' };
-    }
-    // Busca o botToken
-    const cfgSnap = await db.collection('telegram_config').doc('global').get();
-    const botToken = cfgSnap.data()?.botToken ?? '';
+    const botToken = await getBotTokenSupa();
     const texto = aprovado
         ? `🎉 Seu cadastro no JET OS foi <b>aprovado</b>!\n\nVocê já pode acessar o aplicativo com seu e-mail e senha cadastrados.\n\nBem-vindo(a) à equipe! 🚀`
         : `❌ Seu cadastro no JET OS não foi aprovado.\n\nMotivo: ${motivo ?? ''}\n\nEm caso de dúvidas, entre em contato com seu gestor.`;
@@ -290,13 +287,10 @@ exports.notificarStatusNF = (0, https_1.onCall)({ region: 'southamerica-east1', 
         throw new https_1.HttpsError('unauthenticated', 'Autenticação necessária');
     }
     const { uid, status, valorTotal, motivo, semana } = request.data;
-    const usuarioSnap = await db.collection('usuarios').doc(uid).get();
-    const chatId = usuarioSnap.data()?.telegramChatId;
-    if (!chatId) {
+    const chatId = await getChatIdSupa(uid);
+    if (!chatId)
         return { enviado: false };
-    }
-    const cfgSnap = await db.collection('telegram_config').doc('global').get();
-    const botToken = cfgSnap.data()?.botToken ?? '';
+    const botToken = await getBotTokenSupa();
     if (!botToken)
         return { enviado: false };
     let texto = '';
@@ -326,12 +320,10 @@ exports.notificarTarefaAtribuida = (0, https_1.onCall)({ region: 'southamerica-e
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Autenticação necessária');
     const { assigneeUid, titulo, kind, parkingNome, cidade } = request.data;
-    const usuarioSnap = await db.collection('usuarios').doc(assigneeUid).get();
-    const chatId = usuarioSnap.data()?.telegramChatId;
+    const chatId = await getChatIdSupa(assigneeUid);
     if (!chatId)
         return { enviado: false, motivo: 'sem_chatid' };
-    const cfgSnap = await db.collection('telegram_config').doc('global').get();
-    const botToken = cfgSnap.data()?.botToken ?? '';
+    const botToken = await getBotTokenSupa();
     if (!botToken)
         return { enviado: false, motivo: 'sem_token' };
     const kindLabel = {

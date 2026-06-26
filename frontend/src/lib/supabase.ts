@@ -10,16 +10,19 @@ import { createClient } from '@supabase/supabase-js';
 const url = import.meta.env.VITE_SUPABASE_URL as string;
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-// IMPORTANTE (migração GPS): o serviço nativo Android é o ÚNICO que pode renovar
-// o refresh token da sessão usada no rastreamento. Se o cliente JS também renovasse
-// (autoRefreshToken), a rotação do refresh token do Supabase invalidaria o token do
-// serviço nativo e o GPS pararia de postar depois de um tempo. Por isso: JS NÃO renova
-// nem persiste a sessão — cada início de turno faz login fresco e entrega o refresh
-// token ao serviço nativo, que passa a renovar sozinho. Ver DEBRIEF Seção 14.5.1.
+// SESSÕES DESACOPLADAS (Fase 2 — cutover de leitura):
+//   • Este cliente JS tem sua PRÓPRIA sessão gerenciada (persist + autoRefresh) — usada
+//     para LER dados do Supabase sob RLS (estações, slots, escala, etc.) de forma estável
+//     (sobrevive a reload e renova sozinha).
+//   • O serviço GPS nativo usa uma sessão SEPARADA (segundo auth-login no login do app,
+//     guardada em localStorage['jet_supa_refresh'] — ver supabase-auth.ts). Como são
+//     famílias de refresh token DISTINTAS, a renovação do JS NÃO invalida o token do GPS.
+//   Antes (até a Fase 1) o JS era session-less p/ não rotacionar o token do GPS; o
+//   desacoplamento por duas sessões resolveu isso. Ver DEBRIEF 17.x / CUTOVER_PLAN.
 export const supabase = createClient(url, anon, {
   auth: {
-    persistSession: false,
-    autoRefreshToken: false,
+    persistSession: true,
+    autoRefreshToken: true,
     storageKey: 'jet-os-supabase-auth',
   },
 });

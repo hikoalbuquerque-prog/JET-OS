@@ -1,5 +1,98 @@
 // src/components/POIPanel.tsx — Overpass API (OSM) gratuita, sem Cloud Function
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+
+// ── I18N (padrão objeto T, sem json) ─────────────────────────────
+type Lang = 'pt' | 'en' | 'es' | 'ru';
+type Tr = { pt: string; en: string; es: string; ru: string };
+
+const T = {
+  estacoesJetProximas: { pt: 'Estações JET próximas', en: 'Nearby JET stations', es: 'Estaciones JET cercanas', ru: 'Ближайшие станции JET' },
+  estacao:             { pt: 'Estação', en: 'Station', es: 'Estación', ru: 'Станция' },
+  adicionarEstacao:    { pt: 'Adicionar estação aqui', en: 'Add station here', es: 'Agregar estación aquí', ru: 'Добавить станцию здесь' },
+  adicionarEstacaoSub: { pt: 'Abre o drawer com este local', en: 'Opens the drawer with this location', es: 'Abre el panel con este lugar', ru: 'Открывает панель с этим местом' },
+  streetView:          { pt: 'Street View', en: 'Street View', es: 'Street View', ru: 'Street View' },
+  streetViewInline:    { pt: 'Abrir inline no app', en: 'Open inline in the app', es: 'Abrir dentro de la app', ru: 'Открыть внутри приложения' },
+  streetViewMaps:      { pt: 'Abre no Google Maps', en: 'Opens in Google Maps', es: 'Abre en Google Maps', ru: 'Открыть в Google Maps' },
+  verGoogleMaps:       { pt: 'Ver no Google Maps', en: 'View on Google Maps', es: 'Ver en Google Maps', ru: 'Смотреть в Google Maps' },
+  copiarCoordenadas:   { pt: 'Copiar coordenadas', en: 'Copy coordinates', es: 'Copiar coordenadas', ru: 'Скопировать координаты' },
+  poisProximos:        { pt: 'POIs próximos', en: 'Nearby POIs', es: 'POIs cercanos', ru: 'Ближайшие точки' },
+  buscandoOSM:         { pt: 'buscando OSM...', en: 'searching OSM...', es: 'buscando OSM...', ru: 'поиск OSM...' },
+  todos:               { pt: 'Todos', en: 'All', es: 'Todos', ru: 'Все' },
+  nenhum:              { pt: 'Nenhum', en: 'None', es: 'Ninguno', ru: 'Нет' },
+  nenhumPOI:           { pt: 'Nenhum POI encontrado', en: 'No POI found', es: 'Ningún POI encontrado', ru: 'Точки не найдены' },
+  overpassIndisponivel:{ pt: 'Overpass indisponível. Tente novamente.', en: 'Overpass unavailable. Please try again.', es: 'Overpass no disponible. Inténtalo de nuevo.', ru: 'Overpass недоступен. Попробуйте снова.' },
+} satisfies Record<string, Tr>;
+
+// Categorias exibidas (labels de POI_META) — chaveadas por tipo
+const POI_LABELS: Record<string, Tr> = {
+  subway_entrance:  { pt: 'Metrô', en: 'Subway', es: 'Metro', ru: 'Метро' },
+  station:          { pt: 'Estação', en: 'Station', es: 'Estación', ru: 'Станция' },
+  bus_stop:         { pt: 'Ônibus', en: 'Bus stop', es: 'Autobús', ru: 'Автобус' },
+  bus_station:      { pt: 'Terminal', en: 'Bus terminal', es: 'Terminal', ru: 'Автовокзал' },
+  taxi:             { pt: 'Táxi', en: 'Taxi', es: 'Taxi', ru: 'Такси' },
+  ferry_terminal:   { pt: 'Balsa', en: 'Ferry', es: 'Ferry', ru: 'Паром' },
+  bicycle_rental:   { pt: 'Bicicleta', en: 'Bike share', es: 'Bicicleta', ru: 'Велопрокат' },
+  parking:          { pt: 'Estacionamento', en: 'Parking', es: 'Estacionamiento', ru: 'Парковка' },
+  mall:             { pt: 'Shopping', en: 'Mall', es: 'Centro comercial', ru: 'ТЦ' },
+  marketplace:      { pt: 'Mercado', en: 'Market', es: 'Mercado', ru: 'Рынок' },
+  supermarket:      { pt: 'Supermercado', en: 'Supermarket', es: 'Supermercado', ru: 'Супермаркет' },
+  convenience:      { pt: 'Conveniência', en: 'Convenience', es: 'Tienda', ru: 'Магазин у дома' },
+  bakery:           { pt: 'Padaria', en: 'Bakery', es: 'Panadería', ru: 'Пекарня' },
+  pharmacy:         { pt: 'Farmácia', en: 'Pharmacy', es: 'Farmacia', ru: 'Аптека' },
+  bank:             { pt: 'Banco', en: 'Bank', es: 'Banco', ru: 'Банк' },
+  atm:              { pt: 'ATM', en: 'ATM', es: 'Cajero', ru: 'Банкомат' },
+  fuel:             { pt: 'Posto', en: 'Gas station', es: 'Gasolinera', ru: 'АЗС' },
+  restaurant:       { pt: 'Restaurante', en: 'Restaurant', es: 'Restaurante', ru: 'Ресторан' },
+  cafe:             { pt: 'Café', en: 'Café', es: 'Café', ru: 'Кафе' },
+  fast_food:        { pt: 'Fast Food', en: 'Fast food', es: 'Comida rápida', ru: 'Фастфуд' },
+  bar:              { pt: 'Bar', en: 'Bar', es: 'Bar', ru: 'Бар' },
+  food_court:       { pt: 'Praça Alimentar', en: 'Food court', es: 'Patio de comidas', ru: 'Фуд-корт' },
+  ice_cream:        { pt: 'Sorvete', en: 'Ice cream', es: 'Heladería', ru: 'Мороженое' },
+  university:       { pt: 'Universidade', en: 'University', es: 'Universidad', ru: 'Университет' },
+  school:           { pt: 'Escola', en: 'School', es: 'Escuela', ru: 'Школа' },
+  college:          { pt: 'Faculdade', en: 'College', es: 'Instituto', ru: 'Колледж' },
+  library:          { pt: 'Biblioteca', en: 'Library', es: 'Biblioteca', ru: 'Библиотека' },
+  kindergarten:     { pt: 'Creche', en: 'Daycare', es: 'Guardería', ru: 'Детский сад' },
+  hospital:         { pt: 'Hospital', en: 'Hospital', es: 'Hospital', ru: 'Больница' },
+  clinic:           { pt: 'Clínica', en: 'Clinic', es: 'Clínica', ru: 'Клиника' },
+  doctors:          { pt: 'Médico', en: 'Doctor', es: 'Médico', ru: 'Врач' },
+  dentist:          { pt: 'Dentista', en: 'Dentist', es: 'Dentista', ru: 'Стоматолог' },
+  veterinary:       { pt: 'Veterinário', en: 'Vet', es: 'Veterinario', ru: 'Ветеринар' },
+  park:             { pt: 'Parque', en: 'Park', es: 'Parque', ru: 'Парк' },
+  playground:       { pt: 'Playground', en: 'Playground', es: 'Parque infantil', ru: 'Детская площадка' },
+  fitness_centre:   { pt: 'Academia', en: 'Gym', es: 'Gimnasio', ru: 'Спортзал' },
+  sports_centre:    { pt: 'Esporte', en: 'Sports', es: 'Deportes', ru: 'Спорт' },
+  swimming_pool:    { pt: 'Piscina', en: 'Pool', es: 'Piscina', ru: 'Бассейн' },
+  stadium:          { pt: 'Estádio', en: 'Stadium', es: 'Estadio', ru: 'Стадион' },
+  cinema:           { pt: 'Cinema', en: 'Cinema', es: 'Cine', ru: 'Кинотеатр' },
+  theatre:          { pt: 'Teatro', en: 'Theatre', es: 'Teatro', ru: 'Театр' },
+  nightclub:        { pt: 'Balada', en: 'Nightclub', es: 'Discoteca', ru: 'Клуб' },
+  townhall:         { pt: 'Prefeitura', en: 'City hall', es: 'Ayuntamiento', ru: 'Мэрия' },
+  police:           { pt: 'Polícia', en: 'Police', es: 'Policía', ru: 'Полиция' },
+  fire_station:     { pt: 'Bombeiros', en: 'Fire station', es: 'Bomberos', ru: 'Пожарная часть' },
+  post_office:      { pt: 'Correios', en: 'Post office', es: 'Correos', ru: 'Почта' },
+  courthouse:       { pt: 'Fórum', en: 'Courthouse', es: 'Juzgado', ru: 'Суд' },
+  embassy:          { pt: 'Consulado', en: 'Embassy', es: 'Consulado', ru: 'Консульство' },
+  social_facility:  { pt: 'Assistência', en: 'Social services', es: 'Asistencia social', ru: 'Соцслужба' },
+  place_of_worship: { pt: 'Igreja', en: 'Place of worship', es: 'Iglesia', ru: 'Храм' },
+  museum:           { pt: 'Museu', en: 'Museum', es: 'Museo', ru: 'Музей' },
+  art_gallery:      { pt: 'Galeria', en: 'Gallery', es: 'Galería', ru: 'Галерея' },
+  hotel:            { pt: 'Hotel', en: 'Hotel', es: 'Hotel', ru: 'Отель' },
+  hostel:           { pt: 'Hostel', en: 'Hostel', es: 'Hostal', ru: 'Хостел' },
+  tourism:          { pt: 'Turismo', en: 'Tourism', es: 'Turismo', ru: 'Туризм' },
+  viewpoint:        { pt: 'Mirante', en: 'Viewpoint', es: 'Mirador', ru: 'Смотровая площадка' },
+  charging_station: { pt: 'Elétrico', en: 'EV charging', es: 'Cargador eléctrico', ru: 'Электрозарядка' },
+  drinking_water:   { pt: 'Água', en: 'Water', es: 'Agua', ru: 'Вода' },
+  toilets:          { pt: 'Banheiro', en: 'Toilets', es: 'Baño', ru: 'Туалет' },
+};
+
+function useI18n() {
+  const { i18n } = useTranslation();
+  const lang = ((i18n.language || 'pt').slice(0, 2)) as Lang;
+  const pick = (o: Tr) => o[lang] ?? o.pt;
+  return { lang, pick };
+}
 
 // ── TIPOS ────────────────────────────────────────────────────────
 export interface POI {
@@ -257,6 +350,7 @@ async function fetchOverpass(query: string): Promise<any[]> {
 
 // ── HOOK PRINCIPAL ───────────────────────────────────────────────
 export function usePOIs(lat: number, lng: number, raio = 1000) {
+  const { pick } = useI18n();
   const [pois, setPOIs] = useState<POI[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -295,10 +389,10 @@ export function usePOIs(lat: number, lng: number, raio = 1000) {
       cacheRef.current[key] = result;
       setPOIs(result);
     } catch (e: any) {
-      setError('Overpass indisponível. Tente novamente.');
+      setError(pick(T.overpassIndisponivel));
     }
     setLoading(false);
-  }, [lat, lng, raio]);
+  }, [lat, lng, raio, pick]);
 
   useEffect(() => { buscar(); }, [lat, lng, raio]);
 
@@ -316,7 +410,9 @@ export function POIActionsPopup({
   onStreetView?: (lat: number, lng: number, nome: string) => void;
   onClose: () => void;
 }) {
+  const { pick } = useI18n();
   const meta = POI_META[poi.tipo] || { icon: '📍', label: poi.tipo, color: '#64748b' };
+  const metaLabel = POI_LABELS[poi.tipo] ? pick(POI_LABELS[poi.tipo]) : meta.label;
 
   // Distância até estações JET próximas
   const nearest = estacoes
@@ -352,7 +448,7 @@ export function POIActionsPopup({
           <div style={{ fontSize: 28 }}>{meta.icon}</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#dce8ff' }}>{poi.nome}</div>
-            <div style={{ fontSize: 10, color: meta.color }}>{meta.label} · {poi.distancia}m</div>
+            <div style={{ fontSize: 10, color: meta.color }}>{metaLabel} · {poi.distancia}m</div>
             {poi.endereco && <div style={{ fontSize: 10, color: '#4a5a7a', marginTop: 2 }}>{poi.endereco}</div>}
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#4a5a7a', cursor: 'pointer', fontSize: 18, padding: 4 }}>✕</button>
@@ -361,10 +457,10 @@ export function POIActionsPopup({
         {/* Estações próximas */}
         {nearest.length > 0 && (
           <div style={{ marginBottom: 14, padding: 10, background: 'rgba(61,155,255,.06)', borderRadius: 8, border: '1px solid rgba(61,155,255,.15)' }}>
-            <div style={{ fontSize: 9, color: '#3d9bff', fontWeight: 700, textTransform: 'uppercase', letterSpacing: .8, marginBottom: 6 }}>Estações JET próximas</div>
+            <div style={{ fontSize: 9, color: '#3d9bff', fontWeight: 700, textTransform: 'uppercase', letterSpacing: .8, marginBottom: 6 }}>{pick(T.estacoesJetProximas)}</div>
             {nearest.map((e, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#dce8ff', marginBottom: 3 }}>
-                <span style={{ color: '#4a5a7a' }}>{e.codigo || 'Estação'} {e.bairro ? '· ' + e.bairro : ''}</span>
+                <span style={{ color: '#4a5a7a' }}>{e.codigo || pick(T.estacao)} {e.bairro ? '· ' + e.bairro : ''}</span>
                 <span style={{ fontFamily: "'IBM Plex Mono',monospace", color: e.dist < 150 ? '#2ecc71' : e.dist < 300 ? '#f5c842' : '#ff4757' }}>
                   {e.dist}m
                 </span>
@@ -381,8 +477,8 @@ export function POIActionsPopup({
             onClick={() => { onAddEstacao(poi.lat, poi.lng); onClose(); }}>
             <span style={{ fontSize: 16 }}>📍</span>
             <div>
-              <div style={{ fontWeight: 600 }}>Adicionar estação aqui</div>
-              <div style={{ fontSize: 10, color: '#4a5a7a' }}>Abre o drawer com este local</div>
+              <div style={{ fontWeight: 600 }}>{pick(T.adicionarEstacao)}</div>
+              <div style={{ fontSize: 10, color: '#4a5a7a' }}>{pick(T.adicionarEstacaoSub)}</div>
             </div>
           </button>
 
@@ -392,9 +488,9 @@ export function POIActionsPopup({
             onClick={() => onStreetView ? onStreetView(poi.lat, poi.lng, poi.nome) : window.open(svUrl, '_blank')}>
             <span style={{ fontSize: 16 }}>🌐</span>
             <div>
-              <div style={{ fontWeight: 600 }}>Street View</div>
+              <div style={{ fontWeight: 600 }}>{pick(T.streetView)}</div>
               <div style={{ fontSize: 10, color: '#4a5a7a' }}>
-                {onStreetView ? 'Abrir inline no app' : 'Abre no Google Maps'}
+                {onStreetView ? pick(T.streetViewInline) : pick(T.streetViewMaps)}
               </div>
             </div>
           </button>
@@ -405,7 +501,7 @@ export function POIActionsPopup({
             onClick={() => window.open(mapsUrl, '_blank')}>
             <span style={{ fontSize: 16 }}>🗺</span>
             <div>
-              <div style={{ fontWeight: 600 }}>Ver no Google Maps</div>
+              <div style={{ fontWeight: 600 }}>{pick(T.verGoogleMaps)}</div>
               <div style={{ fontSize: 10, color: '#4a5a7a' }}>{poi.lat.toFixed(5)}, {poi.lng.toFixed(5)}</div>
             </div>
           </button>
@@ -416,7 +512,7 @@ export function POIActionsPopup({
             onClick={() => { navigator.clipboard.writeText(coords); onClose(); }}>
             <span style={{ fontSize: 16 }}>📋</span>
             <div>
-              <div style={{ fontWeight: 600 }}>Copiar coordenadas</div>
+              <div style={{ fontWeight: 600 }}>{pick(T.copiarCoordenadas)}</div>
               <div style={{ fontSize: 10, color: '#4a5a7a' }}>{coords}</div>
             </div>
           </button>
@@ -436,6 +532,7 @@ export function POIPanel({
   onSugerirEndereco?: (endereco: string, nome: string) => void;
   compact?: boolean;
 }) {
+  const { pick } = useI18n();
   const { pois, loading, error, tiposFiltro, setTiposFiltro } = usePOIs(lat, lng, raio);
   const tiposPresentes = [...new Set(pois.map(p => p.tipo))];
 
@@ -450,9 +547,9 @@ export function POIPanel({
     <div style={s.wrap}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.7)', textTransform: 'uppercase', letterSpacing: .8 }}>
-          POIs próximos ({pois.length})
+          {pick(T.poisProximos)} ({pois.length})
         </div>
-        {loading && <div style={{ fontSize: 9, color: '#3d9bff' }}>buscando OSM...</div>}
+        {loading && <div style={{ fontSize: 9, color: '#3d9bff' }}>{pick(T.buscandoOSM)}</div>}
         {error && <div style={{ fontSize: 9, color: '#ef4444' }}>{error}</div>}
       </div>
 
@@ -460,15 +557,16 @@ export function POIPanel({
         <div style={s.chips}>
           <div onClick={() => setTiposFiltro(new Set(Object.keys(POI_META)))}
             style={{ padding: '2px 7px', borderRadius: 10, border: '1px solid rgba(255,255,255,.15)', cursor: 'pointer', fontSize: 10, color: 'rgba(255,255,255,.4)' }}>
-            Todos
+            {pick(T.todos)}
           </div>
           {tiposPresentes.map(t => {
             const m = POI_META[t] || { icon: '📍', label: t, color: '#64748b' };
+            const label = POI_LABELS[t] ? pick(POI_LABELS[t]) : m.label;
             const on = tiposFiltro.has(t);
             return (
               <div key={t} onClick={() => setTiposFiltro(prev => { const n = new Set(prev); n.has(t) ? n.delete(t) : n.add(t); return n; })}
                 style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '2px 7px', borderRadius: 10, border: `1px solid ${on ? m.color : 'rgba(255,255,255,.1)'}`, cursor: 'pointer', fontSize: 10, background: on ? m.color + '22' : 'transparent', color: on ? m.color : 'rgba(255,255,255,.35)', transition: 'all .12s' }}>
-                {m.icon} {m.label}
+                {m.icon} {label}
               </div>
             );
           })}
@@ -476,7 +574,7 @@ export function POIPanel({
       )}
 
       <div style={s.list}>
-        {pois.length === 0 && !loading && <div style={{ fontSize: 11, color: 'rgba(255,255,255,.3)', textAlign: 'center', padding: '16px 0' }}>Nenhum POI encontrado</div>}
+        {pois.length === 0 && !loading && <div style={{ fontSize: 11, color: 'rgba(255,255,255,.3)', textAlign: 'center', padding: '16px 0' }}>{pick(T.nenhumPOI)}</div>}
         {pois.map(poi => {
           const m = POI_META[poi.tipo] || { icon: '📍', label: poi.tipo, color: '#64748b' };
           return (
@@ -506,24 +604,26 @@ export function POIMapFilter({
   tiposAtivos: Set<string>;
   onChange: (tipos: Set<string>) => void;
 }) {
+  const { pick } = useI18n();
   const allTypes = Object.keys(POI_META);
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: '8px 12px', background: 'rgba(8,11,18,.92)', borderRadius: 8, border: '1px solid rgba(255,255,255,.1)', maxWidth: '80vw', maxHeight: 140, overflowY: 'auto' }}>
       <div onClick={() => onChange(new Set(allTypes))}
         style={{ padding: '2px 8px', borderRadius: 10, border: '1px solid rgba(255,255,255,.2)', cursor: 'pointer', fontSize: 10, color: 'rgba(255,255,255,.5)' }}>
-        Todos
+        {pick(T.todos)}
       </div>
       <div onClick={() => onChange(new Set())}
         style={{ padding: '2px 8px', borderRadius: 10, border: '1px solid rgba(255,255,255,.1)', cursor: 'pointer', fontSize: 10, color: 'rgba(255,255,255,.3)' }}>
-        Nenhum
+        {pick(T.nenhum)}
       </div>
       {allTypes.map(t => {
         const m = POI_META[t];
+        const label = POI_LABELS[t] ? pick(POI_LABELS[t]) : m.label;
         const on = tiposAtivos.has(t);
         return (
           <div key={t} onClick={() => { const n = new Set(tiposAtivos); n.has(t) ? n.delete(t) : n.add(t); onChange(n); }}
             style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '2px 7px', borderRadius: 10, border: `1px solid ${on ? m.color : 'rgba(255,255,255,.08)'}`, background: on ? m.color + '22' : 'transparent', color: on ? m.color : 'rgba(255,255,255,.25)', cursor: 'pointer', fontSize: 10, transition: 'all .12s' }}>
-            {m.icon} {m.label}
+            {m.icon} {label}
           </div>
         );
       })}

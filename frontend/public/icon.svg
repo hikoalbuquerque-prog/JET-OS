@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#060d1a"/>
+      <stop offset="100%" style="stop-color:#0d1f35"/>
+    </linearGradient>
+    <linearGradient id="hexGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e7fd8"/>
+      <stop offset="100%" style="stop-color:#0ab4f5"/>
+    </linearGradient>
+    <linearGradient id="jetGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff"/>
+      <stop offset="100%" style="stop-color:#cce8ff"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+    <filter id="softglow">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Fundo arredondado -->
+  <rect width="512" height="512" rx="96" fill="url(#bgGrad)"/>
+
+  <!-- Grade de pontos decorativa -->
+  <g opacity="0.07" fill="#4a9ede">
+    <circle cx="80"  cy="80"  r="3"/> <circle cx="160" cy="80"  r="3"/>
+    <circle cx="240" cy="80"  r="3"/> <circle cx="320" cy="80"  r="3"/>
+    <circle cx="400" cy="80"  r="3"/> <circle cx="432" cy="80"  r="3"/>
+    <circle cx="80"  cy="160" r="3"/> <circle cx="432" cy="160" r="3"/>
+    <circle cx="80"  cy="432" r="3"/> <circle cx="160" cy="432" r="3"/>
+    <circle cx="240" cy="432" r="3"/> <circle cx="320" cy="432" r="3"/>
+    <circle cx="400" cy="432" r="3"/> <circle cx="432" cy="432" r="3"/>
+  </g>
+
+  <!-- Hexágono externo (glow sutil) -->
+  <polygon
+    points="256,52 440,154 440,358 256,460 72,358 72,154"
+    fill="none" stroke="#1e7fd8" stroke-width="1.5" opacity="0.25"/>
+
+  <!-- Hexágono principal com brilho -->
+  <polygon
+    points="256,72 424,166 424,346 256,440 88,346 88,166"
+    fill="none" stroke="url(#hexGrad)" stroke-width="5"
+    filter="url(#softglow)" opacity="0.9"/>
+
+  <!-- Linhas internas do hexágono -->
+  <line x1="256" y1="72"  x2="256" y2="440" stroke="#1e7fd8" stroke-width="0.8" opacity="0.12"/>
+  <line x1="88"  y1="166" x2="424" y2="346" stroke="#1e7fd8" stroke-width="0.8" opacity="0.12"/>
+  <line x1="424" y1="166" x2="88"  y2="346" stroke="#1e7fd8" stroke-width="0.8" opacity="0.12"/>
+
+  <!-- Círculo central sutil -->
+  <circle cx="256" cy="256" r="90" fill="none" stroke="#1e7fd8" stroke-width="1" opacity="0.15"/>
+
+  <!-- Texto JET -->
+  <text x="256" y="248"
+    font-family="'Arial Black', 'Impact', 'Arial', sans-serif"
+    font-size="138" font-weight="900"
+    fill="url(#jetGrad)"
+    text-anchor="middle"
+    letter-spacing="-6"
+    filter="url(#softglow)">JET</text>
+
+  <!-- Linha separadora gradiente -->
+  <rect x="136" y="265" width="240" height="4" rx="2" fill="url(#hexGrad)" opacity="0.85"/>
+
+  <!-- Texto OS -->
+  <text x="256" y="335"
+    font-family="'Arial', sans-serif"
+    font-size="58" font-weight="700"
+    fill="url(#hexGrad)"
+    text-anchor="middle"
+    letter-spacing="22">OS</text>
+
+  <!-- Pontos de canto decorativos -->
+  <circle cx="256" cy="72"  r="5" fill="#0ab4f5" opacity="0.7"/>
+  <circle cx="424" cy="166" r="5" fill="#0ab4f5" opacity="0.7"/>
+  <circle cx="424" cy="346" r="5" fill="#0ab4f5" opacity="0.7"/>
+  <circle cx="256" cy="440" r="5" fill="#0ab4f5" opacity="0.7"/>
+  <circle cx="88"  cy="346" r="5" fill="#0ab4f5" opacity="0.7"/>
+  <circle cx="88"  cy="166" r="5" fill="#0ab4f5" opacity="0.7"/>
+</svg>

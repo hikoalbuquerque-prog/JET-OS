@@ -6,8 +6,14 @@
 
 import { supabase } from './supabase';
 
-export const escalaProviderSupabase = () =>
-  (import.meta.env.VITE_ANALYTICS_PROVIDER as string) === 'supabase';
+export const escalaProviderSupabase = (): boolean => {
+  try {
+    const v = localStorage.getItem('jet_escala_provider');
+    if (v === 'supabase') return true;
+    if (v === 'firebase') return false;
+  } catch { /* sem localStorage */ }
+  return (import.meta.env.VITE_ESCALA_PROVIDER as string) !== 'firebase';
+};
 
 const isoToBr = (d?: string | null) => {
   if (!d) return '';

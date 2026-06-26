@@ -1,12 +1,15 @@
 // App.tsx — root component (slim shell after split)
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, User } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './lib/firebase';
 import { estabelecerSessaoSupabase, encerrarSessaoSupabase } from './lib/supabase-auth';
 import TelaGuard from './TelaGuard';
 import AndroidPermissionGate from './components/AndroidPermissionGate';
-import LgpdConsentGate, { ROLES_RASTREADOS } from './components/LgpdConsentGate';
+import LgpdConsentGate, { precisaConsentirLocalizacao } from './components/LgpdConsentGate';
+import TermosUsoGate from './components/TermosUsoGate';
+import BugReportButton from './components/BugReportButton';
+import { instalarCapturaErros } from './lib/bugReport';
 import TelaMapa from './views/TelaMapa';
 import {
   TelaLogin,
@@ -32,6 +35,17 @@ export default function App() {
   const [onboarding, setOnboarding] = useState(false);
   const [permGateOk, setPermGateOk] = useState(false);
   const [lgpdOk,     setLgpdOk]     = useState(false);
+  const [termosOk,   setTermosOk]   = useState(false);
+
+  // Captura automática de erros não-tratados → bug_reports (uma vez, lê o usuário via ref).
+  const usuarioRef = useRef<Usuario | null>(null);
+  usuarioRef.current = usuario;
+  useEffect(() => {
+    instalarCapturaErros(() => {
+      const u = usuarioRef.current;
+      return u ? { uid: u.uid, nome: u.nome, email: u.email, role: u.role, tipoCadastro: u.tipoCadastro } : undefined;
+    });
+  }, []);
 
   useEffect(() => {
     // Listener para navegação para Guard via FAB
@@ -137,10 +151,27 @@ export default function App() {
 
   if (tela === 'prestador-pendente' && usuario) return <TelaPrestadorPendente usuario={usuario} onLogout={() => handleLogout()} />;
 
-  // Consentimento LGPD — para perfis rastreados, antes do permission gate (web e APK)
+  // Termos de Uso + Política de Privacidade — TODOS os perfis, no 1º acesso,
+  // antes de qualquer outro gate (web e APK).
+  if (
+    usuario && (tela === 'mapa' || tela === 'guard') && !termosOk
+  ) return (
+    <TermosUsoGate
+      uid={usuario.uid}
+      email={usuario.email}
+      nome={usuario.nome}
+      role={usuario.role}
+      tipoCadastro={usuario.tipoCadastro}
+      onAceito={() => setTermosOk(true)}
+      onRecusado={() => { handleLogout(); setTela('login'); }}
+    />
+  );
+
+  // Consentimento LGPD de localização — perfis rastreados E prestadores (rastreados
+  // em slots), antes do permission gate (web e APK)
   if (
     usuario && (tela === 'mapa' || tela === 'guard') &&
-    ROLES_RASTREADOS.includes(usuario.role) && !lgpdOk
+    precisaConsentirLocalizacao(usuario) && !lgpdOk
   ) return (
     <LgpdConsentGate
       uid={usuario.uid}
@@ -168,6 +199,7 @@ export default function App() {
           setOnboarding(false);
         }}
       />
+      <BugReportButton usuario={usuario!} />
     </>
   );
   // Segurança: só role==='guard' fica na TelaGuard
@@ -176,12 +208,22 @@ export default function App() {
     setTimeout(() => setTela('mapa'), 0);
     return null;
   }
-  if (tela === 'guard') return <TelaGuard usuario={usuario!} onLogout={() => handleLogout()} onVoltarMapa={() => setTela('mapa')} />;
+  if (tela === 'guard') return (
+    <>
+      <TelaGuard usuario={usuario!} onLogout={() => handleLogout()} onVoltarMapa={() => setTela('mapa')} />
+      <BugReportButton usuario={usuario!} />
+    </>
+  );
   if (tela === 'trocar-senha') return (
     <TelaTrocarSenha
       onConcluido={() => setTela(usuario?.role === 'guard' ? 'guard' : 'mapa')}
       onLogout={() => { handleLogout(); setTela('login'); }}
     />
   );
-  return <TelaMapa usuario={usuario!} onLogout={() => handleLogout()} />;
+  return (
+    <>
+      <TelaMapa usuario={usuario!} onLogout={() => handleLogout()} />
+      <BugReportButton usuario={usuario!} />
+    </>
+  );
 }

@@ -28,6 +28,7 @@ interface SlotConfigZona {
   vagasBase: number;
   cargo: string;
   ativo: boolean;
+  cidade?: string;
 }
 
 interface SlotConfigGlobal {
@@ -270,32 +271,15 @@ async function _gerarTarefasMonitor(parkings: GoJetParking[], turno: 'T0' | 'T1'
   if (criadas > 0) console.log(`[tarefasMonitor] ${criadas} tarefas criadas`);
 }
 
-// ─── FUNCTION: gerarSlotsAgendado (todo dia 21h) ─────────────────────────────
-//
-// 🚫 DESLIGADO no cutover de Slots para o Supabase (17/06/2026). A geração de slots
-// agora roda no Supabase (Edge Function `gerar-slots` + pg_cron às 00:00 UTC = 21h SP),
-// e o app lê via VITE_ANALYTICS_PROVIDER=supabase. Manter este gerador ATIVO duplicaria
-// os slots nos dois sistemas. Mantido como no-op (em vez de remover o export) para um
-// redeploy parar a geração na hora, sem depender de `firebase functions:delete`.
-// _gerarSlots / gerarSlotsManualFn seguem disponíveis como fallback manual.
-// Para reativar: restaurar o corpo abaixo (e desligar o pg_cron no Supabase).
 export const gerarSlotsAgendado = onSchedule(
-  {
-    schedule:  '0 21 * * *',
-    timeZone:  'America/Sao_Paulo',
-    region:    'southamerica-east1',
-    memory:    '256MiB',
-  },
+  { schedule: '0 21 * * *', timeZone: 'America/Sao_Paulo', memory: '256MiB', timeoutSeconds: 120, region: 'southamerica-east1' },
   async () => {
-    console.log('[gerarSlotsAgendado] DESLIGADO — geração migrada p/ Supabase (Edge Fn gerar-slots). No-op.');
-    return;
-    // --- corpo original (desativado no cutover) ---
-    // const cfgSnap = await db.collection('slot_config').doc('global').get();
-    // if (!cfgSnap.exists) return;
-    // const cfg = cfgSnap.data() as SlotConfigGlobal;
-    // const dados = await fetchGoJet();
-    // const statsZonas = dados ? calcularStatsZonas(dados.parkings) : {};
-    // await _gerarSlots(cfg, statsZonas);
+    const cfgSnap = await db.collection('slot_config').doc('global').get();
+    if (!cfgSnap.exists) { console.warn('[gerarSlots] sem config'); return; }
+    const cfg = cfgSnap.data() as SlotConfigGlobal;
+    const dados = await fetchGoJet();
+    const statsZonas = dados ? calcularStatsZonas(dados.parkings) : {};
+    await _gerarSlots(cfg, statsZonas);
   }
 );
 
@@ -346,14 +330,19 @@ async function _gerarSlots(cfg: SlotConfigGlobal, statsZonas: Record<string, Zon
 
     try {
       for (let i = 0; i < vagas; i++) {
+        const [yyyy, mm, dd] = dataStr.split('-');
         await db.collection('slots').add({
           titulo:           `${zonaCfg.cargo === 'charger' ? 'Charger' : 'Scalt'} — ${zonaCfg.zona} ${zonaCfg.turno}`,
           cargo:            zonaCfg.cargo,
-          cidade:           cfg.cidade,
+          cidade:           zonaCfg.cidade || cfg.cidade,
           pais:             cfg.pais,
           turnoInicio:      inicio,
           turnoFim:         fim,
+          dataSlot:         `${dd}/${mm}/${yyyy}`,
+          turno:            zonaCfg.turno,
+          tipo:             zonaCfg.cargo === 'charger' ? 'Charger' : 'Scalt',
           status:           'aberto',
+          qtdPessoas:       1,
           criadoPor:        'scheduler',
           aceitoPor:        null,
           tarefasIds:       [],

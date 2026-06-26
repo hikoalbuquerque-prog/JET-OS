@@ -2,11 +2,38 @@
 // Histórico de rota de um prestador num dia selecionado
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   collection, query, where, orderBy, getDocs, limit, Timestamp,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import L from 'leaflet';
+
+const TR = {
+  rota: { pt: 'Rota', en: 'Route', es: 'Ruta', ru: 'Маршрут' },
+  histDeslocamento: {
+    pt: 'Histórico de deslocamento',
+    en: 'Movement history',
+    es: 'Historial de desplazamiento',
+    ru: 'История перемещений',
+  },
+  fechar: { pt: 'Fechar', en: 'Close', es: 'Cerrar', ru: 'Закрыть' },
+  estatisticas: { pt: 'Estatísticas', en: 'Statistics', es: 'Estadísticas', ru: 'Статистика' },
+  carregando: { pt: 'Carregando...', en: 'Loading...', es: 'Cargando...', ru: 'Загрузка...' },
+  semDados: {
+    pt: 'Sem dados para este dia.',
+    en: 'No data for this day.',
+    es: 'Sin datos para este día.',
+    ru: 'Нет данных за этот день.',
+  },
+  pontosGps: { pt: 'Pontos GPS', en: 'GPS points', es: 'Puntos GPS', ru: 'Точки GPS' },
+  distancia: { pt: 'Distância', en: 'Distance', es: 'Distancia', ru: 'Расстояние' },
+  velMedia: { pt: 'Vel. média', en: 'Avg. speed', es: 'Vel. media', ru: 'Сред. скорость' },
+  duracao: { pt: 'Duração', en: 'Duration', es: 'Duración', ru: 'Длительность' },
+  legenda: { pt: 'Legenda', en: 'Legend', es: 'Leyenda', ru: 'Легенда' },
+  inicio: { pt: 'Início', en: 'Start', es: 'Inicio', ru: 'Начало' },
+  fim: { pt: 'Fim', en: 'End', es: 'Fin', ru: 'Конец' },
+};
 
 interface Props {
   uid: string;
@@ -48,6 +75,9 @@ function fmtDur(ms: number): string {
 }
 
 export default function GpsRotaPanel({ uid, nome, onFechar }: Props) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
+  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
   const [data, setData] = useState(isoHoje());
   const [pontos, setPontos] = useState<Ponto[]>([]);
   const [carregando, setCarregando] = useState(false);
@@ -111,17 +141,17 @@ export default function GpsRotaPanel({ uid, nome, onFechar }: Props) {
     const inicio = pontos[0];
     L.circleMarker([inicio.lat, inicio.lng], {
       radius: 8, color: T.green, fillColor: T.green, fillOpacity: 1, weight: 2,
-    }).bindPopup(`<b>Início</b><br>${fmtTs(inicio.criadoEm)}`).addTo(layer);
+    }).bindPopup(`<b>${pick(TR.inicio)}</b><br>${fmtTs(inicio.criadoEm)}`).addTo(layer);
 
     // Marcador de fim
     const fim = pontos[pontos.length - 1];
     L.circleMarker([fim.lat, fim.lng], {
       radius: 8, color: T.red, fillColor: T.red, fillOpacity: 1, weight: 2,
-    }).bindPopup(`<b>Fim</b><br>${fmtTs(fim.criadoEm)}`).addTo(layer);
+    }).bindPopup(`<b>${pick(TR.fim)}</b><br>${fmtTs(fim.criadoEm)}`).addTo(layer);
 
     // Ajusta visão
     mapa.fitBounds(L.latLngBounds(coords).pad(0.1));
-  }, [pontos]);
+  }, [pontos, lang]);
 
   // Estatísticas
   const stats = React.useMemo(() => {
@@ -165,9 +195,9 @@ export default function GpsRotaPanel({ uid, nome, onFechar }: Props) {
         }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 15, color: T.txt }}>
-              📍 Rota — {nome}
+              📍 {pick(TR.rota)} — {nome}
             </div>
-            <div style={{ fontSize: 11, color: T.dim }}>Histórico de deslocamento</div>
+            <div style={{ fontSize: 11, color: T.dim }}>{pick(TR.histDeslocamento)}</div>
           </div>
           <input
             type="date"
@@ -186,7 +216,7 @@ export default function GpsRotaPanel({ uid, nome, onFechar }: Props) {
               background: 'none', border: `1px solid ${T.bdr}`, color: T.dim2,
               borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 12,
             }}
-          >✕ Fechar</button>
+          >✕ {pick(TR.fechar)}</button>
         </div>
 
         {/* Body: mapa + stats */}
@@ -201,35 +231,35 @@ export default function GpsRotaPanel({ uid, nome, onFechar }: Props) {
             display: 'flex', flexDirection: 'column', gap: 12,
           }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: T.dim, textTransform: 'uppercase', letterSpacing: 1 }}>
-              Estatísticas
+              {pick(TR.estatisticas)}
             </div>
 
             {carregando && (
-              <div style={{ fontSize: 12, color: T.dim }}>Carregando...</div>
+              <div style={{ fontSize: 12, color: T.dim }}>{pick(TR.carregando)}</div>
             )}
             {!carregando && pontos.length === 0 && (
-              <div style={{ fontSize: 12, color: T.dim }}>Sem dados para este dia.</div>
+              <div style={{ fontSize: 12, color: T.dim }}>{pick(TR.semDados)}</div>
             )}
             {!carregando && stats && (
               <>
-                <StatBox label="Pontos GPS" value={String(stats.total)} color={T.bluel} />
-                <StatBox label="Distância" value={`${stats.distKm} km`} color={T.green} />
+                <StatBox label={pick(TR.pontosGps)} value={String(stats.total)} color={T.bluel} />
+                <StatBox label={pick(TR.distancia)} value={`${stats.distKm} km`} color={T.green} />
                 {stats.velMedia && (
-                  <StatBox label="Vel. média" value={`${stats.velMedia} km/h`} color={T.yellow} />
+                  <StatBox label={pick(TR.velMedia)} value={`${stats.velMedia} km/h`} color={T.yellow} />
                 )}
-                <StatBox label="Duração" value={stats.duracao} color={T.dim2} />
+                <StatBox label={pick(TR.duracao)} value={stats.duracao} color={T.dim2} />
               </>
             )}
 
             <div style={{ marginTop: 'auto', paddingTop: 12, borderTop: `1px solid ${T.bdr}` }}>
-              <div style={{ fontSize: 10, color: T.dim, marginBottom: 6 }}>Legenda</div>
+              <div style={{ fontSize: 10, color: T.dim, marginBottom: 6 }}>{pick(TR.legenda)}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                 <div style={{ width: 10, height: 10, borderRadius: '50%', background: T.green }} />
-                <span style={{ fontSize: 11, color: T.dim2 }}>Início</span>
+                <span style={{ fontSize: 11, color: T.dim2 }}>{pick(TR.inicio)}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <div style={{ width: 10, height: 10, borderRadius: '50%', background: T.red }} />
-                <span style={{ fontSize: 11, color: T.dim2 }}>Fim</span>
+                <span style={{ fontSize: 11, color: T.dim2 }}>{pick(TR.fim)}</span>
               </div>
             </div>
           </div>

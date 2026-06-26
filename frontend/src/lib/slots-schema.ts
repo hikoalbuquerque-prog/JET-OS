@@ -82,6 +82,14 @@ export interface Slot {
   motivoCancelamento?: string | null;
   notasCancelamento?: string | null;
   canceladoPor?: string | null;
+  // Confirmação cascata (Telegram reminders)
+  confirmacoes?: {
+    t120?: Timestamp | null;
+    t90?: Timestamp | null;
+    t60?: Timestamp | null;
+    t0?: Timestamp | null;
+  } | null;
+  confirmadoEm?: Timestamp | null;
   // Timestamps
   criadoEm?: Timestamp;
   atualizadoEm?: Timestamp;

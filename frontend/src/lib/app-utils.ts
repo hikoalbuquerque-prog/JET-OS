@@ -4,7 +4,6 @@
 export function sanitizarFotoUrl(url?: string | null): string | null {
   if (!url) return null;
   if (url.includes('drive.google.com')) return null;
-  if (url.includes('lh3.googleusercontent.com')) return null;
   return url;
 }
 
@@ -12,7 +11,7 @@ export function fixDriveUrl(url: string): string {
   if (!url) return '';
   const m = url.match(/\/d\/([^/?]+)/);
   if (m && url.includes('drive.google.com')) {
-    return 'https://drive.google.com/uc?export=view&id=' + m[1];
+    return 'https://lh3.googleusercontent.com/d/' + m[1];
   }
   return url;
 }

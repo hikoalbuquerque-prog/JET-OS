@@ -2,7 +2,45 @@
 // Fluxo completo: câmera → preview → upload Storage → vincula à estação
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { uploadComRetry } from '../lib/uploadUtils';
+
+// i18n: padrão do TermosUsoGate — texto em objetos { pt, en, es, ru }, sem chaves json.
+const T = {
+  prepararUpload:   { pt: 'Preparando upload...', en: 'Preparing upload...', es: 'Preparando subida...', ru: 'Подготовка загрузки...' },
+  enviandoFoto:     { pt: 'Enviando foto...', en: 'Uploading photo...', es: 'Subiendo foto...', ru: 'Отправка фото...' },
+  erro:             { pt: 'Erro: ', en: 'Error: ', es: 'Error: ', ru: 'Ошибка: ' },
+  falhaUpload:      { pt: 'falha no upload', en: 'upload failed', es: 'fallo en la subida', ru: 'сбой загрузки' },
+  solteAqui:        { pt: 'Solte aqui 📥', en: 'Drop here 📥', es: 'Suelta aquí 📥', ru: 'Отпустите здесь 📥' },
+  tituloAddFoto:    { pt: '🖼 Adicionar foto', en: '🖼 Add photo', es: '🖼 Añadir foto', ru: '🖼 Добавить фото' },
+  tituloFotografar: { pt: '📷 Fotografar local', en: '📷 Photograph site', es: '📷 Fotografiar lugar', ru: '📷 Сфотографировать место' },
+  tituloConfirmar:  { pt: '🖼 Confirmar foto', en: '🖼 Confirm photo', es: '🖼 Confirmar foto', ru: '🖼 Подтвердить фото' },
+  tituloEnviando:   { pt: '⬆ Enviando...', en: '⬆ Uploading...', es: '⬆ Subiendo...', ru: '⬆ Отправка...' },
+  tituloSalva:      { pt: '✅ Foto salva!', en: '✅ Photo saved!', es: '✅ ¡Foto guardada!', ru: '✅ Фото сохранено!' },
+  novaEstacao:      { pt: 'Nova estação', en: 'New station', es: 'Nueva estación', ru: 'Новая станция' },
+  estacao:          { pt: 'Estação ', en: 'Station ', es: 'Estación ', ru: 'Станция ' },
+  comoAddSV:        { pt: 'Como adicionar a foto do Street View:', en: 'How to add the Street View photo:', es: 'Cómo añadir la foto de Street View:', ru: 'Как добавить фото из Street View:' },
+  passo1a:          { pt: '1. Pressione ', en: '1. Press ', es: '1. Pulsa ', ru: '1. Нажмите ' },
+  passo1b:          { pt: ' (ou ', en: ' (or ', es: ' (o ', ru: ' (или ' },
+  passo1c:          { pt: ' no Mac)', en: ' on Mac)', es: ' en Mac)', ru: ' на Mac)' },
+  passo2:           { pt: '2. Selecione a área do Street View', en: '2. Select the Street View area', es: '2. Selecciona el área de Street View', ru: '2. Выделите область Street View' },
+  passo3a:          { pt: '3. Salve e clique em ', en: '3. Save and click ', es: '3. Guarda y haz clic en ', ru: '3. Сохраните и нажмите ' },
+  passo3b:          { pt: ' abaixo', en: ' below', es: ' abajo', ru: ' ниже' },
+  selecionarArq:    { pt: 'Selecionar arquivo', en: 'Select file', es: 'Seleccionar archivo', ru: 'Выбрать файл' },
+  instrucaoFoto:    { pt: 'Tire uma foto do local para registrar a condição real da calçada', en: 'Take a photo of the site to record the real condition of the sidewalk', es: 'Toma una foto del lugar para registrar la condición real de la acera', ru: 'Сделайте фото места, чтобы зафиксировать реальное состояние тротуара' },
+  btnSelecionarArq: { pt: '📁 Selecionar arquivo', en: '📁 Select file', es: '📁 Seleccionar archivo', ru: '📁 Выбрать файл' },
+  btnAbrirCamera:   { pt: '📷 Abrir câmera', en: '📷 Open camera', es: '📷 Abrir cámara', ru: '📷 Открыть камеру' },
+  colarImagem:      { pt: 'Ctrl+V — colar imagem', en: 'Ctrl+V — paste image', es: 'Ctrl+V — pegar imagen', ru: 'Ctrl+V — вставить изображение' },
+  colarDesc:        { pt: 'Cole um print ou screenshot copiado', en: 'Paste a copied print or screenshot', es: 'Pega una captura o screenshot copiado', ru: 'Вставьте скопированный снимок экрана' },
+  arrasteAqui:      { pt: 'Arraste a imagem aqui', en: 'Drag the image here', es: 'Arrastra la imagen aquí', ru: 'Перетащите изображение сюда' },
+  arrasteDesc:      { pt: 'Solte direto neste modal', en: 'Drop it directly in this modal', es: 'Suéltala directamente en este modal', ru: 'Отпустите прямо в этом окне' },
+  cancelar:         { pt: 'Cancelar', en: 'Cancel', es: 'Cancelar', ru: 'Отмена' },
+  refazer:          { pt: '🔄 Refazer', en: '🔄 Retake', es: '🔄 Rehacer', ru: '🔄 Переснять' },
+  confirmar:        { pt: '✓ Confirmar', en: '✓ Confirm', es: '✓ Confirmar', ru: '✓ Подтвердить' },
+  fotoSalva:        { pt: 'Foto salva com sucesso!', en: 'Photo saved successfully!', es: '¡Foto guardada con éxito!', ru: 'Фото успешно сохранено!' },
+  vinculadaNovo:    { pt: 'O drawer de cadastro já está com a foto vinculada.', en: 'The registration drawer already has the photo linked.', es: 'El panel de registro ya tiene la foto vinculada.', ru: 'Фото уже привязано к панели регистрации.' },
+  vinculadaExist:   { pt: 'Foto associada à estação.', en: 'Photo linked to the station.', es: 'Foto asociada a la estación.', ru: 'Фото привязано к станции.' },
+};
 
 interface Props {
   context: 'novo' | 'existente';
@@ -16,6 +54,10 @@ interface Props {
 }
 
 export function FotoCaptura({ context, origem = 'campo', lat, lng, estacaoId, estacaoCodigo, onFotoSalva, onClose }: Props) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
+  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
+
   const [fase, setFase] = useState<'camera'|'preview'|'uploading'|'done'>('camera');
   const [preview, setPreview] = useState<string | null>(null);
   const [fotoFile, setFotoFile] = useState<File | null>(null);
@@ -75,7 +117,7 @@ export function FotoCaptura({ context, origem = 'campo', lat, lng, estacaoId, es
   const confirmar = async () => {
     if (!fotoFile) return;
     setFase('uploading');
-    setProgress('Preparando upload...');
+    setProgress(pick(T.prepararUpload));
 
     try {
       // Path no Storage
@@ -84,7 +126,7 @@ export function FotoCaptura({ context, origem = 'campo', lat, lng, estacaoId, es
         ? `estacoes/${estacaoId}/foto/${ts}_campo.jpg`
         : `estacoes/temp/${ts}_novo.jpg`;
 
-      setProgress('Enviando foto...');
+      setProgress(pick(T.enviandoFoto));
       const url = await uploadComRetry(fotoFile, path);
 
       setFase('done');
@@ -93,7 +135,7 @@ export function FotoCaptura({ context, origem = 'campo', lat, lng, estacaoId, es
         onClose();
       }, 800);
     } catch (e: any) {
-      setProgress('Erro: ' + (e.message || 'falha no upload'));
+      setProgress(pick(T.erro) + (e.message || pick(T.falhaUpload)));
       setTimeout(() => setFase('preview'), 2000);
     }
   };
@@ -139,7 +181,7 @@ export function FotoCaptura({ context, origem = 'campo', lat, lng, estacaoId, es
         onDrop={handleDrop}>
         {draggingOver && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(61,155,255,.08)', borderRadius: 12, zIndex: 10, pointerEvents: 'none' }}>
-            <div style={{ fontSize: 32, color: '#3d9bff', fontWeight: 700 }}>Solte aqui 📥</div>
+            <div style={{ fontSize: 32, color: '#3d9bff', fontWeight: 700 }}>{pick(T.solteAqui)}</div>
           </div>
         )}
 
@@ -147,13 +189,13 @@ export function FotoCaptura({ context, origem = 'campo', lat, lng, estacaoId, es
         <div style={{ padding: '14px 16px', borderBottom: '1px solid #1c2535', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#dce8ff' }}>
-              {fase === 'camera' && (origem === 'streetview' ? '🖼 Adicionar foto' : '📷 Fotografar local')}
-              {fase === 'preview' && '🖼 Confirmar foto'}
-              {fase === 'uploading' && '⬆ Enviando...'}
-              {fase === 'done' && '✅ Foto salva!'}
+              {fase === 'camera' && (origem === 'streetview' ? pick(T.tituloAddFoto) : pick(T.tituloFotografar))}
+              {fase === 'preview' && pick(T.tituloConfirmar)}
+              {fase === 'uploading' && pick(T.tituloEnviando)}
+              {fase === 'done' && pick(T.tituloSalva)}
             </div>
             <div style={{ fontSize: 10, color: '#4a5a7a', marginTop: 2 }}>
-              {context === 'novo' ? 'Nova estação' : `Estação ${estacaoCodigo || estacaoId}`}
+              {context === 'novo' ? pick(T.novaEstacao) : `${pick(T.estacao)}${estacaoCodigo || estacaoId}`}
               {lat && lng ? ` · ${lat.toFixed(5)}, ${lng.toFixed(5)}` : ''}
             </div>
           </div>
@@ -174,37 +216,37 @@ export function FotoCaptura({ context, origem = 'campo', lat, lng, estacaoId, es
             <div style={{ fontSize: 64 }}>{origem === 'streetview' ? '🖼' : '📷'}</div>
             {origem === 'streetview' ? (
               <div style={{ fontSize: 12, color: 'rgba(255,255,255,.5)', textAlign: 'center', lineHeight: 1.6 }}>
-                <div style={{ color: '#f5c842', fontWeight: 600, marginBottom: 8 }}>Como adicionar a foto do Street View:</div>
-                <div>1. Pressione <b style={{color:'#dce8ff'}}>Windows + Shift + S</b> (ou <b style={{color:'#dce8ff'}}>Cmd+Shift+4</b> no Mac)</div>
-                <div>2. Selecione a área do Street View</div>
-                <div>3. Salve e clique em <b style={{color:'#3d9bff'}}>Selecionar arquivo</b> abaixo</div>
+                <div style={{ color: '#f5c842', fontWeight: 600, marginBottom: 8 }}>{pick(T.comoAddSV)}</div>
+                <div>{pick(T.passo1a)}<b style={{color:'#dce8ff'}}>Windows + Shift + S</b>{pick(T.passo1b)}<b style={{color:'#dce8ff'}}>Cmd+Shift+4</b>{pick(T.passo1c)}</div>
+                <div>{pick(T.passo2)}</div>
+                <div>{pick(T.passo3a)}<b style={{color:'#3d9bff'}}>{pick(T.selecionarArq)}</b>{pick(T.passo3b)}</div>
               </div>
             ) : (
               <div style={{ fontSize: 13, color: 'rgba(255,255,255,.6)', textAlign: 'center' }}>
-                Tire uma foto do local para registrar a condição real da calçada
+                {pick(T.instrucaoFoto)}
               </div>
             )}
             <button onClick={abrirCamera} style={{ ...btnPrimary, width: '100%', padding: '14px' }}>
-              {origem === 'streetview' ? '📁 Selecionar arquivo' : '📷 Abrir câmera'}
+              {origem === 'streetview' ? pick(T.btnSelecionarArq) : pick(T.btnAbrirCamera)}
             </button>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: 'rgba(61,155,255,.06)', borderRadius: 8, border: '1px solid rgba(61,155,255,.15)' }}>
                 <span style={{ fontSize: 16 }}>📋</span>
                 <div>
-                  <div style={{ fontSize: 11, color: '#3d9bff', fontWeight: 600 }}>Ctrl+V — colar imagem</div>
-                  <div style={{ fontSize: 10, color: '#4a5a7a' }}>Cole um print ou screenshot copiado</div>
+                  <div style={{ fontSize: 11, color: '#3d9bff', fontWeight: 600 }}>{pick(T.colarImagem)}</div>
+                  <div style={{ fontSize: 10, color: '#4a5a7a' }}>{pick(T.colarDesc)}</div>
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: 'rgba(61,155,255,.04)', borderRadius: 8, border: '1px dashed rgba(61,155,255,.2)' }}>
                 <span style={{ fontSize: 16 }}>🖱</span>
                 <div>
-                  <div style={{ fontSize: 11, color: '#4a5a7a', fontWeight: 600 }}>Arraste a imagem aqui</div>
-                  <div style={{ fontSize: 10, color: '#2a3a5a' }}>Solte direto neste modal</div>
+                  <div style={{ fontSize: 11, color: '#4a5a7a', fontWeight: 600 }}>{pick(T.arrasteAqui)}</div>
+                  <div style={{ fontSize: 10, color: '#2a3a5a' }}>{pick(T.arrasteDesc)}</div>
                 </div>
               </div>
             </div>
             <button onClick={onClose} style={{ ...btnSecondary, width: '100%' }}>
-              Cancelar
+              {pick(T.cancelar)}
             </button>
           </div>
         )}
@@ -225,10 +267,10 @@ export function FotoCaptura({ context, origem = 'campo', lat, lng, estacaoId, es
             </div>
             <div style={{ padding: 16, display: 'flex', gap: 8 }}>
               <button onClick={refazer} style={btnSecondary}>
-                🔄 Refazer
+                {pick(T.refazer)}
               </button>
               <button onClick={confirmar} style={btnPrimary}>
-                ✓ Confirmar
+                {pick(T.confirmar)}
               </button>
             </div>
           </div>
@@ -251,9 +293,9 @@ export function FotoCaptura({ context, origem = 'campo', lat, lng, estacaoId, es
           <div style={{ padding: 32, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
             {preview && <img src={preview} alt="" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 8 }} />}
             <div style={{ fontSize: 28 }}>✅</div>
-            <div style={{ fontSize: 13, color: '#2ecc71', fontWeight: 600 }}>Foto salva com sucesso!</div>
+            <div style={{ fontSize: 13, color: '#2ecc71', fontWeight: 600 }}>{pick(T.fotoSalva)}</div>
             <div style={{ fontSize: 11, color: '#4a5a7a', textAlign: 'center' }}>
-              {context === 'novo' ? 'O drawer de cadastro já está com a foto vinculada.' : 'Foto associada à estação.'}
+              {context === 'novo' ? pick(T.vinculadaNovo) : pick(T.vinculadaExist)}
             </div>
           </div>
         )}

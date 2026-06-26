@@ -16,7 +16,7 @@ export const guardProviderSupabase = (): boolean => {
     if (v === 'supabase') return true;
     if (v === 'firebase') return false;
   } catch { /* sem localStorage */ }
-  return (import.meta.env.VITE_GUARD_PROVIDER as string) === 'supabase';
+  return (import.meta.env.VITE_GUARD_PROVIDER as string) !== 'firebase';
 };
 
 // O mirror grava status em lowercase; o app exibe valores capitalizados
@@ -125,7 +125,7 @@ export const guardWriteSupabase = (): boolean => {
     if (v === 'supabase') return true;
     if (v === 'firebase') return false;
   } catch { /* sem localStorage */ }
-  return (import.meta.env.VITE_GUARD_WRITE as string) === 'supabase';
+  return (import.meta.env.VITE_GUARD_WRITE as string) !== 'firebase';
 };
 
 const numW = (v: any): number | null => {

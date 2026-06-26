@@ -2,12 +2,143 @@
 // Locais operacionais (Base de Carga, CS, Depósito, Redistribuição) + Gestão Financeira
 
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { db } from '../lib/firebase';
+import { mapaProviderSupabase, carregarLocaisSupabase } from '../lib/estacoes-supabase';
 import {
   collection, addDoc, updateDoc, deleteDoc, doc,
   onSnapshot, query, where, serverTimestamp, orderBy,
 } from 'firebase/firestore';
 import { uploadComRetry } from '../lib/uploadUtils';
+
+// ── i18n (padrão TermosUsoGate: objeto { pt, en, es, ru }, sem json) ─────────
+type Lang = 'pt' | 'en' | 'es' | 'ru';
+type L = { pt: string; en: string; es: string; ru: string };
+
+const T = {
+  // Modal cadastro/edição do local
+  editarLocal:        { pt:'Editar local',            en:'Edit location',          es:'Editar local',            ru:'Редактировать объект' },
+  novoLocal:          { pt:'Novo local operacional',  en:'New operational site',   es:'Nuevo local operativo',   ru:'Новый рабочий объект' },
+  tipoDeLocal:        { pt:'Tipo de local',           en:'Site type',              es:'Tipo de local',           ru:'Тип объекта' },
+  nomeReq:            { pt:'Nome *',                   en:'Name *',                 es:'Nombre *',                ru:'Название *' },
+  exNome:             { pt:'Ex: ',                     en:'E.g.: ',                 es:'Ej.: ',                   ru:'Напр.: ' },
+  centroSuf:          { pt:' Centro',                  en:' Center',                es:' Centro',                 ru:' центр' },
+  endereco:           { pt:'Endereço',                 en:'Address',                es:'Dirección',               ru:'Адрес' },
+  fotoDoLocal:        { pt:'Foto do local',            en:'Site photo',             es:'Foto del local',          ru:'Фото объекта' },
+  alterarFoto:        { pt:'Alterar foto',             en:'Change photo',           es:'Cambiar foto',            ru:'Изменить фото' },
+  adicionarFoto:      { pt:'Adicionar foto',           en:'Add photo',              es:'Añadir foto',             ru:'Добавить фото' },
+  capacidadePat:      { pt:'Capacidade (pat.)',        en:'Capacity (units)',       es:'Capacidad (unid.)',       ru:'Вместимость (ед.)' },
+  horario:            { pt:'Horário',                  en:'Hours',                  es:'Horario',                 ru:'Часы работы' },
+  responsavel:        { pt:'Responsável',              en:'Manager',                es:'Responsable',             ru:'Ответственный' },
+  telefone:           { pt:'Telefone',                 en:'Phone',                  es:'Teléfono',                ru:'Телефон' },
+  observacoes:        { pt:'Observações',              en:'Notes',                  es:'Observaciones',           ru:'Примечания' },
+  localAtivo:         { pt:'Local ativo',              en:'Active site',            es:'Local activo',            ru:'Объект активен' },
+  cancelar:           { pt:'Cancelar',                 en:'Cancel',                 es:'Cancelar',                ru:'Отмена' },
+  salvar:             { pt:'Salvar',                   en:'Save',                   es:'Guardar',                 ru:'Сохранить' },
+  adicionar:          { pt:'Adicionar',                en:'Add',                    es:'Añadir',                  ru:'Добавить' },
+  salvando:           { pt:'Salvando...',              en:'Saving...',              es:'Guardando...',            ru:'Сохранение...' },
+  informeNome:        { pt:'Informe o nome do local',  en:'Enter the site name',    es:'Indique el nombre del local', ru:'Укажите название объекта' },
+  localAtualizado:    { pt:'Local atualizado',         en:'Site updated',           es:'Local actualizado',       ru:'Объект обновлён' },
+  localAdicionado:    { pt:'Local adicionado',         en:'Site added',             es:'Local añadido',           ru:'Объект добавлен' },
+  localRemovido:      { pt:'Local removido',           en:'Site removed',           es:'Local eliminado',         ru:'Объект удалён' },
+  erro:               { pt:'Erro: ',                   en:'Error: ',                es:'Error: ',                 ru:'Ошибка: ' },
+  excluirConfirmA:    { pt:'Excluir "',                en:'Delete "',               es:'¿Eliminar "',             ru:'Удалить «' },
+  excluirConfirmB:    { pt:'"?',                       en:'"?',                     es:'"?',                      ru:'»?' },
+
+  // Painel principal
+  tituloPainel:       { pt:'Locais & Financeiro',      en:'Sites & Finance',        es:'Locales y Finanzas',      ru:'Объекты и финансы' },
+  localSingular:      { pt:'local',                    en:'site',                   es:'local',                   ru:'объект' },
+  localPlural:        { pt:'locais',                   en:'sites',                  es:'locales',                 ru:'объектов' },
+  abaLocais:          { pt:'Locais',                   en:'Sites',                  es:'Locales',                 ru:'Объекты' },
+  abaFinanceiro:      { pt:'Financeiro',               en:'Finance',                es:'Finanzas',                ru:'Финансы' },
+  abaRelatorio:       { pt:'Relatório',                en:'Report',                 es:'Informe',                 ru:'Отчёт' },
+  cliqueMapa:         { pt:'Clique no mapa (FAB 📍) para adicionar locais', en:'Tap the map (FAB 📍) to add sites', es:'Toca el mapa (FAB 📍) para añadir locales', ru:'Нажмите на карту (FAB 📍), чтобы добавить объекты' },
+  un:                 { pt:'un.',                      en:'units',                  es:'unid.',                   ru:'ед.' },
+  novoPagamento:      { pt:'Novo pagamento',           en:'New payment',            es:'Nuevo pago',              ru:'Новый платёж' },
+  financeiroBtn:      { pt:'Financeiro',               en:'Finance',                es:'Finanzas',                ru:'Финансы' },
+  contrato:           { pt:'Contrato',                 en:'Contract',               es:'Contrato',                ru:'Договор' },
+  adicioneLocalMapa:  { pt:'Adicione um local no mapa primeiro', en:'Add a site on the map first', es:'Añade primero un local en el mapa', ru:'Сначала добавьте объект на карту' },
+  maisPagamento:      { pt:'+ Pagamento',              en:'+ Payment',              es:'+ Pago',                  ru:'+ Платёж' },
+  pago:               { pt:'Pago',                     en:'Paid',                   es:'Pagado',                  ru:'Оплачено' },
+  pendente:           { pt:'Pendente',                 en:'Pending',                es:'Pendiente',               ru:'В ожидании' },
+  atrasado:           { pt:'Atrasado',                 en:'Overdue',                es:'Vencido',                 ru:'Просрочено' },
+  contratosCab:       { pt:'CONTRATOS',                en:'CONTRACTS',              es:'CONTRATOS',               ru:'ДОГОВОРЫ' },
+  contratoAluguel:    { pt:'Contrato de Aluguel',      en:'Lease Contract',         es:'Contrato de Alquiler',    ru:'Договор аренды' },
+  porMes:             { pt:'/mês · dia ',              en:'/mo · day ',             es:'/mes · día ',             ru:'/мес · день ' },
+  ate:                { pt:' até ',                    en:' to ',                   es:' hasta ',                 ru:' до ' },
+  pagamentosCab:      { pt:'PAGAMENTOS · ',            en:'PAYMENTS · ',            es:'PAGOS · ',                ru:'ПЛАТЕЖИ · ' },
+  nenhumPagEm:        { pt:'Nenhum pagamento em ',     en:'No payments in ',        es:'Sin pagos en ',           ru:'Нет платежей за ' },
+  vence:              { pt:'Vence: ',                  en:'Due: ',                  es:'Vence: ',                 ru:'Срок: ' },
+  todosLocais:        { pt:'Todos os locais · ',       en:'All sites · ',           es:'Todos los locales · ',    ru:'Все объекты · ' },
+  nenhumLocalCad:     { pt:'Nenhum local cadastrado',  en:'No sites registered',    es:'Ningún local registrado', ru:'Нет зарегистрированных объектов' },
+  pagoSuf:            { pt:' pago',                    en:' paid',                  es:' pagado',                 ru:' оплачено' },
+
+  // Modal pagamento
+  editarPagamento:    { pt:'Editar pagamento',         en:'Edit payment',           es:'Editar pago',             ru:'Редактировать платёж' },
+  novoPagamentoTit:   { pt:'Novo pagamento',           en:'New payment',            es:'Nuevo pago',              ru:'Новый платёж' },
+  tipo:               { pt:'Tipo',                     en:'Type',                   es:'Tipo',                    ru:'Тип' },
+  medicaoRelogio:     { pt:'Medição do relógio',       en:'Meter reading',          es:'Lectura del medidor',     ru:'Показания счётчика' },
+  anteriorKwh:        { pt:'Anterior (kWh)',           en:'Previous (kWh)',         es:'Anterior (kWh)',          ru:'Предыдущее (кВт·ч)' },
+  atualKwh:           { pt:'Atual (kWh)',              en:'Current (kWh)',          es:'Actual (kWh)',            ru:'Текущее (кВт·ч)' },
+  tarifaKwh:          { pt:'Tarifa (R$/kWh)',          en:'Rate (R$/kWh)',          es:'Tarifa (R$/kWh)',         ru:'Тариф (R$/кВт·ч)' },
+  consumo:            { pt:'Consumo: ',                en:'Consumption: ',          es:'Consumo: ',               ru:'Потребление: ' },
+  estimado:           { pt:'Estimado: ',               en:'Estimated: ',            es:'Estimado: ',              ru:'Оценка: ' },
+  descricao:          { pt:'Descrição',                en:'Description',            es:'Descripción',             ru:'Описание' },
+  valorRS:            { pt:'Valor (R$)',               en:'Amount (R$)',            es:'Importe (R$)',            ru:'Сумма (R$)' },
+  competencia:        { pt:'Competência',              en:'Period',                 es:'Período',                 ru:'Период' },
+  vencimento:         { pt:'Vencimento',               en:'Due date',               es:'Vencimiento',             ru:'Срок оплаты' },
+  dataPagamento:      { pt:'Data pagamento',           en:'Payment date',           es:'Fecha de pago',           ru:'Дата оплаты' },
+  status:             { pt:'Status',                   en:'Status',                 es:'Estado',                  ru:'Статус' },
+  observacao:         { pt:'Observação',               en:'Note',                   es:'Observación',             ru:'Примечание' },
+  comprovanteNf:      { pt:'Comprovante / Nota fiscal', en:'Receipt / Invoice',     es:'Comprobante / Factura',   ru:'Квитанция / Счёт-фактура' },
+  substituirArquivo:  { pt:'Substituir arquivo',       en:'Replace file',           es:'Reemplazar archivo',      ru:'Заменить файл' },
+  uploadArquivoTxt:   { pt:'Upload arquivo',           en:'Upload file',            es:'Subir archivo',           ru:'Загрузить файл' },
+  ver:                { pt:'Ver ↗',                    en:'View ↗',                 es:'Ver ↗',                   ru:'Открыть ↗' },
+  salvarPagamento:    { pt:'Salvar pagamento',         en:'Save payment',           es:'Guardar pago',            ru:'Сохранить платёж' },
+
+  // Modal contrato
+  contratoAluguelTit: { pt:'Contrato de Aluguel',      en:'Lease Contract',         es:'Contrato de Alquiler',    ru:'Договор аренды' },
+  valorMensalReq:     { pt:'Valor mensal (R$) *',      en:'Monthly amount (R$) *',  es:'Importe mensual (R$) *',  ru:'Ежемесячная сумма (R$) *' },
+  diaVencto:          { pt:'Dia vencto.',              en:'Due day',                es:'Día vencto.',             ru:'День оплаты' },
+  inicioReq:          { pt:'Início *',                 en:'Start *',                es:'Inicio *',                ru:'Начало *' },
+  fim:                { pt:'Fim',                       en:'End',                    es:'Fin',                     ru:'Конец' },
+  proprietarioLocador:{ pt:'Proprietário / Locador',   en:'Owner / Lessor',         es:'Propietario / Arrendador', ru:'Владелец / Арендодатель' },
+  telefoneEmail:      { pt:'Telefone/Email',           en:'Phone/Email',            es:'Teléfono/Email',          ru:'Телефон/Эл. почта' },
+  indexador:          { pt:'Indexador',                en:'Index',                  es:'Indexador',               ru:'Индексация' },
+  fixo:               { pt:'Fixo',                     en:'Fixed',                  es:'Fijo',                    ru:'Фикс.' },
+  outro:              { pt:'Outro',                     en:'Other',                  es:'Otro',                    ru:'Другое' },
+  contratoDigitalizado:{ pt:'Contrato digitalizado',   en:'Scanned contract',       es:'Contrato digitalizado',   ru:'Скан договора' },
+  uploadPdf:          { pt:'Upload (PDF)',             en:'Upload (PDF)',           es:'Subir (PDF)',             ru:'Загрузить (PDF)' },
+  salvarContrato:     { pt:'Salvar contrato',          en:'Save contract',          es:'Guardar contrato',        ru:'Сохранить договор' },
+  preenchaValorInicio:{ pt:'Preencha valor e data de início', en:'Fill in amount and start date', es:'Complete importe y fecha de inicio', ru:'Заполните сумму и дату начала' },
+} satisfies Record<string, L>;
+
+// Rótulos traduzíveis dos tipos/status (icons/cores ficam nos *_META; só o texto muda)
+const TIPO_LOCAL_LABEL: Record<TipoLocal, L> = {
+  BASE_CARGA:           { pt:'Base de Carga',     en:'Charging Base',        es:'Base de Carga',        ru:'База зарядки' },
+  CENTRO_SERVICO:       { pt:'Centro de Serviço', en:'Service Center',       es:'Centro de Servicio',   ru:'Сервисный центр' },
+  DEPOSITO:             { pt:'Depósito',          en:'Warehouse',            es:'Depósito',             ru:'Склад' },
+  PONTO_REDISTRIBUICAO: { pt:'Redistribuição',    en:'Redistribution',       es:'Redistribución',       ru:'Перераспределение' },
+};
+
+const TIPO_PAG_LABEL: Record<TipoPagamento, L> = {
+  ALUGUEL:    { pt:'Aluguel',    en:'Rent',         es:'Alquiler',     ru:'Аренда' },
+  ENERGIA:    { pt:'Energia',    en:'Electricity',  es:'Energía',      ru:'Электроэнергия' },
+  AGUA:       { pt:'Água',       en:'Water',        es:'Agua',         ru:'Вода' },
+  INTERNET:   { pt:'Internet',   en:'Internet',     es:'Internet',     ru:'Интернет' },
+  CONDOMINIO: { pt:'Condomínio', en:'HOA fees',     es:'Comunidad',    ru:'Коммунальные' },
+  IPTU:       { pt:'IPTU',       en:'Property tax', es:'Impuesto predial', ru:'Налог на недвижимость' },
+  SEGURO:     { pt:'Seguro',     en:'Insurance',    es:'Seguro',       ru:'Страховка' },
+  MANUTENCAO: { pt:'Manutenção', en:'Maintenance',  es:'Mantenimiento', ru:'Обслуживание' },
+  OUTRO:      { pt:'Outro',      en:'Other',        es:'Otro',         ru:'Другое' },
+};
+
+const STATUS_PAG_LABEL: Record<StatusPagamento, L> = {
+  PAGO:      { pt:'Pago',      en:'Paid',      es:'Pagado',    ru:'Оплачено' },
+  PENDENTE:  { pt:'Pendente',  en:'Pending',   es:'Pendiente', ru:'В ожидании' },
+  ATRASADO:  { pt:'Atrasado',  en:'Overdue',   es:'Vencido',   ru:'Просрочено' },
+  CANCELADO: { pt:'Cancelado', en:'Cancelled', es:'Cancelado', ru:'Отменено' },
+};
 
 // ── TIPOS ──────────────────────────────────────────────────────────────────
 export type TipoLocal =
@@ -90,6 +221,14 @@ export function useLocaisOperacionais(cidade: string, pais: string) {
   const [locais, setLocais] = useState<LocalOperacional[]>([]);
   useEffect(() => {
     if (!cidade) return;
+    if (mapaProviderSupabase()) {
+      // Fase 2: locais do Supabase (carga única; filtra cidade no cliente).
+      let vivo = true;
+      carregarLocaisSupabase().then(rows => {
+        if (vivo) setLocais(rows.filter((r: any) => r.cidade === cidade) as LocalOperacional[]);
+      }).catch(() => {});
+      return () => { vivo = false; };
+    }
     const q = query(
       collection(db, 'locais_operacionais'),
       where('cidade', '==', cidade), where('pais', '==', pais)
@@ -140,6 +279,10 @@ export function LocalOperacionalModal({
   onFechar: () => void;
   showToast: (msg:string, type?:string) => void;
 }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: L) => o[lang] ?? o.pt;
+
   const [tipo,        setTipo]        = useState<TipoLocal>(editando?.tipo      || 'BASE_CARGA');
   const [nome,        setNome]        = useState(editando?.nome        || '');
   const [endereco,    setEndereco]    = useState(editando?.endereco    || '');
@@ -168,7 +311,7 @@ export function LocalOperacionalModal({
   };
 
   const salvar = async () => {
-    if (!nome.trim()) { showToast('Informe o nome do local', 'error'); return; }
+    if (!nome.trim()) { showToast(pick(T.informeNome), 'error'); return; }
     setBusy(true);
     try {
       const raw: Record<string,any> = {
@@ -183,20 +326,20 @@ export function LocalOperacionalModal({
       if (foto)        raw.foto        = foto;
       if (editando) {
         await updateDoc(doc(db, 'locais_operacionais', editando.id), raw);
-        showToast('Local atualizado', 'success');
+        showToast(pick(T.localAtualizado), 'success');
       } else {
         await addDoc(collection(db, 'locais_operacionais'), { ...raw, criadoEm: serverTimestamp() });
-        showToast('Local adicionado', 'success');
+        showToast(pick(T.localAdicionado), 'success');
       }
       onFechar();
-    } catch(e:any) { showToast('Erro: ' + e.message, 'error'); }
+    } catch(e:any) { showToast(pick(T.erro) + e.message, 'error'); }
     setBusy(false);
   };
 
   const excluir = async () => {
-    if (!editando || !confirm(`Excluir "${editando.nome}"?`)) return;
+    if (!editando || !confirm(`${pick(T.excluirConfirmA)}${editando.nome}${pick(T.excluirConfirmB)}`)) return;
     await deleteDoc(doc(db, 'locais_operacionais', editando.id));
-    showToast('Local removido', 'success');
+    showToast(pick(T.localRemovido), 'success');
     onFechar();
   };
 
@@ -217,7 +360,7 @@ export function LocalOperacionalModal({
         display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
         <div>
           <div style={{ fontSize:14, fontWeight:700, color:'#fff' }}>
-            {editando ? 'Editar local' : 'Novo local operacional'}
+            {editando ? pick(T.editarLocal) : pick(T.novoLocal)}
           </div>
           <div style={{ fontSize:11, color:'rgba(255,255,255,.4)', marginTop:2 }}>
             {latLng.lat.toFixed(5)}, {latLng.lng.toFixed(5)}
@@ -229,7 +372,7 @@ export function LocalOperacionalModal({
       <div style={{ flex:1, padding:'16px 20px', display:'flex', flexDirection:'column', gap:14, overflowY:'auto' }}>
         {/* Tipo */}
         <div>
-          <label style={lbl}>Tipo de local</label>
+          <label style={lbl}>{pick(T.tipoDeLocal)}</label>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
             {(Object.keys(TIPO_LOCAL_META) as TipoLocal[]).map(t => {
               const m = TIPO_LOCAL_META[t];
@@ -242,23 +385,23 @@ export function LocalOperacionalModal({
                   fontSize:12, fontWeight: tipo===t ? 700 : 400,
                   display:'flex', alignItems:'center', justifyContent:'center', gap:6,
                 }}>
-                  <span style={{ fontSize:16 }}>{m.icon}</span> {m.label}
+                  <span style={{ fontSize:16 }}>{m.icon}</span> {pick(TIPO_LOCAL_LABEL[t])}
                 </button>
               );
             })}
           </div>
         </div>
 
-        <div><label style={lbl}>Nome *</label>
+        <div><label style={lbl}>{pick(T.nomeReq)}</label>
           <input value={nome} onChange={e=>setNome(e.target.value)}
-            placeholder={`Ex: ${TIPO_LOCAL_META[tipo].label} Centro`} style={inp} /></div>
+            placeholder={`${pick(T.exNome)}${pick(TIPO_LOCAL_LABEL[tipo])}${pick(T.centroSuf)}`} style={inp} /></div>
 
-        <div><label style={lbl}>Endereço</label>
+        <div><label style={lbl}>{pick(T.endereco)}</label>
           <input value={endereco} onChange={e=>setEndereco(e.target.value)} style={inp} /></div>
 
         {/* Foto */}
         <div>
-          <label style={lbl}>Foto do local</label>
+          <label style={lbl}>{pick(T.fotoDoLocal)}</label>
           <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFotoChange} style={{ display:'none' }} />
           {fotoPreview && (
             <div style={{ marginBottom:10, borderRadius:8, overflow:'hidden', border:'1px solid rgba(255,255,255,.1)' }}>
@@ -269,28 +412,28 @@ export function LocalOperacionalModal({
             width:'100%', padding:'10px 12px', background:'rgba(96,165,250,.1)',
             border:'1px solid rgba(96,165,250,.3)', borderRadius:8, color:'#60a5fa',
             fontSize:13, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6,
-          }}>📷 {fotoPreview ? 'Alterar foto' : 'Adicionar foto'}</button>
+          }}>📷 {fotoPreview ? pick(T.alterarFoto) : pick(T.adicionarFoto)}</button>
         </div>
 
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-          <div><label style={lbl}>Capacidade (pat.)</label>
+          <div><label style={lbl}>{pick(T.capacidadePat)}</label>
             <input type="number" value={capacidade} onChange={e=>setCapacidade(e.target.value)} placeholder="50" style={inp} /></div>
-          <div><label style={lbl}>Horário</label>
+          <div><label style={lbl}>{pick(T.horario)}</label>
             <input value={horario} onChange={e=>setHorario(e.target.value)} placeholder="08:00–18:00" style={inp} /></div>
         </div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-          <div><label style={lbl}>Responsável</label>
+          <div><label style={lbl}>{pick(T.responsavel)}</label>
             <input value={responsavel} onChange={e=>setResponsavel(e.target.value)} style={inp} /></div>
-          <div><label style={lbl}>Telefone</label>
+          <div><label style={lbl}>{pick(T.telefone)}</label>
             <input value={telefone} onChange={e=>setTelefone(e.target.value)} style={inp} /></div>
         </div>
-        <div><label style={lbl}>Observações</label>
+        <div><label style={lbl}>{pick(T.observacoes)}</label>
           <textarea value={obs} onChange={e=>setObs(e.target.value)} rows={3}
             style={{ ...inp, resize:'vertical', minHeight:72 }} /></div>
 
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <input type="checkbox" checked={ativo} onChange={e=>setAtivo(e.target.checked)} style={{ width:16, height:16, cursor:'pointer' }} />
-          <label style={{ fontSize:13, color:'rgba(255,255,255,.6)', cursor:'pointer' }} onClick={() => setAtivo(v=>!v)}>Local ativo</label>
+          <label style={{ fontSize:13, color:'rgba(255,255,255,.6)', cursor:'pointer' }} onClick={() => setAtivo(v=>!v)}>{pick(T.localAtivo)}</label>
         </div>
       </div>
 
@@ -302,11 +445,11 @@ export function LocalOperacionalModal({
         )}
         <button onClick={onFechar} style={{ flex:1, padding:'11px', borderRadius:10,
           border:'1px solid rgba(255,255,255,.08)', background:'rgba(255,255,255,.04)',
-          color:'rgba(255,255,255,.5)', fontSize:13, cursor:'pointer' }}>Cancelar</button>
+          color:'rgba(255,255,255,.5)', fontSize:13, cursor:'pointer' }}>{pick(T.cancelar)}</button>
         <button onClick={salvar} disabled={busy} style={{ flex:2, padding:'11px', borderRadius:10, border:'none',
           background: busy?'rgba(96,165,250,.3)':'linear-gradient(135deg,#1a6fd4,#307FE2)',
           color:'#fff', fontSize:13, fontWeight:700, cursor: busy?'not-allowed':'pointer' }}>
-          {busy ? 'Salvando...' : editando ? 'Salvar' : 'Adicionar'}
+          {busy ? pick(T.salvando) : editando ? pick(T.salvar) : pick(T.adicionar)}
         </button>
       </div>
     </div>
@@ -321,6 +464,10 @@ interface FinanceiroProps {
 }
 
 export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }: FinanceiroProps) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: L) => o[lang] ?? o.pt;
+
   const locais   = useLocaisOperacionais(cidade, pais);
   const isGestor = ['admin','gestor'].includes(roleUsuario);
 
@@ -360,9 +507,9 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
         <div style={{ padding:'13px 18px', borderBottom:'1px solid rgba(255,255,255,.07)',
           display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <div>
-            <div style={{ fontSize:15, fontWeight:700, color:'#dce8ff' }}>🏭 Locais & Financeiro</div>
+            <div style={{ fontSize:15, fontWeight:700, color:'#dce8ff' }}>🏭 {pick(T.tituloPainel)}</div>
             <div style={{ fontSize:10, color:'#4a5a7a', marginTop:2 }}>
-              {cidade} · {locais.length} local{locais.length!==1?'is':''}
+              {cidade} · {locais.length} {locais.length!==1?pick(T.localPlural):pick(T.localSingular)}
             </div>
           </div>
           <button onClick={onFechar}
@@ -371,7 +518,7 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
 
         {/* Abas */}
         <div style={{ display:'flex', borderBottom:'1px solid rgba(255,255,255,.06)', flexShrink:0 }}>
-          {([['locais','🏭 Locais'],['financeiro','💳 Financeiro'],['relatorio','📊 Relatório']] as [string,string][]).map(([k,l])=>(
+          {([['locais','🏭 '+pick(T.abaLocais)],['financeiro','💳 '+pick(T.abaFinanceiro)],['relatorio','📊 '+pick(T.abaRelatorio)]] as [string,string][]).map(([k,l])=>(
             <button key={k} onClick={()=>setAba(k as any)} style={{
               flex:1, padding:'10px', border:'none', cursor:'pointer', background:'transparent',
               fontSize:12, fontWeight:600,
@@ -391,7 +538,7 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
               {locais.filter(l=>l.ativo).length===0 ? (
                 <div style={{ padding:32, textAlign:'center', color:'#4a5a7a' }}>
                   <div style={{ fontSize:36, marginBottom:10 }}>🏭</div>
-                  <div style={{ fontSize:13 }}>Clique no mapa (FAB 📍) para adicionar locais</div>
+                  <div style={{ fontSize:13 }}>{pick(T.cliqueMapa)}</div>
                 </div>
               ) : locais.filter(l=>l.ativo).map(local=>{
                 const m   = TIPO_LOCAL_META[local.tipo];
@@ -412,7 +559,7 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
                         <div>
                           <div style={{ fontSize:13, fontWeight:700, color:'#dce8ff' }}>{local.nome}</div>
                           <div style={{ fontSize:10, color:'#4a5a7a', marginTop:2 }}>
-                            {m.label}{local.responsavel ? ' · '+local.responsavel : ''}
+                            {pick(TIPO_LOCAL_LABEL[local.tipo])}{local.responsavel ? ' · '+local.responsavel : ''}
                           </div>
                           {local.endereco && (
                             <div style={{ fontSize:10, color:'rgba(255,255,255,.25)', marginTop:1,
@@ -425,7 +572,7 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
                       {local.capacidade ? (
                         <div style={{ fontSize:10, color:m.color, background:m.bgColor,
                           padding:'3px 8px', borderRadius:10, flexShrink:0 }}>
-                          {local.capacidade} un.
+                          {local.capacidade} {pick(T.un)}
                         </div>
                       ) : null}
                     </div>
@@ -448,18 +595,18 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
                         <button onClick={e=>{e.stopPropagation();setAba('financeiro');setNovoPag(true);}}
                           style={{ flex:1, padding:'7px', borderRadius:8, cursor:'pointer', fontSize:11, fontWeight:600,
                             background:'rgba(74,222,128,.1)', border:'1px solid rgba(74,222,128,.2)', color:'#4ade80' }}>
-                          💳 Novo pagamento
+                          💳 {pick(T.novoPagamento)}
                         </button>
                         <button onClick={e=>{e.stopPropagation();setAba('financeiro');}}
                           style={{ flex:1, padding:'7px', borderRadius:8, cursor:'pointer', fontSize:11, fontWeight:600,
                             background:'rgba(59,130,246,.1)', border:'1px solid rgba(59,130,246,.2)', color:'#60a5fa' }}>
-                          📋 Financeiro
+                          📋 {pick(T.financeiroBtn)}
                         </button>
                         {isGestor && (
                           <button onClick={e=>{e.stopPropagation();setAba('financeiro');setNovoContr(true);}}
                             style={{ flex:1, padding:'7px', borderRadius:8, cursor:'pointer', fontSize:11, fontWeight:600,
                               background:'rgba(139,92,246,.1)', border:'1px solid rgba(139,92,246,.2)', color:'#a78bfa' }}>
-                            📄 Contrato
+                            📄 {pick(T.contrato)}
                           </button>
                         )}
                       </div>
@@ -486,7 +633,7 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
                   </button>
                 ))}
                 {locais.filter(l=>l.ativo).length===0 && (
-                  <div style={{ fontSize:11, color:'#4a5a7a' }}>Adicione um local no mapa primeiro</div>
+                  <div style={{ fontSize:11, color:'#4a5a7a' }}>{pick(T.adicioneLocalMapa)}</div>
                 )}
               </div>
 
@@ -501,7 +648,7 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
                       <button onClick={()=>setNovoPag(true)}
                         style={{ padding:'6px 14px', borderRadius:8, cursor:'pointer', fontSize:11, fontWeight:600,
                           background:'rgba(74,222,128,.15)', border:'1px solid rgba(74,222,128,.3)', color:'#4ade80' }}>
-                        + Pagamento
+                        {pick(T.maisPagamento)}
                       </button>
                     )}
                   </div>
@@ -509,9 +656,9 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
                   {/* Totais */}
                   <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, padding:'12px 14px' }}>
                     {[
-                      { label:'Pago',     v:totalPago,     c:'#4ade80' },
-                      { label:'Pendente', v:totalPendente, c:'#fbbf24' },
-                      { label:'Atrasado', v:totalAtrasado, c:'#f87171' },
+                      { label:pick(T.pago),     v:totalPago,     c:'#4ade80' },
+                      { label:pick(T.pendente), v:totalPendente, c:'#fbbf24' },
+                      { label:pick(T.atrasado), v:totalAtrasado, c:'#f87171' },
                     ].map(({label,v,c})=>(
                       <div key={label} style={{ background:'rgba(255,255,255,.04)', borderRadius:10,
                         padding:'10px 12px', border:'1px solid rgba(255,255,255,.06)' }}>
@@ -524,20 +671,20 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
                   {/* Contratos */}
                   {contratos.length>0 && (
                     <div style={{ padding:'0 14px 12px' }}>
-                      <div style={{ fontSize:10, color:'#4a5a7a', fontWeight:600, letterSpacing:'.06em', marginBottom:6 }}>📄 CONTRATOS</div>
+                      <div style={{ fontSize:10, color:'#4a5a7a', fontWeight:600, letterSpacing:'.06em', marginBottom:6 }}>📄 {pick(T.contratosCab)}</div>
                       {contratos.map(c=>(
                         <div key={c.id} style={{ padding:'10px 12px', borderRadius:8, marginBottom:6,
                           background:'rgba(139,92,246,.08)', border:'1px solid rgba(139,92,246,.2)',
                           display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                           <div>
-                            <div style={{ fontSize:12, fontWeight:600, color:'#c4b5fd' }}>🏠 Contrato de Aluguel</div>
+                            <div style={{ fontSize:12, fontWeight:600, color:'#c4b5fd' }}>🏠 {pick(T.contratoAluguel)}</div>
                             <div style={{ fontSize:10, color:'#4a5a7a', marginTop:2 }}>
-                              {fmtBRL(c.valor)}/mês · dia {c.diaVencimento}
+                              {fmtBRL(c.valor)}{pick(T.porMes)}{c.diaVencimento}
                               {c.proprietario ? ' · '+c.proprietario : ''}
                               {c.indexador ? ' · '+c.indexador : ''}
                             </div>
                             <div style={{ fontSize:10, color:'#4a5a7a' }}>
-                              {c.dataInicio}{c.dataFim?' até '+c.dataFim:''}
+                              {c.dataInicio}{c.dataFim?pick(T.ate)+c.dataFim:''}
                             </div>
                           </div>
                           {c.docUrl && (
@@ -554,11 +701,11 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
                   {/* Pagamentos */}
                   <div style={{ padding:'0 14px 24px' }}>
                     <div style={{ fontSize:10, color:'#4a5a7a', fontWeight:600, letterSpacing:'.06em', marginBottom:8 }}>
-                      💳 PAGAMENTOS · {mesAtual}
+                      💳 {pick(T.pagamentosCab)}{mesAtual}
                     </div>
                     {pagsFilt.length===0 ? (
                       <div style={{ padding:20, textAlign:'center', color:'#4a5a7a', fontSize:12 }}>
-                        Nenhum pagamento em {mesAtual}
+                        {pick(T.nenhumPagEm)}{mesAtual}
                       </div>
                     ) : pagsFilt.map(p=>{
                       const tm = TIPO_PAG_META[p.tipo];
@@ -574,17 +721,17 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
                           </div>
                           <div style={{ flex:1, minWidth:0 }}>
                             <div style={{ fontSize:12, fontWeight:600, color:'#dce8ff' }}>
-                              {p.descricao||tm.label}
+                              {p.descricao||pick(TIPO_PAG_LABEL[p.tipo])}
                             </div>
                             <div style={{ fontSize:10, color:'#4a5a7a', marginTop:1 }}>
-                              Vence: {p.dataVencimento}
+                              {pick(T.vence)}{p.dataVencimento}
                               {p.leituraAtual&&p.leituraAnterior ? ` · ${p.leituraAtual-p.leituraAnterior} kWh` : ''}
                             </div>
                           </div>
                           <div style={{ flexShrink:0, textAlign:'right' }}>
                             <div style={{ fontSize:13, fontWeight:700, color:'#dce8ff' }}>{fmtBRL(p.valor)}</div>
                             <div style={{ fontSize:10, padding:'2px 8px', borderRadius:10, marginTop:3,
-                              background:sm.bg, color:sm.cor, fontWeight:600 }}>{sm.label}</div>
+                              background:sm.bg, color:sm.cor, fontWeight:600 }}>{pick(STATUS_PAG_LABEL[p.status])}</div>
                           </div>
                           <div style={{ display:'flex', flexDirection:'column', gap:4, flexShrink:0 }}>
                             {p.comprovanteUrl && (
@@ -614,10 +761,10 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
             <div style={{ padding:16 }}>
               <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:14 }}>
                 <input type="month" value={mesAtual} onChange={e=>setMesAtual(e.target.value)} style={inp2} />
-                <div style={{ fontSize:11, color:'#4a5a7a' }}>Todos os locais · {cidade}</div>
+                <div style={{ fontSize:11, color:'#4a5a7a' }}>{pick(T.todosLocais)}{cidade}</div>
               </div>
               {locais.filter(l=>l.ativo).length===0 ? (
-                <div style={{ textAlign:'center', color:'#4a5a7a', fontSize:12, padding:32 }}>Nenhum local cadastrado</div>
+                <div style={{ textAlign:'center', color:'#4a5a7a', fontSize:12, padding:32 }}>{pick(T.nenhumLocalCad)}</div>
               ) : locais.filter(l=>l.ativo).map(local=>(
                 <ResumoLocalRow key={local.id} local={local} mesAtual={mesAtual} fmtBRL={fmtBRL} />
               ))}
@@ -645,6 +792,10 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
 function ResumoLocalRow({ local, mesAtual, fmtBRL }: {
   local: LocalOperacional; mesAtual: string; fmtBRL:(v:number)=>string;
 }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: L) => o[lang] ?? o.pt;
+
   const pags  = usePagamentos(local.id);
   const pFilt = pags.filter(p=>p.competencia===mesAtual);
   const total = pFilt.reduce((s,p)=>s+p.valor,0);
@@ -658,12 +809,12 @@ function ResumoLocalRow({ local, mesAtual, fmtBRL }: {
           <span style={{ fontSize:16 }}>{m.icon}</span>
           <div>
             <div style={{ fontSize:12, fontWeight:700, color:'#dce8ff' }}>{local.nome}</div>
-            <div style={{ fontSize:10, color:'#4a5a7a' }}>{m.label}</div>
+            <div style={{ fontSize:10, color:'#4a5a7a' }}>{pick(TIPO_LOCAL_LABEL[local.tipo])}</div>
           </div>
         </div>
         <div style={{ textAlign:'right' }}>
           <div style={{ fontSize:13, fontWeight:700, color:'#dce8ff' }}>{fmtBRL(total)}</div>
-          <div style={{ fontSize:10, color:'#4ade80' }}>{fmtBRL(pago)} pago</div>
+          <div style={{ fontSize:10, color:'#4ade80' }}>{fmtBRL(pago)}{pick(T.pagoSuf)}</div>
         </div>
       </div>
       <div style={{ display:'flex', gap:4, flexWrap:'wrap' as const }}>
@@ -687,6 +838,10 @@ function ResumoLocalRow({ local, mesAtual, fmtBRL }: {
 function ModalPagamento({ localId, mesAtual, editando, onFechar }:{
   localId:string; mesAtual:string; editando?:Pagamento|null; onFechar:()=>void;
 }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: L) => o[lang] ?? o.pt;
+
   const [tipo,       setTipo]       = useState<TipoPagamento>(editando?.tipo||'ALUGUEL');
   const [descricao,  setDescricao]  = useState(editando?.descricao||'');
   const [valor,      setValor]      = useState(String(editando?.valor||''));
@@ -728,7 +883,7 @@ function ModalPagamento({ localId, mesAtual, editando, onFechar }:{
       if (editando) await updateDoc(doc(collection(db,'pagamentos_locais'),editando.id), dados as any);
       else          await addDoc(collection(db,'pagamentos_locais'), dados);
       onFechar();
-    } catch(e:any) { alert('Erro: '+e.message); }
+    } catch(e:any) { alert(pick(T.erro)+e.message); }
     setBusy(false);
   };
 
@@ -740,12 +895,12 @@ function ModalPagamento({ localId, mesAtual, editando, onFechar }:{
         border:'1px solid rgba(255,255,255,.08)', borderRadius:'16px 16px 0 0',
         padding:20, maxHeight:'88vh', overflowY:'auto' }}>
         <div style={{ fontSize:14, fontWeight:700, color:'#dce8ff', marginBottom:14 }}>
-          {editando?'✏️ Editar pagamento':'💳 Novo pagamento'}
+          {editando?'✏️ '+pick(T.editarPagamento):'💳 '+pick(T.novoPagamentoTit)}
         </div>
 
         {/* Tipo */}
         <div style={{ marginBottom:12 }}>
-          <div style={{ fontSize:10, color:'#4a5a7a', marginBottom:6 }}>Tipo</div>
+          <div style={{ fontSize:10, color:'#4a5a7a', marginBottom:6 }}>{pick(T.tipo)}</div>
           <div style={{ display:'flex', gap:5, flexWrap:'wrap' as const }}>
             {(Object.keys(TIPO_PAG_META) as TipoPagamento[]).map(k=>{
               const m=TIPO_PAG_META[k];
@@ -755,7 +910,7 @@ function ModalPagamento({ localId, mesAtual, editando, onFechar }:{
                     background: tipo===k?m.cor+'22':'rgba(255,255,255,.04)',
                     border:`1px solid ${tipo===k?m.cor+'44':'rgba(255,255,255,.08)'}`,
                     color: tipo===k?m.cor:'rgba(255,255,255,.5)', fontWeight:tipo===k?600:400 }}>
-                  {m.icon} {m.label}
+                  {m.icon} {pick(TIPO_PAG_LABEL[k])}
                 </button>
               );
             })}
@@ -766,66 +921,66 @@ function ModalPagamento({ localId, mesAtual, editando, onFechar }:{
         {tipo==='ENERGIA' && (
           <div style={{ background:'rgba(245,158,11,.06)', border:'1px solid rgba(245,158,11,.2)',
             borderRadius:10, padding:'12px', marginBottom:12 }}>
-            <div style={{ fontSize:11, color:'#fbbf24', fontWeight:600, marginBottom:8 }}>⚡ Medição do relógio</div>
+            <div style={{ fontSize:11, color:'#fbbf24', fontWeight:600, marginBottom:8 }}>⚡ {pick(T.medicaoRelogio)}</div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
               <div>
-                <label style={{ fontSize:9, color:'#4a5a7a', display:'block', marginBottom:3 }}>Anterior (kWh)</label>
+                <label style={{ fontSize:9, color:'#4a5a7a', display:'block', marginBottom:3 }}>{pick(T.anteriorKwh)}</label>
                 <input value={leitAnt} onChange={e=>setLeitAnt(e.target.value)} type="number" style={inp} />
               </div>
               <div>
-                <label style={{ fontSize:9, color:'#4a5a7a', display:'block', marginBottom:3 }}>Atual (kWh)</label>
+                <label style={{ fontSize:9, color:'#4a5a7a', display:'block', marginBottom:3 }}>{pick(T.atualKwh)}</label>
                 <input value={leitAt}  onChange={e=>setLeitAt(e.target.value)}  type="number" style={inp} />
               </div>
               <div>
-                <label style={{ fontSize:9, color:'#4a5a7a', display:'block', marginBottom:3 }}>Tarifa (R$/kWh)</label>
+                <label style={{ fontSize:9, color:'#4a5a7a', display:'block', marginBottom:3 }}>{pick(T.tarifaKwh)}</label>
                 <input value={tarifa}  onChange={e=>setTarifa(e.target.value)}  type="number" step="0.01" style={inp} />
               </div>
             </div>
             {kwh>0 && (
               <div style={{ marginTop:8, fontSize:11, color:'#fbbf24' }}>
-                Consumo: <b>{kwh} kWh</b>
-                {vCalc!==null && <> · Estimado: <b>R$ {vCalc.toFixed(2)}</b></>}
+                {pick(T.consumo)}<b>{kwh} kWh</b>
+                {vCalc!==null && <> · {pick(T.estimado)}<b>R$ {vCalc.toFixed(2)}</b></>}
               </div>
             )}
           </div>
         )}
 
         <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-          <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>Descrição</label>
-            <input value={descricao} onChange={e=>setDescricao(e.target.value)} placeholder={TIPO_PAG_META[tipo].label} style={inp} /></div>
+          <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.descricao)}</label>
+            <input value={descricao} onChange={e=>setDescricao(e.target.value)} placeholder={pick(TIPO_PAG_LABEL[tipo])} style={inp} /></div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>Valor (R$)</label>
+            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.valorRS)}</label>
               <input value={vCalc!==null?vCalc.toFixed(2):valor} onChange={e=>setValor(e.target.value)}
                 type="number" step="0.01" readOnly={vCalc!==null} style={{ ...inp, opacity:vCalc!==null?0.7:1 }} /></div>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>Competência</label>
+            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.competencia)}</label>
               <input value={comp} onChange={e=>setComp(e.target.value)} type="month" style={inp} /></div>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>Vencimento</label>
+            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.vencimento)}</label>
               <input value={venc} onChange={e=>setVenc(e.target.value)} type="date" style={inp} /></div>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>Data pagamento</label>
+            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.dataPagamento)}</label>
               <input value={pago} onChange={e=>setPago(e.target.value)} type="date" style={inp} /></div>
           </div>
-          <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>Status</label>
+          <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.status)}</label>
             <select value={status} onChange={e=>setStatus(e.target.value as StatusPagamento)} style={{ ...inp, cursor:'pointer' }}>
               {(Object.keys(STATUS_PAG) as StatusPagamento[]).map(k=>(
-                <option key={k} value={k}>{STATUS_PAG[k].label}</option>
+                <option key={k} value={k}>{pick(STATUS_PAG_LABEL[k])}</option>
               ))}
             </select></div>
-          <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>Observação</label>
+          <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.observacao)}</label>
             <input value={obs} onChange={e=>setObs(e.target.value)} style={inp} /></div>
           <div>
-            <label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:6 }}>📎 Comprovante / Nota fiscal</label>
+            <label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:6 }}>📎 {pick(T.comprovanteNf)}</label>
             <label style={{ display:'inline-flex', alignItems:'center', gap:6, cursor:'pointer',
               padding:'7px 14px', borderRadius:8, background:'rgba(255,255,255,.06)',
               border:'1px solid rgba(255,255,255,.1)', color:'rgba(255,255,255,.6)', fontSize:11 }}>
-              📤 {compFile?compFile.name:(editando?.comprovanteUrl?'Substituir arquivo':'Upload arquivo')}
+              📤 {compFile?compFile.name:(editando?.comprovanteUrl?pick(T.substituirArquivo):pick(T.uploadArquivoTxt))}
               <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display:'none' }}
                 onChange={e=>setCompFile(e.target.files?.[0]||null)} />
             </label>
             {editando?.comprovanteUrl&&!compFile && (
               <a href={editando.comprovanteUrl} target="_blank" rel="noreferrer"
-                style={{ marginLeft:8, fontSize:11, color:'#60a5fa' }}>Ver ↗</a>
+                style={{ marginLeft:8, fontSize:11, color:'#60a5fa' }}>{pick(T.ver)}</a>
             )}
           </div>
         </div>
@@ -833,12 +988,12 @@ function ModalPagamento({ localId, mesAtual, editando, onFechar }:{
         <div style={{ display:'flex', gap:8, marginTop:16 }}>
           <button onClick={onFechar} style={{ flex:1, padding:'10px', borderRadius:10, cursor:'pointer',
             background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.1)',
-            color:'rgba(255,255,255,.5)', fontSize:12 }}>Cancelar</button>
+            color:'rgba(255,255,255,.5)', fontSize:12 }}>{pick(T.cancelar)}</button>
           <button onClick={salvar} disabled={busy} style={{ flex:2, padding:'10px', borderRadius:10,
             cursor:busy?'not-allowed':'pointer',
             background:busy?'rgba(74,222,128,.3)':'linear-gradient(135deg,#065f46,#059669)',
             border:'none', color:'#fff', fontSize:12, fontWeight:700 }}>
-            {busy?'Salvando...':'💾 Salvar pagamento'}
+            {busy?pick(T.salvando):'💾 '+pick(T.salvarPagamento)}
           </button>
         </div>
       </div>
@@ -848,6 +1003,10 @@ function ModalPagamento({ localId, mesAtual, editando, onFechar }:{
 
 // ── MODAL CONTRATO ─────────────────────────────────────────────────────────
 function ModalContrato({ localId, onFechar }:{ localId:string; onFechar:()=>void }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: L) => o[lang] ?? o.pt;
+
   const [valor,        setValor]        = useState('');
   const [dia,          setDia]          = useState('5');
   const [dataInicio,   setDataInicio]   = useState('');
@@ -866,7 +1025,7 @@ function ModalContrato({ localId, onFechar }:{ localId:string; onFechar:()=>void
   };
 
   const salvar = async () => {
-    if (!valor||!dataInicio) { alert('Preencha valor e data de início'); return; }
+    if (!valor||!dataInicio) { alert(pick(T.preenchaValorInicio)); return; }
     setBusy(true);
     try {
       let docUrl = '';
@@ -877,7 +1036,7 @@ function ModalContrato({ localId, onFechar }:{ localId:string; onFechar:()=>void
         indexador, status:'ATIVO', observacao:obs, docUrl, criadoEm:new Date().toISOString(),
       });
       onFechar();
-    } catch(e:any) { alert('Erro: '+e.message); }
+    } catch(e:any) { alert(pick(T.erro)+e.message); }
     setBusy(false);
   };
 
@@ -888,39 +1047,41 @@ function ModalContrato({ localId, onFechar }:{ localId:string; onFechar:()=>void
       <div style={{ width:'100%', maxWidth:440, background:'#0d1521',
         border:'1px solid rgba(139,92,246,.2)', borderRadius:16, padding:20,
         maxHeight:'90vh', overflowY:'auto' }}>
-        <div style={{ fontSize:14, fontWeight:700, color:'#c4b5fd', marginBottom:16 }}>📄 Contrato de Aluguel</div>
+        <div style={{ fontSize:14, fontWeight:700, color:'#c4b5fd', marginBottom:16 }}>📄 {pick(T.contratoAluguelTit)}</div>
         <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
           <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:8 }}>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>Valor mensal (R$) *</label>
+            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.valorMensalReq)}</label>
               <input value={valor} onChange={e=>setValor(e.target.value)} type="number" step="0.01" style={{ ...inp, width:'100%' }} /></div>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>Dia vencto.</label>
+            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.diaVencto)}</label>
               <input value={dia} onChange={e=>setDia(e.target.value)} type="number" min="1" max="31" style={{ ...inp, width:'100%' }} /></div>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>Início *</label>
+            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.inicioReq)}</label>
               <input value={dataInicio} onChange={e=>setDataInicio(e.target.value)} type="date" style={{ ...inp, width:'100%' }} /></div>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>Fim</label>
+            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.fim)}</label>
               <input value={dataFim} onChange={e=>setDataFim(e.target.value)} type="date" style={{ ...inp, width:'100%' }} /></div>
           </div>
-          <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>Proprietário / Locador</label>
+          <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.proprietarioLocador)}</label>
             <input value={proprietario} onChange={e=>setProprietario(e.target.value)} style={inp} /></div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>Telefone/Email</label>
+            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.telefoneEmail)}</label>
               <input value={contato} onChange={e=>setContato(e.target.value)} style={{ ...inp, width:'100%' }} /></div>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>Indexador</label>
+            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.indexador)}</label>
               <select value={indexador} onChange={e=>setIndexador(e.target.value)} style={{ ...inp, width:'100%', cursor:'pointer' }}>
-                {['IGPM','IPCA','INPC','IVAR','Fixo','Outro'].map(i=><option key={i}>{i}</option>)}
+                {['IGPM','IPCA','INPC','IVAR','Fixo','Outro'].map(i=>(
+                  <option key={i} value={i}>{i==='Fixo'?pick(T.fixo):i==='Outro'?pick(T.outro):i}</option>
+                ))}
               </select></div>
           </div>
-          <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>Observações</label>
+          <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.observacoes)}</label>
             <textarea value={obs} onChange={e=>setObs(e.target.value)} rows={2}
               style={{ ...inp, resize:'none' }} /></div>
           <div>
-            <label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:6 }}>📎 Contrato digitalizado</label>
+            <label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:6 }}>📎 {pick(T.contratoDigitalizado)}</label>
             <label style={{ display:'inline-flex', alignItems:'center', gap:6, cursor:'pointer',
               padding:'7px 14px', borderRadius:8, background:'rgba(139,92,246,.08)',
               border:'1px solid rgba(139,92,246,.2)', color:'#a78bfa', fontSize:11 }}>
-              📤 {docFile?docFile.name:'Upload (PDF)'}
+              📤 {docFile?docFile.name:pick(T.uploadPdf)}
               <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display:'none' }}
                 onChange={e=>setDocFile(e.target.files?.[0]||null)} />
             </label>
@@ -929,12 +1090,12 @@ function ModalContrato({ localId, onFechar }:{ localId:string; onFechar:()=>void
         <div style={{ display:'flex', gap:8, marginTop:16 }}>
           <button onClick={onFechar} style={{ flex:1, padding:'10px', borderRadius:10, cursor:'pointer',
             background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.1)',
-            color:'rgba(255,255,255,.5)', fontSize:12 }}>Cancelar</button>
+            color:'rgba(255,255,255,.5)', fontSize:12 }}>{pick(T.cancelar)}</button>
           <button onClick={salvar} disabled={busy} style={{ flex:2, padding:'10px', borderRadius:10,
             cursor:busy?'not-allowed':'pointer',
             background:busy?'rgba(139,92,246,.3)':'linear-gradient(135deg,#5b21b6,#7c3aed)',
             border:'none', color:'#fff', fontSize:12, fontWeight:700 }}>
-            {busy?'Salvando...':'💾 Salvar contrato'}
+            {busy?pick(T.salvando):'💾 '+pick(T.salvarContrato)}
           </button>
         </div>
       </div>

@@ -24,6 +24,7 @@ const TOPICOS_META = [
   { id: 'locais-logisticos',icone: '🏭',  roles: ['admin','gestor','supergestor'] },
   { id: 'pois',             icone: '🔍',  roles: ['admin','gestor','supergestor'] },
   { id: 'instalar-pwa',     icone: '📲',  roles: ['admin','gestor','gestor_log','supergestor','gestor_seg','campo','guard','viewer','logistica'] },
+  { id: 'privacidade',      icone: '🔒',  roles: ['admin','gestor','gestor_log','supergestor','gestor_seg','campo','guard','viewer','logistica','prestador'] },
 ];
 
 const TOPICOS_FIXOS: Record<string, {

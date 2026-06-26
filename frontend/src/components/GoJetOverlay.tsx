@@ -11,6 +11,7 @@
 //   🔗 Criar tarefa rápida ao clicar no parking
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { doc, getDoc, getDocs, collection, query, where, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { fnScraperGoJetManual } from '../lib/firebase';
@@ -124,6 +125,163 @@ interface Props {
   gestorUid?: string;
   gestorNome?: string;
 }
+
+// ─── i18n — padrão TermosUsoGate (objeto T por idioma, sem chaves json) ────────
+// PT é a fonte fiel; en/es/ru naturais. NÃO traduzir códigos/nomes de dados.
+type Lang = 'pt' | 'en' | 'es' | 'ru';
+type Tr = { pt: string; en: string; es: string; ru: string };
+
+const T = {
+  // Aviso "não configurado"
+  naoConfigTitulo: { pt: '🛴 GoJet não configurado', en: '🛴 GoJet not configured', es: '🛴 GoJet no configurado', ru: '🛴 GoJet не настроен' } as Tr,
+  naoConfigHint: {
+    pt: (c: string) => `Adicione o doc gojet_config/${c} com o campo cityId no Firestore para ativar o mapa ao vivo.`,
+    en: (c: string) => `Add the doc gojet_config/${c} with the cityId field in Firestore to enable the live map.`,
+    es: (c: string) => `Agregue el doc gojet_config/${c} con el campo cityId en Firestore para activar el mapa en vivo.`,
+    ru: (c: string) => `Добавьте документ gojet_config/${c} с полем cityId в Firestore, чтобы включить карту в реальном времени.`,
+  },
+  // Erros
+  errNaoConfig: {
+    pt: (c: string) => `GoJet não configurado para "${c}". Adicione um doc em gojet_config/${c} com campo cityId.`,
+    en: (c: string) => `GoJet not configured for "${c}". Add a doc at gojet_config/${c} with a cityId field.`,
+    es: (c: string) => `GoJet no configurado para "${c}". Agregue un doc en gojet_config/${c} con el campo cityId.`,
+    ru: (c: string) => `GoJet не настроен для «${c}». Добавьте документ gojet_config/${c} с полем cityId.`,
+  },
+  errBuscarConfig: { pt: 'Erro ao buscar config GoJet', en: 'Error loading GoJet config', es: 'Error al cargar config de GoJet', ru: 'Ошибка загрузки конфигурации GoJet' } as Tr,
+  errSnapshotInexistente: {
+    pt: 'Snapshot ainda não existe para esta cidade. Clique em "Atualizar agora" para gerar.',
+    en: 'Snapshot does not exist yet for this city. Click "Refresh now" to generate it.',
+    es: 'El snapshot aún no existe para esta ciudad. Haz clic en "Actualizar ahora" para generarlo.',
+    ru: 'Снимок для этого города ещё не создан. Нажмите «Обновить сейчас», чтобы создать его.',
+  } as Tr,
+  errLerSnapshot: { pt: 'Erro ao ler snapshot GoJet', en: 'Error reading GoJet snapshot', es: 'Error al leer el snapshot de GoJet', ru: 'Ошибка чтения снимка GoJet' } as Tr,
+  errAtualizar: { pt: 'Erro ao atualizar: ', en: 'Error refreshing: ', es: 'Error al actualizar: ', ru: 'Ошибка обновления: ' } as Tr,
+  errCriarTarefas: { pt: 'Erro ao criar tarefas: ', en: 'Error creating tasks: ', es: 'Error al crear tareas: ', ru: 'Ошибка создания задач: ' } as Tr,
+  // Descrição de tarefa gerada
+  descTarefa: {
+    pt: (nome: string, mLevel: string, avail: number, target: number, deficit: number) => `Ponto ${nome} (${mLevel}) com ${avail}/${target} disponíveis. Déficit: ${deficit} patinetes.`,
+    en: (nome: string, mLevel: string, avail: number, target: number, deficit: number) => `Station ${nome} (${mLevel}) with ${avail}/${target} available. Deficit: ${deficit} scooters.`,
+    es: (nome: string, mLevel: string, avail: number, target: number, deficit: number) => `Punto ${nome} (${mLevel}) con ${avail}/${target} disponibles. Déficit: ${deficit} patinetes.`,
+    ru: (nome: string, mLevel: string, avail: number, target: number, deficit: number) => `Точка ${nome} (${mLevel}): доступно ${avail}/${target}. Дефицит: ${deficit} самокатов.`,
+  },
+  // Status de bike (popup parking — labels curtos)
+  stAvailableShort: { pt: 'Disponível', en: 'Available', es: 'Disponible', ru: 'Доступен' } as Tr,
+  stRentingShort: { pt: 'Aluguel', en: 'Renting', es: 'Alquiler', ru: 'Аренда' } as Tr,
+  stReservedShort: { pt: 'Reservado', en: 'Reserved', es: 'Reservado', ru: 'Зарезервирован' } as Tr,
+  stLowBattShort: { pt: 'Bat. baixa', en: 'Low batt.', es: 'Bat. baja', ru: 'Низкий заряд' } as Tr,
+  stMaintenanceShort: { pt: 'Manutenção', en: 'Maintenance', es: 'Mantenimiento', ru: 'Обслуживание' } as Tr,
+  stWorkshopShort: { pt: 'Oficina', en: 'Workshop', es: 'Taller', ru: 'Мастерская' } as Tr,
+  // Status de bike (popup bike — labels longos)
+  stRentingLong: { pt: 'Em aluguel', en: 'Renting', es: 'En alquiler', ru: 'В аренде' } as Tr,
+  stLowBattLong: { pt: 'Bateria baixa', en: 'Low battery', es: 'Batería baja', ru: 'Низкий заряд батареи' } as Tr,
+  // Popups
+  nenhumPatinete: { pt: 'Nenhum patinete neste ponto', en: 'No scooters at this station', es: 'Ningún patinete en este punto', ru: 'Нет самокатов на этой точке' } as Tr,
+  maisLabel: { pt: (n: number) => `+${n} mais`, en: (n: number) => `+${n} more`, es: (n: number) => `+${n} más`, ru: (n: number) => `+${n} ещё` },
+  total: { pt: 'total', en: 'total', es: 'total', ru: 'всего' } as Tr,
+  disponiveisLower: { pt: 'disponíveis', en: 'available', es: 'disponibles', ru: 'доступно' } as Tr,
+  target: { pt: 'target', en: 'target', es: 'objetivo', ru: 'цель' } as Tr,
+  faltam: {
+    pt: (n: number) => `⚠️ Faltam ${n} patinete${n > 1 ? 's' : ''}`,
+    en: (n: number) => `⚠️ Missing ${n} scooter${n > 1 ? 's' : ''}`,
+    es: (n: number) => `⚠️ Faltan ${n} patinete${n > 1 ? 's' : ''}`,
+    ru: (n: number) => `⚠️ Не хватает ${n} самокат${n > 1 ? 'ов' : 'а'}`,
+  },
+  estacaoA: {
+    pt: (m: string, d: number) => `🏪 Estação ${m} a ${d}m`,
+    en: (m: string, d: number) => `🏪 ${m} station ${d}m away`,
+    es: (m: string, d: number) => `🏪 Estación ${m} a ${d}m`,
+    ru: (m: string, d: number) => `🏪 Станция ${m} в ${d} м`,
+  },
+  encerrado: { pt: 'Encerrado', en: 'Ended', es: 'Finalizado', ru: 'Завершено' } as Tr,
+  restantes: {
+    pt: (h: number, m: number) => h > 0 ? `${h}h${m}m restantes` : `${m}m restantes`,
+    en: (h: number, m: number) => h > 0 ? `${h}h${m}m remaining` : `${m}m remaining`,
+    es: (h: number, m: number) => h > 0 ? `${h}h${m}m restantes` : `${m}m restantes`,
+    ru: (h: number, m: number) => h > 0 ? `осталось ${h}ч${m}м` : `осталось ${m}м`,
+  },
+  eventoLabel: { pt: (n: string) => `📅 Evento: ${n}`, en: (n: string) => `📅 Event: ${n}`, es: (n: string) => `📅 Evento: ${n}`, ru: (n: string) => `📅 Событие: ${n}` },
+  targetEvento: { pt: (n: number) => `Target evento: ${n} bikes`, en: (n: number) => `Event target: ${n} bikes`, es: (n: number) => `Objetivo evento: ${n} bikes`, ru: (n: number) => `Цель события: ${n} самокатов` },
+  patinetesNestePonto: { pt: (n: number) => `🛴 Patinetes neste ponto (${n})`, en: (n: number) => `🛴 Scooters at this station (${n})`, es: (n: number) => `🛴 Patinetes en este punto (${n})`, ru: (n: number) => `🛴 Самокаты на этой точке (${n})` },
+  criarTarefa: { pt: '+ Criar tarefa', en: '+ Create task', es: '+ Crear tarea', ru: '+ Создать задачу' } as Tr,
+  trazerBikeAdmin: { pt: '🚚 Trazer bike (admin)', en: '🚚 Bring scooter (admin)', es: '🚚 Traer patinete (admin)', ru: '🚚 Доставить самокат (админ)' } as Tr,
+  bateria: { pt: '🔋 Bateria', en: '🔋 Battery', es: '🔋 Batería', ru: '🔋 Батарея' } as Tr,
+  emPonto: { pt: '📍 Em ponto', en: '📍 At station', es: '📍 En punto', ru: '📍 На точке' } as Tr,
+  foraDePontoPopup: { pt: '⚠️ Fora de ponto', en: '⚠️ Out of station', es: '⚠️ Fuera de punto', ru: '⚠️ Вне точки' } as Tr,
+  // Dashboard
+  pontos: { pt: (n: number) => `PONTOS (${n})`, en: (n: number) => `STATIONS (${n})`, es: (n: number) => `PUNTOS (${n})`, ru: (n: number) => `ТОЧКИ (${n})` },
+  zerados: { pt: 'Zerados', en: 'Empty', es: 'Vacíos', ru: 'Пустые' } as Tr,
+  abaixoTarget: { pt: 'Abaixo target', en: 'Below target', es: 'Bajo objetivo', ru: 'Ниже цели' } as Tr,
+  noTarget: { pt: 'No target', en: 'At target', es: 'En objetivo', ru: 'На цели' } as Tr,
+  excesso: { pt: 'Excesso', en: 'Surplus', es: 'Exceso', ru: 'Избыток' } as Tr,
+  vinculados: { pt: 'Vinculados M1/M2/M3', en: 'Linked M1/M2/M3', es: 'Vinculados M1/M2/M3', ru: 'Связанные M1/M2/M3' } as Tr,
+  patinetesHeader: { pt: (n: number) => `PATINETES (${n})`, en: (n: number) => `SCOOTERS (${n})`, es: (n: number) => `PATINETES (${n})`, ru: (n: number) => `САМОКАТЫ (${n})` },
+  stAvailableDash: { pt: 'Disponível', en: 'Available', es: 'Disponible', ru: 'Доступен' } as Tr,
+  stLowBattDash: { pt: 'Bat. baixa', en: 'Low batt.', es: 'Bat. baja', ru: 'Низкий заряд' } as Tr,
+  stRentingDash: { pt: 'Em aluguel', en: 'Renting', es: 'En alquiler', ru: 'В аренде' } as Tr,
+  stReservedDash: { pt: 'Reservado', en: 'Reserved', es: 'Reservado', ru: 'Зарезервирован' } as Tr,
+  stMaintenanceDash: { pt: 'Manutenção', en: 'Maintenance', es: 'Mantenimiento', ru: 'Обслуживание' } as Tr,
+  foraDePontoDash: { pt: '⚠️ Fora de ponto', en: '⚠️ Out of station', es: '⚠️ Fuera de punto', ru: '⚠️ Вне точки' } as Tr,
+  estacoesMonitor: { pt: 'ESTAÇÕES MONITOR', en: 'MONITOR STATIONS', es: 'ESTACIONES MONITOR', ru: 'СТАНЦИИ МОНИТОРА' } as Tr,
+  estPts: { pt: (e: number, p: number) => `${e} est. · ${p} pts`, en: (e: number, p: number) => `${e} st. · ${p} pts`, es: (e: number, p: number) => `${e} est. · ${p} pts`, ru: (e: number, p: number) => `${e} ст. · ${p} тчк` },
+  carregando: { pt: '⏳ Carregando...', en: '⏳ Loading...', es: '⏳ Cargando...', ru: '⏳ Загрузка...' } as Tr,
+  semDado: { pt: '— sem dado', en: '— no data', es: '— sin datos', ru: '— нет данных' } as Tr,
+  agora: { pt: '✓ agora', en: '✓ now', es: '✓ ahora', ru: '✓ сейчас' } as Tr,
+  snapshotAtras: { pt: (n: number) => `snapshot ${n}min atrás`, en: (n: number) => `snapshot ${n}min ago`, es: (n: number) => `snapshot hace ${n}min`, ru: (n: number) => `снимок ${n} мин назад` },
+  atualizando: { pt: '⏳ Atualizando...', en: '⏳ Refreshing...', es: '⏳ Actualizando...', ru: '⏳ Обновление...' } as Tr,
+  atualizarAgora: { pt: '🔄 Atualizar agora', en: '🔄 Refresh now', es: '🔄 Actualizar ahora', ru: '🔄 Обновить сейчас' } as Tr,
+  monitorDeTarefas: { pt: 'MONITOR DE TAREFAS', en: 'TASK MONITOR', es: 'MONITOR DE TAREAS', ru: 'МОНИТОР ЗАДАЧ' } as Tr,
+  tarefasCriadasMsg: {
+    pt: (n: number) => `✓ ${n} tarefa${n !== 1 ? 's' : ''} criada${n !== 1 ? 's' : ''}!`,
+    en: (n: number) => `✓ ${n} task${n !== 1 ? 's' : ''} created!`,
+    es: (n: number) => `✓ ${n} tarea${n !== 1 ? 's' : ''} creada${n !== 1 ? 's' : ''}!`,
+    ru: (n: number) => `✓ создано задач: ${n}!`,
+  },
+  gerarTarefas: { pt: '🎯 Gerar Tarefas', en: '🎯 Generate tasks', es: '🎯 Generar tareas', ru: '🎯 Создать задачи' } as Tr,
+  configMonitores: { pt: '⚙️ Config Monitores', en: '⚙️ Monitor config', es: '⚙️ Config Monitores', ru: '⚙️ Настройка мониторов' } as Tr,
+  // Barra de filtros parking
+  fpTodos: { pt: 'Todos', en: 'All', es: 'Todos', ru: 'Все' } as Tr,
+  fpZerados: { pt: '🔴 Zerados', en: '🔴 Empty', es: '🔴 Vacíos', ru: '🔴 Пустые' } as Tr,
+  fpAbaixoTarget: { pt: '🟡 < target', en: '🟡 < target', es: '🟡 < objetivo', ru: '🟡 < цели' } as Tr,
+  fpNoTarget: { pt: '🔵 No target', en: '🔵 At target', es: '🔵 En objetivo', ru: '🔵 На цели' } as Tr,
+  fpExcesso: { pt: '🟢 Excesso', en: '🟢 Surplus', es: '🟢 Exceso', ru: '🟢 Избыток' } as Tr,
+  monitorBtn: { pt: '⭐ Monitor', en: '⭐ Monitor', es: '⭐ Monitor', ru: '⭐ Монитор' } as Tr,
+  eventosBtn: { pt: '📅 Eventos', en: '📅 Events', es: '📅 Eventos', ru: '📅 События' } as Tr,
+  // Layer toggles + filtro bikes
+  pontosToggle: { pt: '🅿️ Pontos', en: '🅿️ Stations', es: '🅿️ Puntos', ru: '🅿️ Точки' } as Tr,
+  patinetesToggle: { pt: '🛴 Patinetes', en: '🛴 Scooters', es: '🛴 Patinetes', ru: '🛴 Самокаты' } as Tr,
+  fbTodos: { pt: 'Todos', en: 'All', es: 'Todos', ru: 'Все' } as Tr,
+  fbForaPonto: { pt: '⚠️ Fora ponto', en: '⚠️ Out of station', es: '⚠️ Fuera punto', ru: '⚠️ Вне точки' } as Tr,
+  fbBateriaBaixa: { pt: '🟠 Bat. baixa', en: '🟠 Low batt.', es: '🟠 Bat. baja', ru: '🟠 Низкий заряд' } as Tr,
+  fbDisponiveis: { pt: '🟢 Disp.', en: '🟢 Avail.', es: '🟢 Disp.', ru: '🟢 Доступ.' } as Tr,
+  // Modal de violações de monitor
+  modalTitulo: { pt: '🎯 Gerar Tarefas de Monitor', en: '🎯 Generate Monitor Tasks', es: '🎯 Generar Tareas de Monitor', ru: '🎯 Создать задачи монитора' } as Tr,
+  modalTudoOk: {
+    pt: '✅ Todos os pontos monitorados estão acima dos thresholds configurados.',
+    en: '✅ All monitored stations are above the configured thresholds.',
+    es: '✅ Todos los puntos monitoreados están por encima de los umbrales configurados.',
+    ru: '✅ Все отслеживаемые точки выше заданных порогов.',
+  } as Tr,
+  modalSubtitulo: {
+    pt: (n: number) => `${n} ponto${n > 1 ? 's' : ''} abaixo do threshold — serão criadas tarefas em `,
+    en: (n: number) => `${n} station${n > 1 ? 's' : ''} below threshold — tasks will be created in `,
+    es: (n: number) => `${n} punto${n > 1 ? 's' : ''} por debajo del umbral — se crearán tareas en `,
+    ru: (n: number) => `${n} точек ниже порога — задачи будут созданы в `,
+  },
+  modalDispMin: {
+    pt: (a: number, t: number, pct: number, min: number) => `${a}/${t} disp. (${pct}% — mín. ${min}%)`,
+    en: (a: number, t: number, pct: number, min: number) => `${a}/${t} avail. (${pct}% — min. ${min}%)`,
+    es: (a: number, t: number, pct: number, min: number) => `${a}/${t} disp. (${pct}% — mín. ${min}%)`,
+    ru: (a: number, t: number, pct: number, min: number) => `${a}/${t} дост. (${pct}% — мин. ${min}%)`,
+  },
+  cancelar: { pt: 'Cancelar', en: 'Cancel', es: 'Cancelar', ru: 'Отмена' } as Tr,
+  criando: { pt: '⏳ Criando...', en: '⏳ Creating...', es: '⏳ Creando...', ru: '⏳ Создание...' } as Tr,
+  criarNTarefas: {
+    pt: (n: number) => `✓ Criar ${n} tarefa${n > 1 ? 's' : ''}`,
+    en: (n: number) => `✓ Create ${n} task${n > 1 ? 's' : ''}`,
+    es: (n: number) => `✓ Crear ${n} tarea${n > 1 ? 's' : ''}`,
+    ru: (n: number) => `✓ Создать задач: ${n}`,
+  },
+};
 
 // ─── bike-classify — usa lib compartilhada ────────────────────────────────────
 
@@ -248,6 +406,10 @@ function iconBike(b: GoJetBike, agora = Date.now()): L.DivIcon {
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, gestorUid, gestorNome }: Props) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
+
   const parkingLayerRef = useRef<L.LayerGroup | null>(null);
   const bikeLayerRef    = useRef<L.LayerGroup | null>(null);
 
@@ -364,9 +526,9 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
         if (snap.exists() && snap.data().cityId) {
           setCityId(snap.data().cityId);
         } else {
-          setErro(`GoJet não configurado para "${cidade}". Adicione um doc em gojet_config/${cidade} com campo cityId.`);
+          setErro(T.errNaoConfig[lang](cidade));
         }
-      }).catch(() => setErro('Erro ao buscar config GoJet'))
+      }).catch(() => setErro(pick(T.errBuscarConfig)))
     );
   }, [cidade]);
 
@@ -407,7 +569,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
       ]);
 
       if (parkingList.length === 0 && bikeList.length === 0) {
-        setErro('Snapshot ainda não existe para esta cidade. Clique em "Atualizar agora" para gerar.');
+        setErro(pick(T.errSnapshotInexistente));
         return;
       }
 
@@ -468,7 +630,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
       setBikes(enrichedBikes);
       setAtualizadoEm(new Date());
 
-    } catch (e: any) { setErro(e.message ?? 'Erro ao ler snapshot GoJet'); }
+    } catch (e: any) { setErro(e.message ?? pick(T.errLerSnapshot)); }
     finally { setLoading(false); }
   }, [cityId]);
 
@@ -481,7 +643,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
       await scraperGoJetBrowser(cityId, cidade);
       await carregarSnapshot();
     } catch (e: any) {
-      setErro('Erro ao atualizar: ' + (e.message ?? ''));
+      setErro(pick(T.errAtualizar) + (e.message ?? ''));
     } finally {
       setAtualizandoScraper(false);
     }
@@ -538,7 +700,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
           cidade,
           tipo: cfg.tipoTarefa,
           titulo,
-          descricao: `Ponto ${p.name} (${p.monitorLevel}) com ${avail}/${target} disponíveis. Déficit: ${deficit} patinetes.`,
+          descricao: T.descTarefa[lang](p.name, p.monitorLevel!, avail, target, deficit),
           status: 'aberto',
           prioridade: cfg.prioridade,
           parkingId: p.id,
@@ -559,7 +721,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
       setTarefasCriadas(criadas);
       setTimeout(() => setTarefasCriadas(null), 4000);
     } catch (e: any) {
-      setErro('Erro ao criar tarefas: ' + (e.message ?? ''));
+      setErro(pick(T.errCriarTarefas) + (e.message ?? ''));
     } finally {
       setCriandoTarefas(false);
     }
@@ -648,12 +810,12 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
           // Bikes neste ponto — lidos de bikesRef no momento do clique (sempre frescos)
           const bikesNoPonto = bikesRef.current.filter(b => b.parking_id === p.id);
           const statusLabel: Record<string, string> = {
-            available: 'Disponível', renting: 'Aluguel', reserved: 'Reservado',
-            low_battery: 'Bat. baixa', maintenance: 'Manutenção', workshop: 'Oficina',
+            available: pick(T.stAvailableShort), renting: pick(T.stRentingShort), reserved: pick(T.stReservedShort),
+            low_battery: pick(T.stLowBattShort), maintenance: pick(T.stMaintenanceShort), workshop: pick(T.stWorkshopShort),
           };
 
           const bikesHtml = bikesNoPonto.length === 0
-            ? '<div style="font-size:10px;color:#9ca3af;margin-top:4px">Nenhum patinete neste ponto</div>'
+            ? `<div style="font-size:10px;color:#9ca3af;margin-top:4px">${pick(T.nenhumPatinete)}</div>`
             : bikesNoPonto.slice(0, 20).map(b => {
                 const st  = classifyBike(b);
                 const cor = BIKE_COR[st];
@@ -676,7 +838,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
                       </div>` : ''}
                   </div>`;
               }).join('')
-            + (bikesNoPonto.length > 20 ? `<div style="font-size:9px;color:#94a3b8;margin-top:4px;text-align:center">+${bikesNoPonto.length - 20} mais</div>` : '');
+            + (bikesNoPonto.length > 20 ? `<div style="font-size:9px;color:#94a3b8;margin-top:4px;text-align:center">${T.maisLabel[lang](bikesNoPonto.length - 20)}</div>` : '');
 
           const div = document.createElement('div');
           div.style.cssText = 'font-family:Inter,sans-serif;min-width:220px;max-width:260px;font-size:12px';
@@ -688,38 +850,38 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-bottom:8px">
               <div style="background:#f0fdf4;border-radius:6px;padding:5px;text-align:center">
                 <div style="font-size:16px;font-weight:800;color:#16a34a">${total}</div>
-                <div style="font-size:8px;color:#6b7280">total</div>
+                <div style="font-size:8px;color:#6b7280">${pick(T.total)}</div>
               </div>
               <div style="background:#f0f9ff;border-radius:6px;padding:5px;text-align:center">
                 <div style="font-size:16px;font-weight:800;color:#0369a1">${avail}</div>
-                <div style="font-size:8px;color:#6b7280">disponíveis</div>
+                <div style="font-size:8px;color:#6b7280">${pick(T.disponiveisLower)}</div>
               </div>
               <div style="background:#fafafa;border-radius:6px;padding:5px;text-align:center">
                 <div style="font-size:16px;font-weight:800;color:#374151">${target || '—'}</div>
-                <div style="font-size:8px;color:#6b7280">target</div>
+                <div style="font-size:8px;color:#6b7280">${pick(T.target)}</div>
               </div>
             </div>
-            ${deficit > 0 ? `<div style="background:#fef2f2;border-left:3px solid #ef4444;padding:4px 8px;border-radius:4px;font-size:10px;color:#dc2626;margin-bottom:6px">⚠️ Faltam ${deficit} patinete${deficit > 1 ? 's' : ''}</div>` : ''}
-            ${p.distanciaEstacao != null && !isEvento ? `<div style="font-size:10px;color:#7c3aed;margin-bottom:6px">🏪 Estação ${mLevel} a ${Math.round(p.distanciaEstacao)}m</div>` : ''}
+            ${deficit > 0 ? `<div style="background:#fef2f2;border-left:3px solid #ef4444;padding:4px 8px;border-radius:4px;font-size:10px;color:#dc2626;margin-bottom:6px">${T.faltam[lang](deficit)}</div>` : ''}
+            ${p.distanciaEstacao != null && !isEvento ? `<div style="font-size:10px;color:#7c3aed;margin-bottom:6px">${T.estacaoA[lang](mLevel ?? '', Math.round(p.distanciaEstacao))}</div>` : ''}
             ${isEvento && estInfo?.eventoNome ? (() => {
               const fim = estInfo.eventoFim;
               const diff = fim ? fim.getTime() - Date.now() : 0;
               const horas = Math.floor(diff / 3600000);
               const mins  = Math.floor((diff % 3600000) / 60000);
-              const tempoStr = diff <= 0 ? 'Encerrado' : horas > 0 ? `${horas}h${mins}m restantes` : `${mins}m restantes`;
+              const tempoStr = diff <= 0 ? pick(T.encerrado) : T.restantes[lang](horas, mins);
               const corTempo2 = diff <= 0 ? '#ef4444' : diff < 3600000 ? '#f97316' : '#f59e0b';
               return `<div style="background:rgba(217,119,6,.12);border-left:3px solid #f59e0b;padding:6px 8px;border-radius:4px;margin-bottom:6px">
-                <div style="font-size:10px;font-weight:700;color:#fbbf24">📅 Evento: ${estInfo.eventoNome}</div>
+                <div style="font-size:10px;font-weight:700;color:#fbbf24">${T.eventoLabel[lang](estInfo.eventoNome ?? '')}</div>
                 <div style="font-size:9px;color:${corTempo2};margin-top:2px">⏱ ${tempoStr}</div>
-                ${estInfo.targetBikes ? `<div style="font-size:9px;color:rgba(255,255,255,.5);margin-top:1px">Target evento: ${estInfo.targetBikes} bikes</div>` : ''}
+                ${estInfo.targetBikes ? `<div style="font-size:9px;color:rgba(255,255,255,.5);margin-top:1px">${T.targetEvento[lang](estInfo.targetBikes)}</div>` : ''}
               </div>`;
             })() : ''}
             <div style="font-size:10px;font-weight:700;color:#374151;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.4px">
-              🛴 Patinetes neste ponto (${bikesNoPonto.length})
+              ${T.patinetesNestePonto[lang](bikesNoPonto.length)}
             </div>
             <div style="max-height:180px;overflow-y:auto;scrollbar-width:thin">${bikesHtml}</div>
-            ${onTarefaRapida ? `<button id="btn-t-${p.id}" style="width:100%;padding:7px;border:none;border-radius:6px;background:${cor.borda};color:#fff;font-size:11px;font-weight:700;cursor:pointer;margin-top:8px;margin-bottom:4px">+ Criar tarefa</button>` : ''}
-            ${isAdmin && deficit > 0 ? `<button id="btn-admin-${p.id}" style="width:100%;padding:7px;border:none;border-radius:6px;background:#7c3aed;color:#fff;font-size:11px;font-weight:700;cursor:pointer">🚚 Trazer bike (admin)</button>` : ''}
+            ${onTarefaRapida ? `<button id="btn-t-${p.id}" style="width:100%;padding:7px;border:none;border-radius:6px;background:${cor.borda};color:#fff;font-size:11px;font-weight:700;cursor:pointer;margin-top:8px;margin-bottom:4px">${pick(T.criarTarefa)}</button>` : ''}
+            ${isAdmin && deficit > 0 ? `<button id="btn-admin-${p.id}" style="width:100%;padding:7px;border:none;border-radius:6px;background:#7c3aed;color:#fff;font-size:11px;font-weight:700;cursor:pointer">${pick(T.trazerBikeAdmin)}</button>` : ''}
           `;
           if (onTarefaRapida) {
             setTimeout(() => {
@@ -794,11 +956,11 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
             <div style="font-weight:700;color:#0d0d1a;margin-bottom:6px;font-size:13px">🛴 ${b.identifier ?? b.id.slice(0, 8)}</div>
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
               <div style="width:10px;height:10px;border-radius:50%;background:${cor};flex-shrink:0"></div>
-              <span style="color:#374151;font-weight:600">${status === 'available' ? 'Disponível' : status === 'renting' ? 'Em aluguel' : status === 'reserved' ? 'Reservado' : status === 'low_battery' ? 'Bateria baixa' : 'Manutenção'}</span>
+              <span style="color:#374151;font-weight:600">${status === 'available' ? pick(T.stAvailableShort) : status === 'renting' ? pick(T.stRentingLong) : status === 'reserved' ? pick(T.stReservedShort) : status === 'low_battery' ? pick(T.stLowBattLong) : pick(T.stMaintenanceShort)}</span>
             </div>
-            ${pctN !== null ? `<div style="margin-bottom:6px"><div style="display:flex;justify-content:space-between;font-size:10px;color:#6b7280;margin-bottom:2px"><span>🔋 Bateria</span><span style="color:${bCor};font-weight:700">${pctN}%</span></div><div style="height:6px;background:#e5e7eb;border-radius:3px"><div style="height:6px;width:${pctN}%;background:${bCor};border-radius:3px"></div></div></div>` : ''}
+            ${pctN !== null ? `<div style="margin-bottom:6px"><div style="display:flex;justify-content:space-between;font-size:10px;color:#6b7280;margin-bottom:2px"><span>${pick(T.bateria)}</span><span style="color:${bCor};font-weight:700">${pctN}%</span></div><div style="height:6px;background:#e5e7eb;border-radius:3px"><div style="height:6px;width:${pctN}%;background:${bCor};border-radius:3px"></div></div></div>` : ''}
             ${b.model ? `<div style="font-size:10px;color:#9ca3af">${b.model}</div>` : ''}
-            ${b.parking_id ? '<div style="font-size:10px;color:#6b7280;margin-top:2px">📍 Em ponto</div>' : '<div style="font-size:10px;color:#f97316;margin-top:2px">⚠️ Fora de ponto</div>'}
+            ${b.parking_id ? `<div style="font-size:10px;color:#6b7280;margin-top:2px">${pick(T.emPonto)}</div>` : `<div style="font-size:10px;color:#f97316;margin-top:2px">${pick(T.foraDePontoPopup)}</div>`}
           </div>
         `, { maxWidth: 200 });
         toAdd.push(cm);
@@ -864,10 +1026,10 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
         boxShadow: '0 4px 20px rgba(0,0,0,.5)',
       }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24', marginBottom: 4 }}>
-          🛴 GoJet não configurado
+          {pick(T.naoConfigTitulo)}
         </div>
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,.5)', lineHeight: 1.5 }}>
-          {erro ?? `Adicione o doc gojet_config/${cidade ?? '?'} com o campo cityId no Firestore para ativar o mapa ao vivo.`}
+          {erro ?? T.naoConfigHint[lang](cidade ?? '?')}
         </div>
       </div>
     );
@@ -917,13 +1079,13 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
             {/* Parkings stats */}
             <div>
               <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.3)',
-                letterSpacing: 1, marginBottom: 5 }}>PONTOS ({parkings.length})</div>
+                letterSpacing: 1, marginBottom: 5 }}>{T.pontos[lang](parkings.length)}</div>
               {[
-                { cor: '#ef4444', label: 'Zerados', val: zerados },
-                { cor: '#f59e0b', label: 'Abaixo target', val: parkings.filter(p => { const t = p.target_bikes_count??0; return t>0 && (p.availableCount??0)<t; }).length - zerados },
-                { cor: '#3b82f6', label: 'No target', val: parkings.filter(p => { const t=p.target_bikes_count??0; const a=p.availableCount??0; return t>0&&a>=t&&a<t*1.2; }).length },
-                { cor: '#22c55e', label: 'Excesso', val: parkings.filter(p => { const t=p.target_bikes_count??0; return t>0&&(p.availableCount??0)>=t*1.2; }).length },
-                { cor: '#10b981', label: `Vinculados M1/M2/M3`, val: comVinculo },
+                { cor: '#ef4444', label: pick(T.zerados), val: zerados },
+                { cor: '#f59e0b', label: pick(T.abaixoTarget), val: parkings.filter(p => { const t = p.target_bikes_count??0; return t>0 && (p.availableCount??0)<t; }).length - zerados },
+                { cor: '#3b82f6', label: pick(T.noTarget), val: parkings.filter(p => { const t=p.target_bikes_count??0; const a=p.availableCount??0; return t>0&&a>=t&&a<t*1.2; }).length },
+                { cor: '#22c55e', label: pick(T.excesso), val: parkings.filter(p => { const t=p.target_bikes_count??0; return t>0&&(p.availableCount??0)>=t*1.2; }).length },
+                { cor: '#10b981', label: pick(T.vinculados), val: comVinculo },
               ].map(({ cor, label, val }) => val > 0 ? (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between',
                   alignItems: 'center', fontSize: 10, marginBottom: 3 }}>
@@ -941,13 +1103,13 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
             {/* Bikes stats */}
             <div>
               <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.3)',
-                letterSpacing: 1, marginBottom: 5 }}>PATINETES ({bikes.length})</div>
+                letterSpacing: 1, marginBottom: 5 }}>{T.patinetesHeader[lang](bikes.length)}</div>
               {([
-                ['available',   '🟢', 'Disponível'],
-                ['low_battery', '🟠', 'Bat. baixa'],
-                ['renting',     '🟡', 'Em aluguel'],
-                ['reserved',    '⚫', 'Reservado'],
-                ['maintenance', '🔴', 'Manutenção'],
+                ['available',   '🟢', pick(T.stAvailableDash)],
+                ['low_battery', '🟠', pick(T.stLowBattDash)],
+                ['renting',     '🟡', pick(T.stRentingDash)],
+                ['reserved',    '⚫', pick(T.stReservedDash)],
+                ['maintenance', '🔴', pick(T.stMaintenanceDash)],
               ] as const).map(([s, emoji, label]) => (statsBikes[s]??0) > 0 ? (
                 <div key={s} style={{ display: 'flex', justifyContent: 'space-between',
                   alignItems: 'center', fontSize: 10, marginBottom: 3 }}>
@@ -958,7 +1120,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
               <div style={{ display: 'flex', justifyContent: 'space-between',
                 alignItems: 'center', fontSize: 10, marginTop: 4, paddingTop: 4,
                 borderTop: '1px solid rgba(255,255,255,.06)' }}>
-                <span style={{ color: '#f97316' }}>⚠️ Fora de ponto</span>
+                <span style={{ color: '#f97316' }}>{pick(T.foraDePontoDash)}</span>
                 <span style={{ color: '#f97316', fontWeight: 700 }}>{foraPonto}</span>
               </div>
             </div>
@@ -969,14 +1131,14 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
                 <div style={{ height: 1, background: 'rgba(255,255,255,.08)' }} />
                 <div>
                   <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.3)',
-                    letterSpacing: 1, marginBottom: 5 }}>ESTAÇÕES MONITOR</div>
+                    letterSpacing: 1, marginBottom: 5 }}>{pick(T.estacoesMonitor)}</div>
                   {(['M1','M2','M3'] as const).map(m => {
                     const n = estacoes.filter(e => e.tipoMonitor === m).length;
                     return n > 0 ? (
                       <div key={m} style={{ display: 'flex', justifyContent: 'space-between',
                         alignItems: 'center', fontSize: 10, marginBottom: 3 }}>
                         <span style={{ color: M_COR[m], fontWeight: 700 }}>{m}</span>
-                        <span style={{ color: 'rgba(255,255,255,.55)' }}>{n} est. · {parkings.filter(p=>p.monitorLevel===m).length} pts</span>
+                        <span style={{ color: 'rgba(255,255,255,.55)' }}>{T.estPts[lang](n, parkings.filter(p=>p.monitorLevel===m).length)}</span>
                       </div>
                     ) : null;
                   })}
@@ -988,10 +1150,10 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
             {(() => {
               const idade = snapshotIdade;
               const cor = loading ? '#6b7280' : idade === null ? '#6b7280' : idade < 6 ? '#22c55e' : idade < 15 ? '#f59e0b' : '#ef4444';
-              const label = loading ? '⏳ Carregando...'
-                : idade === null ? '— sem dado'
-                : idade < 1 ? '✓ agora'
-                : `snapshot ${idade}min atrás`;
+              const label = loading ? pick(T.carregando)
+                : idade === null ? pick(T.semDado)
+                : idade < 1 ? pick(T.agora)
+                : T.snapshotAtras[lang](idade);
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <div style={{ fontSize: 9, color: cor, display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
@@ -1006,7 +1168,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
                       background: 'rgba(167,139,250,.15)', color: '#a78bfa',
                       cursor: atualizandoScraper ? 'wait' : 'pointer', fontWeight: 700,
                     }}>
-                    {atualizandoScraper ? '⏳ Atualizando...' : '🔄 Atualizar agora'}
+                    {atualizandoScraper ? pick(T.atualizando) : pick(T.atualizarAgora)}
                   </button>
                 </div>
               );
@@ -1017,9 +1179,9 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
               <>
                 <div style={{ height: 1, background: 'rgba(255,255,255,.08)' }} />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.3)', letterSpacing: 1 }}>MONITOR DE TAREFAS</div>
+                  <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.3)', letterSpacing: 1 }}>{pick(T.monitorDeTarefas)}</div>
                   {tarefasCriadas !== null && (
-                    <div style={{ fontSize: 9, color: '#22c55e', fontWeight: 700 }}>✓ {tarefasCriadas} tarefa{tarefasCriadas !== 1 ? 's' : ''} criada{tarefasCriadas !== 1 ? 's' : ''}!</div>
+                    <div style={{ fontSize: 9, color: '#22c55e', fontWeight: 700 }}>{T.tarefasCriadasMsg[lang](tarefasCriadas)}</div>
                   )}
                   <button
                     onClick={() => setViolacoesModal(verificarViolacoes())}
@@ -1029,7 +1191,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
                       background: 'rgba(16,185,129,.2)', color: '#10b981',
                       cursor: 'pointer', fontWeight: 700,
                     }}>
-                    🎯 Gerar Tarefas
+                    {pick(T.gerarTarefas)}
                   </button>
                   <button
                     onClick={() => setShowConfigMonitor(v => !v)}
@@ -1039,7 +1201,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
                       color: showConfigMonitor ? '#fbbf24' : 'rgba(255,255,255,.35)',
                       cursor: 'pointer', fontWeight: 700,
                     }}>
-                    ⚙️ Config Monitores
+                    {pick(T.configMonitores)}
                   </button>
                 </div>
               </>
@@ -1062,11 +1224,11 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
         }}>
           {/* Filtros parking */}
           {showParkings && ([
-            { k: 'todos',        l: 'Todos' },
-            { k: 'zerados',      l: '🔴 Zerados' },
-            { k: 'abaixo_target',l: '🟡 < target' },
-            { k: 'no_target',    l: '🔵 No target' },
-            { k: 'excesso',      l: '🟢 Excesso' },
+            { k: 'todos',        l: pick(T.fpTodos) },
+            { k: 'zerados',      l: pick(T.fpZerados) },
+            { k: 'abaixo_target',l: pick(T.fpAbaixoTarget) },
+            { k: 'no_target',    l: pick(T.fpNoTarget) },
+            { k: 'excesso',      l: pick(T.fpExcesso) },
           ] as const).map(opt => (
             <button key={opt.k} onClick={() => setFiltroPark(opt.k)} style={{
               padding: '4px 10px', borderRadius: 14, border: 'none', cursor: 'pointer',
@@ -1085,7 +1247,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
               fontSize: 10, fontWeight: 700,
               background: somenteMonitor ? 'rgba(16,185,129,.25)' : 'transparent',
               color: somenteMonitor ? '#10b981' : 'rgba(255,255,255,.45)',
-            }}>⭐ Monitor</button>
+            }}>{pick(T.monitorBtn)}</button>
           )}
 
           {/* Toggle só vinculados */}
@@ -1106,7 +1268,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
               background: showEventosPanel ? 'rgba(217,119,6,.25)' : 'transparent',
               color: showEventosPanel ? '#f59e0b' : 'rgba(255,255,255,.45)',
             }}>
-              📅 Eventos
+              {pick(T.eventosBtn)}
               {estacoes.filter(e => e.temporario).length > 0
                 ? ` (${estacoes.filter(e => e.temporario).length})` : ''}
             </button>
@@ -1124,21 +1286,21 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
             fontSize: 11, fontWeight: 700,
             background: showParkings ? 'rgba(59,130,246,.25)' : 'transparent',
             color: showParkings ? '#60a5fa' : 'rgba(255,255,255,.45)',
-          }}>🅿️ Pontos {showParkings ? `(${parkingsFiltrados.length})` : ''}</button>
+          }}>{pick(T.pontosToggle)} {showParkings ? `(${parkingsFiltrados.length})` : ''}</button>
 
           <button onClick={() => setShowBikes(v => !v)} style={{
             padding: '5px 12px', borderRadius: 16, border: 'none', cursor: 'pointer',
             fontSize: 11, fontWeight: 700,
             background: showBikes ? 'rgba(16,185,129,.25)' : 'transparent',
             color: showBikes ? '#10b981' : 'rgba(255,255,255,.45)',
-          }}>🛴 Patinetes {showBikes ? `(${bikesFiltrados.length})` : `(${bikes.length})`}</button>
+          }}>{pick(T.patinetesToggle)} {showBikes ? `(${bikesFiltrados.length})` : `(${bikes.length})`}</button>
 
           {/* Filtros bikes */}
           {showBikes && ([
-            { k: 'todos',        l: 'Todos' },
-            { k: 'fora_ponto',   l: '⚠️ Fora ponto' },
-            { k: 'bateria_baixa',l: '🟠 Bat. baixa' },
-            { k: 'disponiveis',  l: '🟢 Disp.' },
+            { k: 'todos',        l: pick(T.fbTodos) },
+            { k: 'fora_ponto',   l: pick(T.fbForaPonto) },
+            { k: 'bateria_baixa',l: pick(T.fbBateriaBaixa) },
+            { k: 'disponiveis',  l: pick(T.fbDisponiveis) },
           ] as const).map(opt => (
             <button key={opt.k} onClick={() => setFiltroBike(opt.k)} style={{
               padding: '5px 10px', borderRadius: 16, border: 'none', cursor: 'pointer',
@@ -1166,7 +1328,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
                 background:'rgba(239,68,68,.3)', color:'#fca5a5',
                 cursor: atualizandoScraper ? 'wait' : 'pointer', fontWeight:700,
               }}>
-              {atualizandoScraper ? '⏳ Atualizando...' : '🔄 Atualizar agora'}
+              {atualizandoScraper ? pick(T.atualizando) : pick(T.atualizarAgora)}
             </button>
           )}
         </div>
@@ -1185,7 +1347,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ fontWeight: 800, fontSize: 15, color: '#f0f4ff' }}>
-                🎯 Gerar Tarefas de Monitor
+                {pick(T.modalTitulo)}
               </div>
               <button onClick={() => setViolacoesModal(null)}
                 style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.4)', fontSize: 16, cursor: 'pointer' }}>✕</button>
@@ -1193,12 +1355,12 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
 
             {violacoesModal.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '24px 0', color: 'rgba(255,255,255,.5)', fontSize: 13 }}>
-                ✅ Todos os pontos monitorados estão acima dos thresholds configurados.
+                {pick(T.modalTudoOk)}
               </div>
             ) : (
               <>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,.45)' }}>
-                  {violacoesModal.length} ponto{violacoesModal.length > 1 ? 's' : ''} abaixo do threshold — serão criadas tarefas em <strong style={{ color: '#f0f4ff' }}>tarefas_logistica</strong>.
+                  {T.modalSubtitulo[lang](violacoesModal.length)}<strong style={{ color: '#f0f4ff' }}>tarefas_logistica</strong>.
                 </div>
                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {violacoesModal.map(({ parking: p, cfg, deficit, pctDisp }) => (
@@ -1214,7 +1376,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 11, fontWeight: 700, color: '#f0f4ff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name || p.id}</div>
                         <div style={{ fontSize: 10, color: 'rgba(255,255,255,.45)' }}>
-                          {p.availableCount ?? 0}/{p.target_bikes_count ?? 0} disp. ({pctDisp}% — mín. {cfg.thresholdPct}%)
+                          {T.modalDispMin[lang](p.availableCount ?? 0, p.target_bikes_count ?? 0, pctDisp, cfg.thresholdPct)}
                         </div>
                       </div>
                       <div style={{ flexShrink: 0, textAlign: 'right' }}>
@@ -1230,7 +1392,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
                     style={{
                       flex: 1, padding: '9px', borderRadius: 8, border: '1px solid rgba(255,255,255,.1)',
                       background: 'transparent', color: 'rgba(255,255,255,.5)', fontSize: 12, cursor: 'pointer', fontWeight: 700,
-                    }}>Cancelar</button>
+                    }}>{pick(T.cancelar)}</button>
                   <button
                     onClick={async () => {
                       const criadas = await criarTarefasMonitor(violacoesModal);
@@ -1242,7 +1404,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
                       background: 'rgba(16,185,129,.9)', color: '#fff', fontSize: 12,
                       cursor: criandoTarefas ? 'wait' : 'pointer', fontWeight: 800,
                     }}>
-                    {criandoTarefas ? '⏳ Criando...' : `✓ Criar ${violacoesModal.length} tarefa${violacoesModal.length > 1 ? 's' : ''}`}
+                    {criandoTarefas ? pick(T.criando) : T.criarNTarefas[lang](violacoesModal.length)}
                   </button>
                 </div>
               </>

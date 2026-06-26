@@ -38,7 +38,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.revogarAcesso = exports.aprovarSolicitacaoFn = exports.relatorioGuardManualFn = exports.relatorioGuardDiarioFn = exports.gerarStreetViewFn = exports.gerarCroquisLoteFn = exports.gerarCroquiFn = exports.healthCheck = exports.registrarLogAcesso = exports.getUsuarioFn = exports.obterEstatisticasMonitor = exports.listarSlots = exports.criarSlot = exports.atualizarRota = exports.listarRotas = exports.gerarRota = exports.deletarOperacao = exports.atualizarOperacao = exports.listarOperacoes = exports.criarOperacao = void 0;
+exports.revogarAcesso = exports.aprovarSolicitacaoFn = exports.relatorioGuardManualFn = exports.relatorioGuardDiarioFn = exports.gerarStreetViewFn = exports.gerarCroquisLoteFn = exports.gerarCroquiFn = exports.healthCheck = exports.registrarLogAcesso = exports.getUsuarioFn = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
@@ -59,179 +59,10 @@ function addCORS(res) {
     res.set('Access-Control-Max-Age', '3600');
 }
 // ══════════════════════════════════════════════════════════════════
-// OPERAÇÕES (legado onRequest — mantidas por compatibilidade)
+// LEGADO APOSENTADO (21/06/2026): operações, rotas, slots (CRUD HTTP),
+// obterEstatisticasMonitor — nenhum cliente chama; removidos na migração
+// Supabase Fase 2. Ver DEBRIEF §17.17.
 // ══════════════════════════════════════════════════════════════════
-exports.criarOperacao = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const { tipo, prioridade, estacaoId, quantidade, notas } = req.body;
-        const operacao = { tipo, prioridade, estacaoId, quantidade, notas,
-            status: 'pendente', dataCriacao: admin.firestore.Timestamp.now() };
-        const docRef = await db.collection('operacoes').add(operacao);
-        res.json({ id: docRef.id, ...operacao });
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao criar operação' });
-    }
-});
-exports.listarOperacoes = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const snap = await db.collection('operacoes').get();
-        res.json(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao listar operações' });
-    }
-});
-exports.atualizarOperacao = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const { id, status, notas } = req.body;
-        await db.collection('operacoes').doc(id).update({ status, notas });
-        res.json({ sucesso: true });
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao atualizar operação' });
-    }
-});
-exports.deletarOperacao = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const { id } = req.body;
-        await db.collection('operacoes').doc(id).delete();
-        res.json({ sucesso: true });
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao deletar operação' });
-    }
-});
-// ══════════════════════════════════════════════════════════════════
-// ROTAS
-// ══════════════════════════════════════════════════════════════════
-exports.gerarRota = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const { tarefas, uid } = req.body;
-        const rota = { uid, tarefas, distanciaTotal: 0, tempoEstimado: 0,
-            status: 'pendente', dataCriacao: admin.firestore.Timestamp.now(), sequencia: [] };
-        const docRef = await db.collection('rotas').add(rota);
-        res.json({ id: docRef.id, ...rota });
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao gerar rota' });
-    }
-});
-exports.listarRotas = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const snap = await db.collection('rotas').get();
-        res.json(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao listar rotas' });
-    }
-});
-exports.atualizarRota = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const { id, status, distanciaTotal, tempoEstimado } = req.body;
-        await db.collection('rotas').doc(id).update({ status, distanciaTotal, tempoEstimado });
-        res.json({ sucesso: true });
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao atualizar rota' });
-    }
-});
-// ══════════════════════════════════════════════════════════════════
-// SLOTS (legado — mantido para compatibilidade com SlotsModule antigo)
-// ══════════════════════════════════════════════════════════════════
-exports.criarSlot = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const { uid, tipo, horario, repeticao } = req.body;
-        const slot = { uid, tipo, horario, repeticao, status: 'ativo', tarefas: [],
-            proximaExecucao: admin.firestore.Timestamp.now() };
-        const docRef = await db.collection('slots').add(slot);
-        res.json({ id: docRef.id, ...slot });
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao criar slot' });
-    }
-});
-exports.listarSlots = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const snap = await db.collection('slots').get();
-        res.json(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao listar slots' });
-    }
-});
-// ══════════════════════════════════════════════════════════════════
-// ESTATÍSTICAS
-// ══════════════════════════════════════════════════════════════════
-exports.obterEstatisticasMonitor = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const [operacoes, slots, rotas] = await Promise.all([
-            db.collection('operacoes').get(),
-            db.collection('slots').get(),
-            db.collection('rotas').get(),
-        ]);
-        res.json({
-            totalOperacoes: operacoes.size,
-            operacoesAtivas: operacoes.docs.filter(d => d.data().status === 'pendente').length,
-            totalSlots: slots.size,
-            totalRotas: rotas.size,
-            timestamp: admin.firestore.Timestamp.now(),
-        });
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao obter estatísticas' });
-    }
-});
 // ══════════════════════════════════════════════════════════════════
 // USUÁRIO
 // ══════════════════════════════════════════════════════════════════
@@ -372,10 +203,14 @@ __exportStar(require("./automacao"), exports); // limpezaSnapshots, notificarOco
 __exportStar(require("./automacao-gojet-scraper"), exports); // scraperGoJet (paginação completa, multi-cidade), scraperGoJetManual
 __exportStar(require("./gps-alertas"), exports); // verificarAtrasos, verificarChegadaPonto
 __exportStar(require("./gps-ingest"), exports); // ingestGps — upload nativo de GPS (app fechado)
-__exportStar(require("./automacao-tarefas"), exports); // gerarTarefasGoJetFn, gerarTarefasAgendado, gerarSlotsAgendado, etc.
+__exportStar(require("./automacao-tarefas"), exports); // gerarTarefasGoJetFn, gerarTarefasAgendado, etc.
 __exportStar(require("./relatorios"), exports); // enviarRelatorioManual, relatorioGuardSemanal, relatorioPerdasDiario, relatorioPerdasSemanal
 __exportStar(require("./notificacoes-prestador"), exports); // notificarGestorNovaSolicitacao
 __exportStar(require("./mirror-ocorrencias"), exports); // espelharOcorrenciaSupabase — dual-write Guard -> Supabase (DEBRIEF §16)
+__exportStar(require("./mirror-estacoes"), exports); // espelharEstacaoSupabase — dual-write estações -> Supabase (Fase 2 Onda A)
+__exportStar(require("./mirror-onda-b-menores"), exports); // espelhar Solicitacao/TurnoLogistica -> Supabase (Fase 2 Onda B menores)
+__exportStar(require("./buscar-pois-osm"), exports); // buscarPOIsOSMFn — Overpass/OSM server-side (gratuito; resolve CORS/429)
+__exportStar(require("./slots-telegram"), exports); // resumoSlotsTelegram, confirmarSlotsCascata, enviarResumoManual
 // ══════════════════════════════════════════════════════════════════
 // REVOGAR ACESSO — desativa usuário no Auth + Firestore
 // ══════════════════════════════════════════════════════════════════

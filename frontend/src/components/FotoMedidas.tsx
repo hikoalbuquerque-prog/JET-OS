@@ -50,30 +50,27 @@ export function FotoMedidas({ fotoUrl, fotoFile, onSalvar, onCancelar }: Props) 
   useEffect(() => {
     let cancelled = false;
 
-    const loadImg = (src: string) => {
+    const loadImg = (src: string, useCors = false) => {
       const img = new window.Image();
+      if (useCors) img.crossOrigin = 'anonymous';
+      img.referrerPolicy = 'no-referrer';
       img.onload = () => { if (!cancelled) setImgEl(img); };
+      img.onerror = () => {
+        if (useCors) { loadImg(src, false); return; }
+        console.warn('[FotoMedidas] falha ao carregar', src);
+      };
       img.src = src;
     };
 
     if (fotoFile) {
       const rd = new FileReader();
       rd.onload  = () => { if (!cancelled) loadImg(rd.result as string); };
-      rd.onerror = () => loadImg(fotoUrl);
+      rd.onerror = () => loadImg(fotoUrl, true);
       rd.readAsDataURL(fotoFile);
     } else if (fotoUrl.startsWith('data:') || fotoUrl.startsWith('blob:')) {
       loadImg(fotoUrl);
     } else {
-      fetch(fotoUrl)
-        .then(r => r.blob())
-        .then(b => new Promise<string>((res, rej) => {
-          const rd = new FileReader();
-          rd.onload  = () => res(rd.result as string);
-          rd.onerror = rej;
-          rd.readAsDataURL(b);
-        }))
-        .then(loadImg)
-        .catch(() => loadImg(fotoUrl));
+      loadImg(fotoUrl, true);
     }
     return () => { cancelled = true; };
   }, [fotoUrl, fotoFile]);

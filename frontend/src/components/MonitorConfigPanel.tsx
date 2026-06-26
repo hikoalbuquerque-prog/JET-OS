@@ -2,8 +2,41 @@
 // Painel de configuração dos thresholds M1/M2/M3 do sistema GoJet por cidade.
 
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+
+const T = {
+  nivelLabelM1: { pt: 'M1 — Crítico', en: 'M1 — Critical', es: 'M1 — Crítico', ru: 'M1 — Критический' },
+  nivelLabelM2: { pt: 'M2 — Atenção', en: 'M2 — Warning', es: 'M2 — Atención', ru: 'M2 — Внимание' },
+  nivelLabelM3: { pt: 'M3 — Informativo', en: 'M3 — Informational', es: 'M3 — Informativo', ru: 'M3 — Информационный' },
+  titulo: { pt: 'Configurar Monitores', en: 'Configure Monitors', es: 'Configurar Monitores', ru: 'Настроить мониторы' },
+  cidadeLabel: { pt: 'Cidade:', en: 'City:', es: 'Ciudad:', ru: 'Город:' },
+  info: {
+    pt: 'Estas configurações controlam quando o sistema cria tarefas automaticamente para pontos GoJet com baixa disponibilidade de patinetes.',
+    en: 'These settings control when the system automatically creates tasks for GoJet points with low scooter availability.',
+    es: 'Estos ajustes controlan cuándo el sistema crea tareas automáticamente para puntos GoJet con baja disponibilidad de patinetes.',
+    ru: 'Эти настройки определяют, когда система автоматически создаёт задачи для точек GoJet с низкой доступностью самокатов.',
+  },
+  ativo: { pt: 'Ativo', en: 'Active', es: 'Activo', ru: 'Активно' },
+  inativo: { pt: 'Inativo', en: 'Inactive', es: 'Inactivo', ru: 'Неактивно' },
+  alertaQuando: { pt: 'Alerta quando disponibilidade <', en: 'Alert when availability <', es: 'Alerta cuando disponibilidad <', ru: 'Оповещение, когда доступность <' },
+  prioridade: { pt: 'Prioridade', en: 'Priority', es: 'Prioridad', ru: 'Приоритет' },
+  prioridadeAlta: { pt: 'Alta', en: 'High', es: 'Alta', ru: 'Высокий' },
+  prioridadeMedia: { pt: 'Média', en: 'Medium', es: 'Media', ru: 'Средний' },
+  prioridadeBaixa: { pt: 'Baixa', en: 'Low', es: 'Baja', ru: 'Низкий' },
+  tipoTarefa: { pt: 'Tipo de tarefa', en: 'Task type', es: 'Tipo de tarea', ru: 'Тип задачи' },
+  tipoRedistribuicao: { pt: 'Redistribuição', en: 'Redistribution', es: 'Redistribución', ru: 'Перераспределение' },
+  tipoRecarga: { pt: 'Recarga', en: 'Recharge', es: 'Recarga', ru: 'Подзарядка' },
+  tipoManutencao: { pt: 'Manutenção', en: 'Maintenance', es: 'Mantenimiento', ru: 'Обслуживание' },
+  raioBusca: { pt: 'Raio de busca (m)', en: 'Search radius (m)', es: 'Radio de búsqueda (m)', ru: 'Радиус поиска (м)' },
+  naoDuplicar: { pt: 'Não duplicar por (h)', en: "Don't duplicate for (h)", es: 'No duplicar por (h)', ru: 'Не дублировать в течение (ч)' },
+  erroSalvar: { pt: 'Erro ao salvar: ', en: 'Error saving: ', es: 'Error al guardar: ', ru: 'Ошибка при сохранении: ' },
+  salvoOk: { pt: 'Configuração salva com sucesso!', en: 'Settings saved successfully!', es: '¡Configuración guardada con éxito!', ru: 'Настройки успешно сохранены!' },
+  cancelar: { pt: 'Cancelar', en: 'Cancel', es: 'Cancelar', ru: 'Отмена' },
+  salvando: { pt: 'Salvando...', en: 'Saving...', es: 'Guardando...', ru: 'Сохранение...' },
+  salvarConfig: { pt: 'Salvar configuração', en: 'Save settings', es: 'Guardar configuración', ru: 'Сохранить настройки' },
+};
 
 interface MonitorLevelConfig {
   ativo: boolean;
@@ -33,10 +66,10 @@ const NIVEL_COR: Record<string, string> = {
   M3: '#3b82f6',
 };
 
-const NIVEL_LABEL: Record<string, string> = {
-  M1: 'M1 — Crítico',
-  M2: 'M2 — Atenção',
-  M3: 'M3 — Informativo',
+const NIVEL_LABEL_KEY: Record<string, keyof typeof T> = {
+  M1: 'nivelLabelM1',
+  M2: 'nivelLabelM2',
+  M3: 'nivelLabelM3',
 };
 
 const DEFAULT_CONFIG: MonitorConfig = {
@@ -70,6 +103,9 @@ const DEFAULT_CONFIG: MonitorConfig = {
 };
 
 export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
+  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
   const [config, setConfig] = useState<MonitorConfig>(DEFAULT_CONFIG);
   const [salvando, setSalvando] = useState(false);
   const [salvoOk, setSalvoOk] = useState(false);
@@ -106,7 +142,7 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
       setSalvoOk(true);
       setTimeout(() => setSalvoOk(false), 3000);
     } catch (e: any) {
-      setErro('Erro ao salvar: ' + (e.message ?? ''));
+      setErro(pick(T.erroSalvar) + (e.message ?? ''));
     } finally {
       setSalvando(false);
     }
@@ -156,10 +192,10 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <div style={{ fontWeight: 800, fontSize: 15, color: '#f0f4ff' }}>
-              Configurar Monitores
+              {pick(T.titulo)}
             </div>
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', marginTop: 2 }}>
-              Cidade: <span style={{ color: '#60a5fa', fontWeight: 700 }}>{cidade}</span>
+              {pick(T.cidadeLabel)} <span style={{ color: '#60a5fa', fontWeight: 700 }}>{cidade}</span>
             </div>
           </div>
           <button
@@ -187,7 +223,7 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
           color: 'rgba(255,255,255,.55)',
           lineHeight: 1.5,
         }}>
-          Estas configurações controlam quando o sistema cria tarefas automaticamente para pontos GoJet com baixa disponibilidade de patinetes.
+          {pick(T.info)}
         </div>
 
         {/* Seções M1 / M2 / M3 */}
@@ -220,7 +256,7 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
                     letterSpacing: 0.5,
                   }}>{nivel}</div>
                   <span style={{ fontSize: 11, color: 'rgba(255,255,255,.5)' }}>
-                    {NIVEL_LABEL[nivel]}
+                    {pick(T[NIVEL_LABEL_KEY[nivel]])}
                   </span>
                 </div>
 
@@ -251,7 +287,7 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
                     }} />
                   </div>
                   <span style={{ fontSize: 10, color: cfg.ativo ? cor : 'rgba(255,255,255,.35)', fontWeight: 700 }}>
-                    {cfg.ativo ? 'Ativo' : 'Inativo'}
+                    {cfg.ativo ? pick(T.ativo) : pick(T.inativo)}
                   </span>
                 </label>
               </div>
@@ -260,7 +296,7 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
                 {/* Threshold */}
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={labelStyle}>
-                    Alerta quando disponibilidade &lt; {cfg.thresholdPct}%
+                    {pick(T.alertaQuando)} {cfg.thresholdPct}%
                     <input
                       type="range"
                       min={5}
@@ -281,14 +317,14 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
                 {/* Prioridade */}
                 <div>
                   <label style={labelStyle}>
-                    Prioridade
+                    {pick(T.prioridade)}
                     <select
                       value={cfg.prioridade}
                       onChange={e => updateNivel(nivel, 'prioridade', e.target.value as 'alta' | 'media' | 'baixa')}
                       style={selectStyle}>
-                      <option value="alta">Alta</option>
-                      <option value="media">Média</option>
-                      <option value="baixa">Baixa</option>
+                      <option value="alta">{pick(T.prioridadeAlta)}</option>
+                      <option value="media">{pick(T.prioridadeMedia)}</option>
+                      <option value="baixa">{pick(T.prioridadeBaixa)}</option>
                     </select>
                   </label>
                 </div>
@@ -296,14 +332,14 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
                 {/* Tipo de tarefa */}
                 <div>
                   <label style={labelStyle}>
-                    Tipo de tarefa
+                    {pick(T.tipoTarefa)}
                     <select
                       value={cfg.tipoTarefa}
                       onChange={e => updateNivel(nivel, 'tipoTarefa', e.target.value)}
                       style={selectStyle}>
-                      <option value="redistribuicao">Redistribuição</option>
-                      <option value="recarga">Recarga</option>
-                      <option value="manutencao">Manutenção</option>
+                      <option value="redistribuicao">{pick(T.tipoRedistribuicao)}</option>
+                      <option value="recarga">{pick(T.tipoRecarga)}</option>
+                      <option value="manutencao">{pick(T.tipoManutencao)}</option>
                     </select>
                   </label>
                 </div>
@@ -311,7 +347,7 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
                 {/* Raio de busca */}
                 <div>
                   <label style={labelStyle}>
-                    Raio de busca (m)
+                    {pick(T.raioBusca)}
                     <input
                       type="number"
                       min={50}
@@ -327,7 +363,7 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
                 {/* Deduplicar */}
                 <div>
                   <label style={labelStyle}>
-                    Não duplicar por (h)
+                    {pick(T.naoDuplicar)}
                     <input
                       type="number"
                       min={1}
@@ -367,7 +403,7 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
             color: '#22c55e',
             fontWeight: 700,
           }}>
-            Configuração salva com sucesso!
+            {pick(T.salvoOk)}
           </div>
         )}
 
@@ -386,7 +422,7 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
               fontWeight: 700,
               cursor: 'pointer',
             }}>
-            Cancelar
+            {pick(T.cancelar)}
           </button>
           <button
             onClick={salvar}
@@ -402,7 +438,7 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
               fontWeight: 800,
               cursor: salvando ? 'wait' : 'pointer',
             }}>
-            {salvando ? 'Salvando...' : 'Salvar configuração'}
+            {salvando ? pick(T.salvando) : pick(T.salvarConfig)}
           </button>
         </div>
       </div>

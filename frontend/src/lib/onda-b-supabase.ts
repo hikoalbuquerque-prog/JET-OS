@@ -15,7 +15,7 @@ export const logisticaProviderSupabase = (): boolean => {
     if (v === 'supabase') return true;
     if (v === 'firebase') return false;
   } catch { /* sem localStorage */ }
-  return (import.meta.env.VITE_LOGISTICA_PROVIDER as string) === 'supabase';
+  return (import.meta.env.VITE_LOGISTICA_PROVIDER as string) !== 'firebase';
 };
 
 // ── Solicitações de prestadores (UsuariosManager) ────────────────────────────
@@ -87,7 +87,7 @@ export const logisticaWriteSupabase = (): boolean => {
     if (v === 'supabase') return true;
     if (v === 'firebase') return false;
   } catch { /* sem localStorage */ }
-  return (import.meta.env.VITE_LOGISTICA_WRITE as string) === 'supabase';
+  return (import.meta.env.VITE_LOGISTICA_WRITE as string) !== 'firebase';
 };
 
 const sW = (...vals: any[]): string | null => {

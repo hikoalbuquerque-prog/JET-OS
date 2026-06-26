@@ -1,0 +1,9 @@
+{
+  "name": "gojet-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Vercel proxy for GoJet API (avoids Cloudflare IP blocking on GCP)",
+  "engines": {
+    "node": "20.x"
+  }
+}

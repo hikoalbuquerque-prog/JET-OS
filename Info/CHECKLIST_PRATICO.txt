@@ -1,0 +1,332 @@
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                   JET OS — CHECKLIST DE IMPLEMENTAÇÃO                        ║
+║                                                                               ║
+║  Projeto: PWA Firebase para gestão de estações de patinete/bicicleta         ║
+║  Stack: React/TypeScript + Firestore + Cloud Functions (Node.js)            ║
+║  Deploy: Hosting em https://jet-os-7.web.app                                ║
+║  Região: southamerica-east1 (São Paulo)                                      ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+═════════════════════════════════════════════════════════════════════════════════
+FASE 0: PREPARAÇÃO PRÉ-DEPLOY (Tempo estimado: 30 min)
+═════════════════════════════════════════════════════════════════════════════════
+
+❏ Copiar arquivos para repo local
+  └─ cd C:\Users\hikoa\Downloads\Jet OS
+  └─ Copiar 7 arquivos da pasta outputs:
+     ❏ AnalyticsManager.tsx → frontend/src/
+     ❏ DashboardManager.tsx → frontend/src/
+     ❏ App.tsx → frontend/src/
+     ❏ firebase.ts → frontend/src/lib/
+     ❏ index.ts → functions/src/
+     ❏ relatorios.ts → functions/src/
+     ❏ pois.ts → functions/src/
+
+❏ Verificar variáveis de ambiente
+  └─ Frontend (.env.local):
+     ❏ VITE_FIREBASE_API_KEY=AIzaS...
+     ❏ VITE_FIREBASE_AUTH_DOMAIN=jet-os-7.firebaseapp.com
+     ❏ VITE_FIREBASE_PROJECT_ID=jet-os-7
+     ❏ VITE_FIREBASE_STORAGE_BUCKET=jet-os-7.appspot.com
+     ❏ VITE_FIREBASE_MESSAGING_SENDER_ID=...
+     ❏ VITE_FIREBASE_APP_ID=...
+  
+  └─ Backend (functions/.env):
+     ❏ GMAPS_KEY=AIzaS...
+     ❏ OAUTH_REFRESH_TOKEN=1//0...
+     ❏ TELEGRAM_BOT_TOKEN=123456:ABC...
+     ❏ TELEGRAM_CHAT_ID=-123456789
+
+❏ Instalar dependencies
+  ❏ cd frontend && npm install
+  ❏ cd ../functions && npm install
+  ❏ firebase login (se necessário)
+
+═════════════════════════════════════════════════════════════════════════════════
+FASE 1: DEPLOY INICIAL (Tempo estimado: 30 min)
+═════════════════════════════════════════════════════════════════════════════════
+
+❏ Build Frontend
+  └─ cd "C:\Users\hikoa\Downloads\Jet OS\frontend"
+  └─ npm run build
+  └─ ✅ Verificar: dist/ folder criada com index.html
+
+❏ Deploy Frontend
+  └─ cd ..
+  └─ firebase deploy --only hosting
+  └─ ✅ Verificar: "Hosting URL: https://jet-os-7.web.app"
+
+❏ Build Backend
+  └─ cd "C:\Users\hikoa\Downloads\Jet OS\functions"
+  └─ npm run build
+  └─ ✅ Verificar: dist/ folder com *.js files
+
+❏ Deploy Backend
+  └─ cd ..
+  └─ firebase deploy --only functions
+  └─ ✅ Verificar: "28 functions deployed"
+
+❏ Testar App
+  ❏ Abrir https://jet-os-7.web.app
+  ❏ Login com conta Firebase
+  ❏ Navegar para Dashboard
+  ❏ Verificar se mapa carrega
+  ❏ Criar uma estação de teste
+  ❏ Verificar no Firestore que documento foi criado
+
+═════════════════════════════════════════════════════════════════════════════════
+FASE 2: IMPLEMENTAÇÃO DE PENDÊNCIAS (Tempo estimado: 2–3 horas)
+═════════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PENDÊNCIA 1: OSM via Cloud Function (Resolver erro 429)                    │
+│ Status: 🔴 CRÍTICA | Estimativa: 3–4 horas                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+❏ Adicionar função buscarPOIsOSM em functions/src/pois.ts
+  ❏ Copiar código de SOLUCOES_PENDENCIAS.ts
+  ❏ Implementar mapeamento OVERPASS_TAGS
+  ❏ Implementar ciclo sobre múltiplos endpoints (overpass.org + fallback)
+  ❏ Implementar batch Firestore para salvar POIs
+  ❏ Testar com curl:
+     curl -X POST https://us-central1-jet-os-7.cloudfunctions.net/buscarPOIsOSM \
+       -H "Content-Type: application/json" \
+       -d '{"lat": -8.0, "lng": -34.8, "raioM": 10000, "tipos": ["restaurant"]}'
+
+❏ Atualizar buscarPOIsFn em functions/src/index.ts
+  ❏ Fazer chamadas buscarPOIsOSM + buscarSalvarPOIsGoogle em paralelo
+  ❏ Deduplica por lugar_id (OSM) + place_id (Google)
+  ❏ Retornar { ok, total, osm, google, pois }
+
+❏ Deploy
+  ❏ npm run build em functions/
+  ❏ firebase deploy --only functions
+  ❏ Verificar logs: firebase functions:log --region southamerica-east1
+
+❏ Validar
+  ❏ Abrir app e clicar em "Buscar POIs"
+  ❏ Verificar se retorna resultados de Overpass + Google
+  ❏ Verificar em Firestore: collection "pois" tem docs com fonte="osm"
+  ❏ Confirmar: erro 429 foi eliminado?
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PENDÊNCIA 2: POIs Google — Grid de Pontos para Cobertura 100%              │
+│ Status: 🟡 IMPORTANTE | Estimativa: 2–3 horas                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+❏ Adicionar função gerarGridPontos em functions/src/pois.ts
+  ❏ Copiar código de SOLUCOES_PENDENCIAS.ts
+  ❏ Gera 9 pontos (3x3 grid) ao redor do centro
+  ❏ Testável com: gerarGridPontos(-8.0, -34.8, 10000, 3)
+
+❏ Modificar buscarSalvarPOIsGoogle
+  ❏ Se raioM > 5000, usar grid de 9 pontos
+  ❏ Senão, usar apenas o ponto central
+  ❏ Buscar em cada ponto + tipo em paralelo
+  ❏ Aumentar timeout de 120s → 300s
+  ❏ Aumentar memory de 256MiB → 512MiB
+
+❏ Deploy
+  ❏ npm run build em functions/
+  ❏ firebase deploy --only functions
+  ❏ Notar: timeout será maior (~5 min para raios grandes)
+
+❏ Validar
+  ❏ Abrir app, buscar POIs em raio > 5km
+  ❏ Verificar: resultados aumentaram?
+  ❏ Verificar Firestore: contagem de POIs aumentou?
+  ❏ Confirmar: cobertura melhorou?
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PENDÊNCIA 3: Relatório Guard — Campo "Procurando"                          │
+│ Status: 🟡 IMPORTANTE | Estimativa: 1–2 horas                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+❏ Frontend — Adicionar checkbox em DashboardManager.tsx
+  ❏ Localize: const [ocorrenciaForm, setOcorrenciaForm] = useState(...)
+  ❏ Adicionar campo: procurando: false
+  ❏ Adicionar JSX (no modal de formulário):
+     <label>
+       <input
+         type="checkbox"
+         checked={ocorrenciaForm.procurando || false}
+         onChange={(e) => setOcorrenciaForm({
+           ...ocorrenciaForm,
+           procurando: e.target.checked && ocorrenciaForm.tipo === 'roubo'
+         })}
+         disabled={ocorrenciaForm.tipo !== 'roubo'}
+       />
+       {' '}Procurando (destaque no relatório)
+     </label>
+  ❏ Verificar: checkbox apenas habilitado se tipo = "roubo"
+
+❏ Backend — Filtrar e destacar em functions/src/relatorios.ts
+  ❏ Localize: function gerarRelatorioGuard(...)
+  ❏ Adicionar filtro:
+     const ocorrenciasProcurando = ocorrenciasRoubos.filter(
+       (o: any) => o.procurando === true
+     );
+  ❏ Retornar: { ..., procurando: ocorrenciasProcurando.length, procurandoList }
+  ❏ Localize: function enviarRelatorioTelegram(relatorio)
+  ❏ Adicionar mensagem destacada:
+     const msgProcurando = relatorio.procurandoList?.length > 0
+       ? '🚨 PROCURANDO (' + relatorio.procurandoList.length + '):\n' +
+         relatorio.procurandoList.map((o: any) =>
+           '📍 ' + o.estacaoNome + ' (' + o.bairro + ') - ' + o.descricao
+         ).join('\n')
+       : '';
+
+❏ Deploy
+  ❏ npm run build em frontend/
+  ❏ firebase deploy --only hosting
+  ❏ npm run build em functions/
+  ❏ firebase deploy --only functions
+
+❏ Validar
+  ❏ Abrir app
+  ❏ Criar ocorrência de roubo
+  ❏ Marcar "Procurando" checkbox
+  ❏ Salvar ocorrência
+  ❏ Verificar Firestore: documento tem procurando: true
+  ❏ Disparar relatório Guard manual (botão na app ou via Cloud Function)
+  ❏ Verificar mensagem Telegram: aparece seção 🚨 PROCURANDO?
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PENDÊNCIA 4: Bugs Pós-Deploy — Monitoramento Contínuo                      │
+│ Status: 🔵 DINÂMICO | Estimativa: Ongoing                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+❏ Configurar monitoramento
+  ❏ Cloud Functions logs: https://console.firebase.google.com/project/jet-os-7/functions/logs
+  ❏ Firestore quotas: https://console.firebase.google.com/project/jet-os-7/firestore/usage
+  ❏ Analytics: https://console.firebase.google.com/project/jet-os-7/analytics/overview
+  ❏ Browser console: DevTools → Console (F12)
+
+❏ Padrão para reportar bugs
+  ❏ Reproduzir erro na app
+  ❏ Screenshot do erro
+  ❏ Abrir Cloud Functions logs (filtrar por timestamp)
+  ❏ Copiar stack trace + contexto
+  ❏ Verificar Firestore: quota excedida? (veja Usage na console)
+  ❏ Verificar browser: console.error(...)?
+  ❏ Criar Issue com: erro → logs → reprodução → sugestão
+
+❏ Alertas automáticos
+  ❏ Cloud Functions: queda de latência? (deve ser ~1s por CRUD)
+  ❏ Firestore: quotas atingidas? (avaliar upgrade se necessário)
+  ❏ Street View: 429 rate limit? (implementar exponential backoff)
+  ❏ Telegram: mensagens não enviadas? (verificar TELEGRAM_BOT_TOKEN)
+
+═════════════════════════════════════════════════════════════════════════════════
+FASE 3: VALIDAÇÃO PÓS-DEPLOY (Tempo estimado: 30 min)
+═════════════════════════════════════════════════════════════════════════════════
+
+Testes Manuais:
+
+❏ Login & Auth
+  ❏ Fazer login com conta Firebase
+  ❏ Verificar: email aparece no header
+  ❏ Fazer logout
+  ❏ Verificar: redireciona para login
+
+❏ CRUD de Estações
+  ❏ Criar nova estação
+  ❏ Preencher: nome, tipo, endereço (reverse geocode)
+  ❏ Salvar
+  ❏ Verificar Firestore: documento criado em estacoes/
+  ❏ Editar estação (nome, tipo)
+  ❏ Salvar
+  ❏ Verificar: mapa atualizado
+  ❏ Excluir estação (permissão gestor/admin)
+  ❏ Verificar: marcador removido do mapa
+
+❏ Street View
+  ❏ Clique em estação → "Gerar Street View"
+  ❏ Aguardar ~2–3s
+  ❏ Verificar: foto de rua aparece
+  ❏ Clicar para abrir tela cheia
+
+❏ Buscar POIs
+  ❏ Dashboard → "Buscar POIs"
+  ❏ Selecionar raio (300m–10km)
+  ❏ Selecionar tipos (restaurantes, bancos, etc)
+  ❏ Clicar "Buscar"
+  ❏ Verificar: marcadores aparecem no mapa (Overpass + Google)
+  ❏ Clicar em marcador POI → popup com nome, tipo, rating
+  ❏ Verificar logs: sem erros 429?
+
+❏ Criar Ocorrência
+  ❏ Clicar em estação → "Registrar Ocorrência"
+  ❏ Tipo: "Roubo"
+  ❏ Marcar "Procurando" checkbox
+  ❏ Descrição: "Patinete amarelo"
+  ❏ Adicionar foto (se possível)
+  ❏ Salvar
+  ❏ Verificar Firestore: documento em ocorrencias/
+  ❏ Verificar: campo procurando: true
+
+❏ Relatório Guard
+  ❏ Dashboard → "Gerar Relatório Guard"
+  ❏ Aguardar ~5–10s
+  ❏ Verificar: mensagem aparece em chat
+  ❏ Abrir link Telegram
+  ❏ Verificar: mensagem recebida
+  ❏ Verificar: seção 🚨 PROCURANDO aparece se houver roubos?
+
+❏ Analytics
+  ❏ Abrir app
+  ❏ Clicar em botões (criar estação, buscar POI, etc)
+  ❏ Abrir Google Analytics: https://analytics.google.com
+  ❏ Verificar: eventos aparecem em Realtime?
+
+❏ PWA & Offline
+  ❏ Abrir app em browser desktop
+  ❏ DevTools → Application → Service Workers
+  ❏ Verificar: service worker registrado (campo-v5)?
+  ❏ Colocar navegador offline (DevTools → Network → Offline)
+  ❏ Verificar: página ainda carrega (shell cache)
+  ❏ Voltar online
+
+═════════════════════════════════════════════════════════════════════════════════
+RESUMO DE LINKS & RECURSOS
+═════════════════════════════════════════════════════════════════════════════════
+
+📊 App:
+  └─ https://jet-os-7.web.app
+
+🔧 Firebase Console:
+  └─ https://console.firebase.google.com/project/jet-os-7/overview
+
+📁 Cloud Functions Logs:
+  └─ https://console.firebase.google.com/project/jet-os-7/functions/logs
+
+🗂️ Firestore Database:
+  └─ https://console.firebase.google.com/project/jet-os-7/firestore/data
+
+💾 Cloud Storage:
+  └─ https://console.firebase.google.com/project/jet-os-7/storage
+
+📈 Analytics:
+  └─ https://analytics.google.com
+
+📱 Telegram Bot (Guard Reports):
+  └─ Verificar em settings Firebase → Secrets
+
+═════════════════════════════════════════════════════════════════════════════════
+PRÓXIMOS PASSOS
+═════════════════════════════════════════════════════════════════════════════════
+
+1. ✅ Copiar arquivos para repo local
+2. ✅ Verificar .env
+3. ✅ Build + Deploy (frontend + backend)
+4. ✅ Testar em https://jet-os-7.web.app
+5. ✅ Implementar Pendência 1 (Overpass)
+6. ✅ Implementar Pendência 2 (Grid POIs)
+7. ✅ Implementar Pendência 3 (Procurando)
+8. ✅ Monitorar Pendência 4 (Bugs)
+
+═════════════════════════════════════════════════════════════════════════════════
+
+Tempo total estimado: 4–5 horas (incluindo testes)
+
+Pronto para começar? Avise quando tiver copiado os arquivos para o repo local! 🚀

@@ -15,6 +15,7 @@ import android.os.BatteryManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.PowerManager;
 
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationCallback;
@@ -56,6 +57,7 @@ public class GpsTrackerService extends Service {
     private GpsQueueDb queue;
     private GpsTokenManager tokens;
     private ScheduledExecutorService uploader;
+    private PowerManager.WakeLock wakeLock;
 
     // Config (persistida para sobreviver a restart pelo SO / boot)
     private String functionUrl, tokenUrl, provider, apiKey, refreshToken, uid, slotId, deviceId, deviceModel;
@@ -124,9 +126,26 @@ public class GpsTrackerService extends Service {
         }
 
         startForegroundSafe();
+        acquireWakeLock();   // mantém a CPU acordada → GPS e uploader não param na Doze (Samsung deep sleep)
         startLocationUpdates();
         startUploader();
         return START_STICKY;
+    }
+
+    // PARTIAL_WAKE_LOCK: impede a CPU de dormir enquanto o turno está ativo. Sem isto, em
+    // Doze/aparelhos agressivos (Samsung) as amostras de GPS e o uploader congelam por
+    // 15-20 min entre janelas de manutenção do SO — causando "buracos" no rastreamento.
+    // Liberado no onDestroy (fim do turno / stop). Foreground service controla o ciclo.
+    @SuppressLint("WakelockTimeout")
+    private void acquireWakeLock() {
+        try {
+            if (wakeLock == null) {
+                PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "JetOS::GpsTracker");
+                wakeLock.setReferenceCounted(false);
+            }
+            if (!wakeLock.isHeld()) wakeLock.acquire();
+        } catch (Exception ignore) {}
     }
 
     private void startForegroundSafe() {
@@ -164,7 +183,7 @@ public class GpsTrackerService extends Service {
         if (callback != null) return;
         LocationRequest req = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMs)
                 .setMinUpdateIntervalMillis(Math.max(5000, intervalMs / 2))
-                .setMinUpdateDistanceMeters(10f)
+                .setMinUpdateDistanceMeters(0f)   // heartbeat por TEMPO: posta mesmo parado (antes 10f bloqueava fixes <10m → sem pontos parado/indoor)
                 .build();
         callback = new LocationCallback() {
             @Override
@@ -264,6 +283,7 @@ public class GpsTrackerService extends Service {
     public void onDestroy() {
         if (callback != null) { fused.removeLocationUpdates(callback); callback = null; }
         if (uploader != null) { uploader.shutdownNow(); uploader = null; }
+        if (wakeLock != null && wakeLock.isHeld()) { try { wakeLock.release(); } catch (Exception ignore) {} }
         super.onDestroy();
     }
 

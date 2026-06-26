@@ -6,8 +6,13 @@ import {
   doc, setDoc, onSnapshot, orderBy, getDoc
 } from 'firebase/firestore';
 import { auth, db, fnGerarCroqui, fnGerarStreetView, fnAnalisarCalcada, fnBuscarPOIs } from '../lib/firebase';
+import { guardProviderSupabase, carregarOcorrenciasSupabase } from '../lib/ocorrencias-supabase';
 import L from 'leaflet';
 import { uploadComRetry } from '../lib/uploadUtils';
+import { comprimirImagem, capturarFotoNativa } from '../lib/imageUtils';
+import { isAndroidNative } from '../lib/gps-native';
+import { mapaProviderSupabase, carregarEstacoesSupabase, carregarZonasSupabase } from '../lib/estacoes-supabase';
+import { supabase } from '../lib/supabase';
 import ZonasManager from '../ZonasManager';
 import { useCidadesExpansao, CidadeExpansaoModal, STATUS_META, type CidadeExpansao } from '../CidadesExpansao';
 import UsuariosManager from '../UsuariosManager';
@@ -46,8 +51,19 @@ import GuiaPanel from '../GuiaPanel';
 import { DrawerAdd, ZonaEditModal, ZonaFormModal, LangSelector } from '../components/MapaHelpers';
 import { Toast, CentralNotificacoes, NovaOcorrenciaInline, GuardOverlay } from '../components/AppShell';
 import type { Usuario, Estacao } from '../lib/app-utils';
-import { COORDS_CIDADES, CIDADES, calcAreaKm2, pontoNoPoli, sanitizarFotoUrl } from '../lib/app-utils';
+import { COORDS_CIDADES, CIDADES, calcAreaKm2, pontoNoPoli, sanitizarFotoUrl, fixDriveUrl } from '../lib/app-utils';
 import { DocPublicoModal } from '../components/AppShell';
+
+// Compressão HEIC-safe (ver lib/imageUtils). Converte HEIC→JPEG antes de comprimir,
+// evitando o bug de foto "quebrada" (HEIC enviado como .jpg que o WebView não renderiza).
+async function comprimir(file: File, maxW = 1280, q = 0.82): Promise<File> {
+  try {
+    return await comprimirImagem(file, maxW, q);
+  } catch (e) {
+    console.warn('[comprimir] falha ao processar imagem, enviando original', e);
+    return file;
+  }
+}
 
 function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => void }) {
   const { t } = useTranslation();
@@ -96,6 +112,8 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
   const layerRef    = useRef<L.LayerGroup | null>(null);
 
   const [estacoes,      setEstacoes]      = useState<Estacao[]>([]);
+  const estacoesRef = useRef<Estacao[]>([]);
+  estacoesRef.current = estacoes;
   const [cidades,       setCidades]       = useState<string[]>([]);
   const cidade = cidades[0] || ''; // compat — cidade principal
 
@@ -107,8 +125,6 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
       const norm = usuario.cidadesPermitidas
         .map((c: string) => c.trim())
         .filter(Boolean);
-      console.log('[viewer] cidadesPermitidas =>', norm);
-      console.log('[viewer] vai buscar estações por cidades:', norm);
       setCidades(norm);
     }
   }, [usuario?.uid, usuario?.cidadesPermitidas?.join(',')]);
@@ -247,24 +263,32 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
   // ── KPIs ocorrências em tempo real ─────────────────────────────────
   useEffect(() => {
     if (!isGestorApp) return;
+    const processar = (todas: any[]) => {
+      const filtradas = cidade
+        ? todas.filter(d => (d.cidade_inicial||'').toLowerCase().includes(cidade.toLowerCase()))
+        : todas;
+      const abertas = filtradas.filter(d => {
+        const s = (d.status||'').toLowerCase();
+        return s === 'aberto' || s === 'em apuração' || s === 'em apuracao';
+      });
+      const procurando = filtradas.filter(d => {
+        const p = d.procurando;
+        return p && String(p).trim().length > 0 && p !== 'false';
+      }).length;
+      const roubos = filtradas.filter(d => d.tipo === 'Roubo').length;
+      setKpis(prev => ({ ...prev, ocAbertas: abertas.length, procurando, roubos }));
+    };
+    // Fase 2 / Onda B — leitura do Supabase atrás de flag (read-only).
+    if (guardProviderSupabase()) {
+      let vivo = true;
+      carregarOcorrenciasSupabase({ limit: 5000 })
+        .then(rows => { if (vivo) processar(rows); })
+        .catch(err => console.warn('[KPI ocorrencias] Supabase', err));
+      return () => { vivo = false; };
+    }
     const unsub = onSnapshot(
       collection(db, 'ocorrencias'),
-      snap => {
-        const todas = snap.docs.map(d => d.data());
-        const filtradas = cidade
-          ? todas.filter(d => (d.cidade_inicial||'').toLowerCase().includes(cidade.toLowerCase()))
-          : todas;
-        const abertas = filtradas.filter(d => {
-          const s = (d.status||'').toLowerCase();
-          return s === 'aberto' || s === 'em apuração' || s === 'em apuracao';
-        });
-        const procurando = filtradas.filter(d => {
-          const p = d.procurando;
-          return p && String(p).trim().length > 0 && p !== 'false';
-        }).length;
-        const roubos = filtradas.filter(d => d.tipo === 'Roubo').length;
-        setKpis(prev => ({ ...prev, ocAbertas: abertas.length, procurando, roubos }));
-      },
+      snap => processar(snap.docs.map(d => d.data())),
       err => console.warn('[KPI ocorrencias]', err.code, err.message)
     );
     return () => unsub();
@@ -282,14 +306,18 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
   const [poiGoogleDados, setPoiGoogleDados] = useState<any[]>([]);
   const [poiGoogleTiposAtivos, setPoiGoogleTiposAtivos] = useState<Set<string> | null>(null);
   const [streetViewTarget, setStreetViewTarget] = useState<{lat:number;lng:number;nome?:string;estacaoId?:string;estacaoCodigo?:string}|null>(null);
+  const [svPreview, setSvPreview] = useState<{id:string;url:string;fonte:string}|null>(null);
+  const [svBatchRunning, setSvBatchRunning] = useState(false);
+  const [medirFila, setMedirFila] = useState<{lista: any[]; idx: number} | null>(null);
+  const [showToolsFab, setShowToolsFab] = useState(false);
   const [zonaEditando,  setZonaEditando]  = useState<Record<string,unknown> | null>(null);
   const [zonaDrawing,   setZonaDrawing]   = useState(false);
   const [zonaForm,      setZonaForm]      = useState<{coords: [number,number][]} | null>(null);
   const poligonosLayerRef = useRef<L.LayerGroup | null>(null);
   const cicloviasLayerRef = useRef<L.LayerGroup | null>(null);
   const [filtrosStatus, setFiltrosStatus] = useState<Set<string>>(() => {
-    try { const s = localStorage.getItem('jet_filtros_status'); return s ? new Set(JSON.parse(s)) : new Set(['NEGOCIACAO','SOLICITADO','APROVADO','INSTALADO','REPROVADO','CANCELADO']); }
-    catch { return new Set(['NEGOCIACAO','SOLICITADO','APROVADO','INSTALADO','REPROVADO','CANCELADO']); }
+    try { const s = localStorage.getItem('jet_filtros_status'); return s ? new Set(JSON.parse(s)) : new Set(['ATIVO','PLANEJADO','NEGOCIACAO','SOLICITADO','APROVADO','INSTALADO','REPROVADO','CANCELADO']); }
+    catch { return new Set(['ATIVO','PLANEJADO','NEGOCIACAO','SOLICITADO','APROVADO','INSTALADO','REPROVADO','CANCELADO']); }
   });
   const [raioAtivo,     setRaioAtivo]     = useState(false);
   const [raioMetros,    setRaioMetros]    = useState(100);
@@ -439,8 +467,33 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
             const fetchRes = await fetch(base64Anotado);
             const blob = await fetchRes.blob();
             const url = await uploadComRetry(blob, 'estacoes/fotos/' + Date.now() + '_medida.jpg');
+            // Tenta Supabase primeiro (estações de Curitiba só existem lá)
+            // Busca imagens atuais para merge (não perder croqui)
+            const { data: rows } = await supabase
+              .from('estacoes')
+              .select('id,imagens')
+              .or(`id.eq.${id},firebase_id.eq.${id}`)
+              .limit(1);
+            const row = rows?.[0];
+            const { error: supErr } = row
+              ? await supabase
+                  .from('estacoes')
+                  .update({ imagens: { ...(row.imagens || {}), foto: url } })
+                  .eq('id', row.id)
+              : { error: { message: 'not found' } } as any;
+            const updateLocal = (matchId: string, newUrl: string) => {
+              const est = estacoesRef.current.find((e: any) => e.id === matchId || e.id === id);
+              if (est) (est as any).imagens = { ...((est as any).imagens || {}), foto: newUrl };
+            };
+            if (!supErr) {
+              updateLocal(row?.id ?? id, url);
+              showToast('Foto com medidas salva!', 'success');
+              return;
+            }
+            // Fallback Firestore
             const { doc: fsDoc, updateDoc, collection: col } = await import('firebase/firestore');
             await updateDoc(fsDoc(col(db, 'estacoes'), id), { 'imagens.foto': url });
+            updateLocal(id, url);
             showToast('Foto com medidas salva!', 'success');
           } catch (err: any) {
             showToast('Erro ao salvar: ' + err.message, 'error');
@@ -548,6 +601,16 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
 
     cidades.forEach(c => {
       const cTrim = c.trim();
+      // Fase 2 (dual-run, atrás de flag): lê estações do Supabase. Sem realtime no piloto
+      // (carga única por cidade). Flag off → caminho Firestore original abaixo.
+      if (mapaProviderSupabase()) {
+        carregarEstacoesSupabase(cTrim).then(rows => {
+          if (cancelled) return;
+          porCidade[cTrim] = rows as Estacao[];
+          merge();
+        }).catch(e => console.warn('[estacoes-supabase] falha ao carregar', cTrim, e?.message));
+        return;
+      }
       const q = query(collection(db, 'estacoes'), where('cidade', '==', cTrim));
       const unsub = onSnapshot(q, snap => {
         if (snap.docs.length > 0) {
@@ -726,15 +789,16 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
     const layer = L.layerGroup().addTo(map);
     poligonosLayerRef.current = layer;
 
-    getDocs(query(
-      collection(db, 'poligonos'),
-      where('cidade', 'in', cidades.slice(0,10))
-    )).then(snap => {
+    (mapaProviderSupabase()
+      // Fase 2: zonas do Supabase (mesmo flag das estações). Fake-snapshot p/ não mudar o downstream.
+      ? carregarZonasSupabase(cidades).then(rows => ({ docs: rows.map((r: any) => ({ id: r.id, data: () => r })) }))
+      : getDocs(query(collection(db, 'poligonos'), where('cidade', 'in', cidades.slice(0,10))))
+    ).then((snap: any) => {
       // Filtra ativo no cliente para incluir zonas sem campo ativo (legado)
-      const activeDocs = { docs: snap.docs.filter(d => d.data().ativo !== false) };
+      const activeDocs = { docs: snap.docs.filter((d: any) => d.data().ativo !== false) };
       return activeDocs;
-    }).then(snap => {
-      snap.docs.forEach(doc => {
+    }).then((snap: any) => {
+      snap.docs.forEach((doc: any) => {
         const d = doc.data();
         const pontos = d.poligono || d.Poligono || d.POLIGONO || '';
         if (!pontos) return;
@@ -786,14 +850,14 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
 
           poly.bindPopup(`
             <div style="font-family:Inter,sans-serif;min-width:180px">
-              <b style="font-size:13px">${nome || '(sem nome)'}</b>
+              <b style="font-size:13px">${nome || t('zone.noName')}</b>
               <div style="font-size:11px;color:#666;margin:2px 0">${fase} · ${grupo}</div>
-              ${(() => { try { const dt = d.importadoEm || (d.criadoEm?.toDate ? d.criadoEm.toDate().toISOString() : d.criadoEm); if (!dt) return ''; const label = d.importadoEm ? 'Importado' : 'Criado'; return '<div style="font-size:10px;color:#999;margin-top:2px">📅 ' + label + ': ' + new Date(dt).toLocaleDateString('pt-BR') + '</div>'; } catch(e) { return ''; } })()}
+              ${(() => { try { const dt = d.importadoEm || (d.criadoEm?.toDate ? d.criadoEm.toDate().toISOString() : d.criadoEm); if (!dt) return ''; const label = d.importadoEm ? t('zone.imported') : t('zone.created'); return '<div style="font-size:10px;color:#999;margin-top:2px">📅 ' + label + ': ' + new Date(dt).toLocaleDateString('pt-BR') + '</div>'; } catch(e) { return ''; } })()}
               <hr style="border:none;border-top:1px solid #eee;margin:8px 0">
               <div style="font-size:12px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
                 <div><b style="color:#2563eb">${areaKm2.toFixed(2)}</b><br><span style="font-size:10px;color:#888">km²</span></div>
-                <div><b style="color:#16a34a">${estacoesNaZona.length}</b><br><span style="font-size:10px;color:#888">estações</span></div>
-                <div><b style="color:#7c3aed">${densidadeKm2}</b><br><span style="font-size:10px;color:#888">est/km²</span></div>
+                <div><b style="color:#16a34a">${estacoesNaZona.length}</b><br><span style="font-size:10px;color:#888">${t('zone.stations')}</span></div>
+                <div><b style="color:#7c3aed">${densidadeKm2}</b><br><span style="font-size:10px;color:#888">${t('zone.stPerKm2')}</span></div>
                 <div><b style="color:#0891b2">${estacoesNaZona.filter(e=>e.ia?.aprovado).length}</b><br><span style="font-size:10px;color:#888">IA ✓</span></div>
               </div>
             </div>
@@ -808,25 +872,25 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
         const densidade = areaKm2 > 0 ? (estacoesNaZona / areaKm2).toFixed(2) : '—';
 
         const tooltipHtml = `<div style="font-family:Inter,sans-serif;min-width:160px">
-          <b style="font-size:12px">${nome || fase || 'Zona'}</b>
+          <b style="font-size:12px">${nome || fase || t('zone.noName')}</b>
           ${fase ? `<div style="font-size:10px;color:#888;margin-top:2px">${fase}</div>` : ''}
           <div style="border-top:1px solid #eee;margin:6px 0"></div>
           <div style="font-size:11px;display:flex;justify-content:space-between;margin-bottom:3px">
-            <span style="color:#666">Área</span>
+            <span style="color:#666">${t('zone.area')}</span>
             <b>${areaKm2 < 1 ? (areaKm2 * 100).toFixed(2) + ' ha' : areaKm2.toFixed(3) + ' km²'}</b>
           </div>
           <div style="font-size:11px;display:flex;justify-content:space-between;margin-bottom:3px">
-            <span style="color:#666">Estações</span>
+            <span style="color:#666">${t('zone.stations')}</span>
             <b>${estacoesNaZona}</b>
           </div>
           <div style="font-size:11px;display:flex;justify-content:space-between">
-            <span style="color:#666">Densidade</span>
+            <span style="color:#666">${t('zone.density')}</span>
             <b>${densidade}/km²</b>
           </div>
         </div>`;
 
         poly.bindPopup(tooltipHtml, { maxWidth: 200 });
-        poly.bindTooltip(nome || fase || 'Zona', {
+        poly.bindTooltip(nome || fase || t('zone.noName'), {
           permanent: false, direction: 'center',
           className: 'leaflet-zona-tooltip'
         });
@@ -858,36 +922,58 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
   const [ocorrCidades, setOcorrCidades] = useState<{cidade:string;count:number;lat:number;lng:number;tipos:Record<string,number>}[]>([]);
   const ocorrCidadesRef = useRef<L.LayerGroup|null>(null);
 
-  // Busca cidades com estações — TODOS os países do usuário
+  // Busca cidades com estações — Supabase (primário) + Firestore (fallback/merge)
   const paisesDoUsuario = usuario.paises || ['BR'];
   useEffect(() => {
-    getDocs(collection(db, 'estacoes')).then(snap => {
-      const mapa: Record<string, {lats: number[]; lngs: number[]; count: number; pais: string}> = {};
-      snap.docs.forEach(d => {
-        const data = d.data();
-        const c = data.cidade;
-        if (!c || !data.lat || !data.lng) return;
-        const lat = data.lat as number;
-        const lng = data.lng as number;
-        // Detectar país pela coordenada (ignora campo pais que pode estar errado)
-        let coordPais = data.pais || 'BR';
-        if (lat > 14 && lat < 33 && lng > -118 && lng < -86) coordPais = 'MX';
-        else if (lat > -35 && lat < 5 && lng > -75 && lng < -30) coordPais = 'BR';
-        // Incluir se for país do usuário (ou admin vê tudo)
-        const userIsAdmin = ['admin','gestor'].includes(usuario.role);
-        if (!userIsAdmin && !paisesDoUsuario.includes(coordPais)) return;
+    const userIsAdmin = ['admin','gestor'].includes(usuario.role);
+    const buildMapa = (mapa: Record<string, {lats: number[]; lngs: number[]; count: number; pais: string}>, rows: {cidade:string;lat:number;lng:number;pais?:string}[]) => {
+      for (const r of rows) {
+        const c = r.cidade;
+        if (!c || !r.lat || !r.lng) continue;
+        let coordPais = r.pais || 'BR';
+        if (r.lat > 14 && r.lat < 33 && r.lng > -118 && r.lng < -86) coordPais = 'MX';
+        else if (r.lat > -35 && r.lat < 5 && r.lng > -75 && r.lng < -30) coordPais = 'BR';
+        if (!userIsAdmin && !paisesDoUsuario.includes(coordPais)) continue;
         if (!mapa[c]) mapa[c] = { lats: [], lngs: [], count: 0, pais: coordPais };
-        mapa[c].lats.push(lat);
-        mapa[c].lngs.push(lng);
+        mapa[c].lats.push(r.lat);
+        mapa[c].lngs.push(r.lng);
         mapa[c].count++;
-      });
-      const lista = Object.entries(mapa).map(([cidade, v]) => ({
+      }
+    };
+    const mapaToLista = (mapa: Record<string, {lats: number[]; lngs: number[]; count: number; pais: string}>) =>
+      Object.entries(mapa).map(([cidade, v]) => ({
         cidade, count: v.count, pais: v.pais,
         lat: v.lats.reduce((a,b)=>a+b,0)/v.lats.length,
         lng: v.lngs.reduce((a,b)=>a+b,0)/v.lngs.length
       })).sort((a,b) => b.count - a.count);
-      setCidadesReais(lista);
+
+    const mapa: Record<string, {lats: number[]; lngs: number[]; count: number; pais: string}> = {};
+
+    // Supabase: cidades agrupadas via RPC (evita limite de 1000 rows do PostgREST)
+    const supaProm = (async () => {
+      const { data, error } = await supabase.rpc('cidades_estacoes');
+      if (data) {
+        for (const r of data as any[]) {
+          if (!r.cidade || !r.lat || !r.lng) continue;
+          const p = r.pais || 'BR';
+          if (!userIsAdmin && !paisesDoUsuario.includes(p)) continue;
+          mapa[r.cidade] = { lats: [r.lat], lngs: [r.lng], count: r.count, pais: p };
+        }
+      }
+    })().catch((e) => { console.error('[TelaMapa] Supabase catch:', e); });
+
+    // Firestore: cidades legadas (merge)
+    const fbProm = getDocs(collection(db, 'estacoes')).then(snap => {
+      const rows = snap.docs.map(d => {
+        const dd = d.data();
+        return { cidade: dd.cidade, lat: dd.lat as number, lng: dd.lng as number, pais: dd.pais };
+      });
+      buildMapa(mapa, rows);
     }).catch(() => {});
+
+    Promise.all([supaProm, fbProm]).then(() => {
+      setCidadesReais(mapaToLista(mapa));
+    });
   }, [pais]);
 
   useEffect(() => {
@@ -1005,7 +1091,7 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
         .map(([t,n]) => `<div>${t}: <strong>${n}</strong></div>`).join('');
       marker.bindPopup(`<div style="font-family:Arial;font-size:12px;min-width:160px;">
         <div style="font-weight:700;color:${cor};margin-bottom:6px;">${cidade}</div>
-        <div><strong>${d.count}</strong> ocorrência${d.count>1?'s':''}</div>
+        <div><strong>${d.count}</strong> ${d.count>1?t('popup.occurrences'):t('popup.occurrence')}</div>
         ${tipLines}</div>`);
 
       marker.addTo(layer);
@@ -1153,6 +1239,8 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
         // Paleta tipo × status — variação de tons para identificação rápida
         const COR_PIN: Record<string, Record<string, string>> = {
           PUBLICA: {
+            ATIVO:      '#10b981', // verde esmeralda (fase 1 Curitiba)
+            PLANEJADO:  '#8b5cf6', // roxo
             SOLICITADO: '#93c5fd', // azul claro
             NEGOCIACAO: '#fbbf24', // âmbar/ouro
             APROVADO:   '#3b82f6', // azul médio
@@ -1161,20 +1249,24 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
             CANCELADO:  '#475569', // cinza azulado
           },
           PRIVADA: {
-            SOLICITADO: '#fde68a', // âmbar claro
-            NEGOCIACAO: '#f59e0b', // laranja/âmbar
-            APROVADO:   '#f59e0b', // laranja médio
-            INSTALADO:  '#b45309', // laranja/marrom forte
-            REPROVADO:  '#991b1b', // vermelho escuro
-            CANCELADO:  '#57534e', // cinza quente
+            ATIVO:      '#059669',
+            PLANEJADO:  '#7c3aed',
+            SOLICITADO: '#fde68a',
+            NEGOCIACAO: '#f59e0b',
+            APROVADO:   '#f59e0b',
+            INSTALADO:  '#b45309',
+            REPROVADO:  '#991b1b',
+            CANCELADO:  '#57534e',
           },
           CONCORRENTE: {
-            SOLICITADO: '#fca5a5', // vermelho claro
-            NEGOCIACAO: '#f97316', // laranja vermelho
-            APROVADO:   '#ef4444', // vermelho médio
-            INSTALADO:  '#b91c1c', // vermelho forte
-            REPROVADO:  '#450a0a', // vermelho muito escuro
-            CANCELADO:  '#6b7280', // cinza
+            ATIVO:      '#047857',
+            PLANEJADO:  '#6d28d9',
+            SOLICITADO: '#fca5a5',
+            NEGOCIACAO: '#f97316',
+            APROVADO:   '#ef4444',
+            INSTALADO:  '#b91c1c',
+            REPROVADO:  '#450a0a',
+            CANCELADO:  '#6b7280',
           },
         };
         const cor = e.ia?.aprovado
@@ -1197,17 +1289,18 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
         const marker = L.marker([e.lat, e.lng], {
           icon: L.divIcon({ className: '', html, iconSize: [pinSize, pinSize], iconAnchor: [Math.floor(pinSize/2), Math.floor(pinSize/2)] })
         });
+        (marker as any)._jet_id = e.id;
 
         // InfoWindow completo
         marker.bindPopup(() => {
           const d = e as any;
 
           // Foto ou Street View
-    const imgUrl = sanitizarFotoUrl(e.imagens?.foto || (e as any).foto || (e as any).fotoUrl) ||
-     e.imagens?.streetView || '';
+    const rawFoto = e.imagens?.foto || (e as any).foto || (e as any).fotoUrl || '';
+    const imgUrl = sanitizarFotoUrl(rawFoto) || fixDriveUrl(rawFoto) || e.imagens?.streetView || '';
           const imgHtml = imgUrl
-            ? `<img src="${imgUrl}" style="width:100%;height:110px;object-fit:cover;border-radius:6px;margin-bottom:8px;display:block"
-               onerror="this.style.display='none'">`
+            ? `<img src="${imgUrl}" referrerpolicy="no-referrer" style="width:100%;height:110px;object-fit:cover;border-radius:6px;margin-bottom:8px;display:block"
+               onerror="this.style.height='0px'">`
             : '';
 
           const iaHtml = ''; // IA desativada
@@ -1216,20 +1309,20 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
           let tipoExtra = '';
           if (e.tipo === 'CONCORRENTE' && d.nomeConcorrente) {
             tipoExtra = `<div style="font-size:11px;color:#ef4444;margin:3px 0">
-              🏢 Concorrente: <b>${d.nomeConcorrente}</b></div>`;
+              🏢 ${t('popup.competitor')}: <b>${d.nomeConcorrente}</b></div>`;
           }
 
           // Documentos públicos (TPU / Autorização Prefeitura) — editável direto no popup
           const docPublico = d.docPublico || {};
           const docHtml = (e.cidade === 'São Paulo' || e.tipo === 'PUBLICA')
             ? `<div id="jet-doc-${e.id}" style="background:#e8f4fd;border:1px solid #b3d9f5;border-radius:8px;padding:8px 10px;margin:6px 0;font-size:11px">
-                <div style="font-weight:700;color:#1565c0;margin-bottom:5px">📄 Documentos Públicos</div>
-                ${docPublico.tpu ? `<div style="color:#1976d2;margin:2px 0">🏛 TPU: <a href="${docPublico.tpu}" target="_blank" style="color:#1976d2;font-weight:600">Visualizar ↗</a></div>` : '<div style="color:#90a4ae;font-size:10px">🏛 TPU: não cadastrado</div>'}
-                ${docPublico.autorizacao ? `<div style="color:#1976d2;margin:2px 0">✅ Autorização: <a href="${docPublico.autorizacao}" target="_blank" style="color:#1976d2;font-weight:600">Visualizar ↗</a></div>` : '<div style="color:#90a4ae;font-size:10px">✅ Autorização: não cadastrada</div>'}
+                <div style="font-weight:700;color:#1565c0;margin-bottom:5px">📄 ${t('popup.publicDocs')}</div>
+                ${docPublico.tpu ? `<div style="color:#1976d2;margin:2px 0">🏛 TPU: <a href="${docPublico.tpu}" target="_blank" style="color:#1976d2;font-weight:600">${t('popup.view')} ↗</a></div>` : `<div style="color:#90a4ae;font-size:10px">🏛 ${t('popup.tpuNotRegistered')}</div>`}
+                ${docPublico.autorizacao ? `<div style="color:#1976d2;margin:2px 0">✅ Autorização: <a href="${docPublico.autorizacao}" target="_blank" style="color:#1976d2;font-weight:600">${t('popup.view')} ↗</a></div>` : `<div style="color:#90a4ae;font-size:10px">✅ ${t('popup.authNotRegistered')}</div>`}
                 ${docPublico.obs ? `<div style="color:#555;font-size:10px;margin-top:3px">📝 ${docPublico.obs}</div>` : ''}
                 <button onclick="window.dispatchEvent(new CustomEvent('jetEditDocPublico',{detail:{id:'${e.id}',cidade:'${e.cidade}',docPublico:${JSON.stringify(docPublico)}}}));this.closest('.leaflet-popup').querySelector('.leaflet-popup-close-button').click()"
                   style="margin-top:6px;width:100%;padding:4px;background:#1565c0;color:#fff;border:none;border-radius:5px;font-size:10px;font-weight:600;cursor:pointer">
-                  ✏️ ${docPublico.tpu || docPublico.autorizacao ? 'Atualizar documentos' : 'Adicionar documentos'}
+                  ✏️ ${docPublico.tpu || docPublico.autorizacao ? t('popup.updateDocs') : t('popup.addDocs')}
                 </button>
               </div>`
             : '';
@@ -1238,19 +1331,19 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
             const p = d.privado || {};
             const temDados = p.nomeLocal || p.nomeAutorizante || p.telefone || p.email;
             tipoExtra = `<div style="background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:8px 10px;margin:6px 0;font-size:11px;line-height:1.6">
-              <div style="font-weight:700;color:#e65100;margin-bottom:4px">🏢 ${p.nomeLocal || '(nome não preenchido)'}</div>
+              <div style="font-weight:700;color:#e65100;margin-bottom:4px">🏢 ${p.nomeLocal || t('popup.nameNotFilled')}</div>
               ${p.nomeAutorizante ? `<div style="color:#555">👤 ${p.nomeAutorizante}${p.cargoAutorizante ? ' &middot; ' + p.cargoAutorizante : ''}</div>` : ''}
               ${p.telefone ? `<div style="color:#555">📞 ${p.telefone}</div>` : ''}
               ${p.email    ? `<div style="color:#555">✉️ ${p.email}</div>`    : ''}
               ${d.consultor ? `<div style="color:#555">👷 ${d.consultor}</div>` : ''}
-              ${!temDados ? '<div style="color:#e65100;font-size:10px">⚠ Dados do estabelecimento não registrados — clique em Editar</div>' : ''}
+              ${!temDados ? `<div style="color:#e65100;font-size:10px">⚠ ${t('popup.dataNotRegistered')}</div>` : ''}
             </div>`;
           }
 
           // Dados técnicos
           const tecnico = e.larguraFaixa
             ? `<div style="font-size:11px;color:#888;margin:2px 0">
-                Largura: <b style="color:#333">${e.larguraFaixa}m</b></div>` : '';
+                ${t('popup.width')}: <b style="color:#333">${e.larguraFaixa}m</b></div>` : '';
 
 
           // Data/hora de cadastro + consultor
@@ -1273,49 +1366,77 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
 
           // Links de imagens
           const svInlineBtn = `<button onclick="window.dispatchEvent(new CustomEvent('jetOpenSV',{detail:{lat:${e.lat},lng:${e.lng},nome:'${(e.endereco||e.codigo||'').replace(/'/g,"")}',estacaoId:'${e.id}',estacaoCodigo:'${e.codigo||""}'}}));this.closest('.leaflet-popup').querySelector('.leaflet-popup-close-button').click()"
-            style="background:#005bff;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;margin-right:4px">🌐 Street View</button>`;
+            style="background:#005bff;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;margin-right:4px">🌐 ${t('popup.streetView')}</button>`;
           const fotoBtn = `<button onclick="window.dispatchEvent(new CustomEvent('jetFoto',{detail:{id:'${e.id}',codigo:'${e.codigo||''}',lat:${e.lat},lng:${e.lng}}}));this.closest('.leaflet-popup').querySelector('.leaflet-popup-close-button').click()"
-            style="background:#10b981;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer">📷 Foto</button>`;
+            style="background:#10b981;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer">📷 ${t('popup.photo')}</button>`;
           // Google Maps link opens the location in Maps (not embed)
           const gmapsUrl = `https://www.google.com/maps?q=${e.lat},${e.lng}&cbll=${e.lat},${e.lng}&layer=c`;
-          const medirBtn = e.imagens?.foto
-            ? `<button onclick="window.dispatchEvent(new CustomEvent('jetMedirFoto',{detail:{id:'${e.id}',fotoUrl:'${e.imagens.foto}'}}));this.closest('.leaflet-popup').querySelector('.leaflet-popup-close-button').click()"
-                style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer">📐 Medir</button>`
+          const medirFotoUrl = fixDriveUrl(e.imagens?.foto || '') || e.imagens?.foto || e.imagens?.streetView || '';
+          const medirBtn = medirFotoUrl
+            ? `<button onclick="window.dispatchEvent(new CustomEvent('jetMedirFoto',{detail:{id:'${e.id}',fotoUrl:'${medirFotoUrl}'}}));this.closest('.leaflet-popup').querySelector('.leaflet-popup-close-button').click()"
+                style="background:#1d4ed8;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer">📐 ${t('popup.measure')}</button>`
             : '';
           const links = [
             svInlineBtn, fotoBtn, medirBtn,
             `<a href="${gmapsUrl}" target="_blank"
-              style="color:#005bff;font-size:10px;text-decoration:none">🗺 Maps</a>`,
+              style="color:#005bff;font-size:10px;text-decoration:none">🗺 ${t('popup.maps')}</a>`,
             e.imagens?.croqui ? `<a href="${e.imagens.croqui}" target="_blank"
-              style="color:#7c3aed;font-size:10px;text-decoration:none">📐 Croqui</a>` : '',
+              style="color:#7c3aed;font-size:10px;text-decoration:none">📐 ${t('popup.croqui')}</a>` : '',
             e.imagens?.foto && e.imagens?.foto !== imgUrl ? `<a href="${e.imagens.foto}" target="_blank"
-              style="color:#16a34a;font-size:10px;text-decoration:none">📸 Foto</a>` : ''
+              style="color:#16a34a;font-size:10px;text-decoration:none">📸 ${t('popup.photo')}</a>` : ''
           ].filter(Boolean).join(' · ');
 
           const bairroSubpref = [e.bairro, d.subprefeitura].filter(Boolean).join(' · ');
 
           // Foto — verificar múltiplos campos possíveis
-const fotoSrc = sanitizarFotoUrl(e.imagens?.foto || (e as any).foto || (e as any).fotoUrl) ||
-     e.imagens?.streetView || '';
+const rawFoto2 = e.imagens?.foto || (e as any).foto || (e as any).fotoUrl || '';
+const fotoReal = sanitizarFotoUrl(rawFoto2) || fixDriveUrl(rawFoto2) || '';
+const fotoSrc = fotoReal || e.imagens?.streetView || '';
+const isSvFoto = !fotoReal && !!e.imagens?.streetView;
           const thumbHtml = fotoSrc
             ? `<div style="position:relative;margin-bottom:8px;border-radius:8px;overflow:hidden;cursor:pointer"
                 onclick="window.dispatchEvent(new CustomEvent('jetOpenFoto',{detail:{url:'${fotoSrc}'}}))">
-                <img src="${fotoSrc}"
+                <img src="${fotoSrc}" referrerpolicy="no-referrer"
                   style="width:100%;height:140px;object-fit:cover;display:block"
-                  onerror="this.parentElement.style.display='none'" />
+                  onerror="this.style.height='0px'" />
+                ${isSvFoto ? `<div style="position:absolute;top:6px;left:6px;background:rgba(0,91,255,.85);color:#fff;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px">🌐 SV</div>` : ''}
                 <div style="position:absolute;bottom:0;left:0;right:0;padding:5px 8px;
                   background:linear-gradient(transparent,rgba(0,0,0,.7));
-                  font-size:9px;color:#fff;font-weight:600">🔍 Toque para ampliar</div>
+                  font-size:9px;color:#fff;font-weight:600">${isSvFoto ? '📷 ' + t('popup.tapZoomReplace') : '🔍 ' + t('popup.tapZoom')}</div>
               </div>`
             : `<div style="background:#f0f4f8;border-radius:8px;height:60px;display:flex;align-items:center;
                 justify-content:center;margin-bottom:8px;cursor:pointer;border:2px dashed #cbd5e1"
                 onclick="window.dispatchEvent(new CustomEvent('jetFoto',{detail:{id:'${e.id}',codigo:'${e.codigo||''}',lat:${e.lat},lng:${e.lng}}}));document.querySelector('.leaflet-popup-close-button')?.click()">
-                <span style="font-size:11px;color:#64748b;font-weight:600">📷 Adicionar foto</span>
+                <span style="font-size:11px;color:#64748b;font-weight:600">📷 ${t('popup.addPhoto')}</span>
               </div>`;
+
+          const croquiSrc = e.imagens?.croqui ? fixDriveUrl(e.imagens.croqui) : '';
+          const croquiThumb = croquiSrc
+            ? `<div style="margin-bottom:6px;display:flex;align-items:center;gap:6px;cursor:pointer;background:#f8f5ff;border:1px solid #e9e0ff;border-radius:6px;padding:4px 6px"
+                onclick="window.dispatchEvent(new CustomEvent('jetOpenFoto',{detail:{url:'${croquiSrc}'}}))">
+                <img src="${croquiSrc}" referrerpolicy="no-referrer"
+                  style="width:48px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0"
+                  onerror="this.parentElement.style.display='none'" />
+                <span style="font-size:10px;color:#7c3aed;font-weight:600">📐 ${t('popup.croqui')}</span>
+              </div>`
+            : '';
+
+          const svSrc = !fotoSrc && e.imagens?.streetView ? e.imagens.streetView : '';
+          const svThumb = svSrc
+            ? `<div style="margin-bottom:6px;display:flex;align-items:center;gap:6px;cursor:pointer;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:4px 6px"
+                onclick="window.dispatchEvent(new CustomEvent('jetOpenFoto',{detail:{url:'${svSrc}'}}))">
+                <img src="${svSrc}" referrerpolicy="no-referrer"
+                  style="width:48px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0"
+                  onerror="this.parentElement.style.display='none'" />
+                <span style="font-size:10px;color:#005bff;font-weight:600">🌐 ${t('popup.streetView')}</span>
+              </div>`
+            : '';
 
           return `<div style="min-width:220px;max-width:260px;font-family:Inter,sans-serif">
             ${docHtml}
             ${thumbHtml}
+            ${svThumb}
+            ${croquiThumb}
             <div style="font-size:10px;color:#888;margin-bottom:2px">
               ${e.tipo} · ${e.status}${bairroSubpref ? ' · ' + bairroSubpref : ''}
             </div>
@@ -1332,17 +1453,17 @@ const fotoSrc = sanitizarFotoUrl(e.imagens?.foto || (e as any).foto || (e as any
               <button onclick="window._svClick('${e.id}')" style="flex:1;padding:5px;background:#e8f0ff;border:none;border-radius:5px;color:#005bff;font-size:10px;font-weight:600;cursor:pointer">SV</button>
 
               ${isGestor || e.operador === usuario.email
-                ? `<button onclick="window._editClick('${e.id}')" style="flex:1;padding:5px;background:#fff3e0;border:none;border-radius:5px;color:#e65100;font-size:10px;font-weight:600;cursor:pointer">Editar</button>`
+                ? `<button onclick="window._editClick('${e.id}')" style="flex:1;padding:5px;background:#fff3e0;border:none;border-radius:5px;color:#e65100;font-size:10px;font-weight:600;cursor:pointer">${t('popup.edit')}</button>`
                 : ''}
-              <button onclick="window._croquiClick('${e.id}')" style="flex:1;padding:5px;background:#f3e8ff;border:none;border-radius:5px;color:#7c3aed;font-size:10px;font-weight:600;cursor:pointer">Croqui</button>
+              <button onclick="window._croquiClick('${e.id}')" style="flex:1;padding:5px;background:#f3e8ff;border:none;border-radius:5px;color:#7c3aed;font-size:10px;font-weight:600;cursor:pointer">${t('popup.croqui')}</button>
               ${isGestor
-                ? `<button onclick="window._delClick('${e.id}')" style="flex:1;padding:5px;background:#fde8e8;border:none;border-radius:5px;color:#c62828;font-size:10px;font-weight:600;cursor:pointer">Del</button>`
+                ? `<button onclick="window._delClick('${e.id}')" style="flex:1;padding:5px;background:#fde8e8;border:none;border-radius:5px;color:#c62828;font-size:10px;font-weight:600;cursor:pointer">${t('popup.del')}</button>`
                 : ''}
               ${isSuperGestor
-                ? `<button onclick="window._monitorClick('${e.id}')" style="flex:1;padding:5px;background:${(e as any).tipoMonitor ? '#052e16' : '#f0fdf4'};border:1px solid ${(e as any).tipoMonitor ? '#16a34a' : '#86efac'};border-radius:5px;color:${(e as any).tipoMonitor ? '#4ade80' : '#15803d'};font-size:10px;font-weight:700;cursor:pointer">${(e as any).tipoMonitor ?? 'Monitor'}</button>`
+                ? `<button onclick="window._monitorClick('${e.id}')" style="flex:1;padding:5px;background:${(e as any).tipoMonitor ? '#052e16' : '#f0fdf4'};border:1px solid ${(e as any).tipoMonitor ? '#16a34a' : '#86efac'};border-radius:5px;color:${(e as any).tipoMonitor ? '#4ade80' : '#15803d'};font-size:10px;font-weight:700;cursor:pointer">${(e as any).tipoMonitor ?? t('popup.monitor')}</button>`
                 : ''}
               ${isLogisticaApp
-                ? `<button onclick="window._tarefaEstacaoClick('${e.id}','${(e.endereco||e.codigo||'').replace(/'/g,'')}',${e.lat},${e.lng})" style="width:100%;margin-top:4px;padding:7px;background:#3b82f6;border:none;border-radius:5px;color:#fff;font-size:11px;font-weight:700;cursor:pointer">📦 + Criar tarefa</button>`
+                ? `<button onclick="window._tarefaEstacaoClick('${e.id}','${(e.endereco||e.codigo||'').replace(/'/g,'')}',${e.lat},${e.lng})" style="width:100%;margin-top:4px;padding:7px;background:#3b82f6;border:none;border-radius:5px;color:#fff;font-size:11px;font-weight:700;cursor:pointer">📦 ${t('popup.createTask')}</button>`
                 : ''}
             </div>
           </div>`;
@@ -1398,12 +1519,117 @@ const fotoSrc = sanitizarFotoUrl(e.imagens?.foto || (e as any).foto || (e as any
     };
 
     (window as any)._svClick = async (id: string) => {
-      const e = estacoes.find(x => x.id === id);
+      const e = estacoesRef.current.find(x => x.id === id);
       if (!e) return;
-      showToast('Gerando Street View...', 'info');
-      const r = await fnGerarStreetView()({ codigo: e.codigo, lat: e.lat, lng: e.lng });
-      const d = (r.data || r) as { ok: boolean; error?: string };
-      showToast(d.ok ? 'Street View salvo!' : (d.error || 'Sem cobertura'), d.ok ? 'success' : 'warn');
+      leafletRef.current?.closePopup();
+      showToast(t('sv.generating'), 'info');
+      try {
+        const r = await fnGerarStreetView()({ codigo: e.codigo, lat: e.lat, lng: e.lng });
+        const d = (r.data || r) as { url?: string; fonte?: string; error?: string };
+        if (d.url) {
+          setSvPreview({ id, url: d.url, fonte: d.fonte || 'SV' });
+        } else {
+          showToast(d.error || t('sv.noCoverage'), 'warn');
+        }
+      } catch (err: unknown) {
+        showToast('Erro: ' + (err instanceof Error ? err.message : String(err)), 'error');
+      }
+    };
+    (window as any)._svSaveFn = async (id: string, url: string) => {
+      const e = estacoesRef.current.find(x => x.id === id);
+      if (!e) return;
+      const { error: supErr } = await supabase.from('estacoes').update({ imagens: { ...((e as any).imagens || {}), streetView: url } }).or(`id.eq.${id},firebase_id.eq.${id}`);
+      if (!supErr) {
+        const est = estacoesRef.current.find((x: any) => x.id === id);
+        if (est) (est as any).imagens = { ...((est as any).imagens || {}), streetView: url };
+      }
+      leafletRef.current?.eachLayer((layer: any) => {
+        if (layer._jet_id === id && layer.getPopup?.()) layer.openPopup();
+      });
+      showToast(t('sv.saved'), 'success');
+    };
+    (window as any)._svBatch = async () => {
+      const map = leafletRef.current;
+      if (!map) return;
+      const bounds = map.getBounds();
+      const semFoto = estacoesRef.current.filter((e: any) => {
+        if (!filtros.has(e.tipo) || !filtrosStatus.has(e.status)) return false;
+        if (e.imagens?.foto || e.imagens?.streetView) return false;
+        return bounds.contains([e.lat, e.lng]);
+      });
+      if (!semFoto.length) { showToast(t('sv.batchDone', { ok: 0, fail: 0 }), 'info'); return; }
+      if (!confirm(t('sv.batchConfirm', { count: semFoto.length }))) return;
+      setSvBatchRunning(true);
+      let ok = 0, fail = 0;
+      for (const e of semFoto) {
+        try {
+          const r = await fnGerarStreetView()({ codigo: e.codigo, lat: e.lat, lng: e.lng });
+          const d = (r.data || r) as { url?: string; fonte?: string };
+          if (d.url) {
+            await supabase.from('estacoes').update({ imagens: { ...((e as any).imagens || {}), streetView: d.url } }).or(`id.eq.${e.id},firebase_id.eq.${e.id}`);
+            (e as any).imagens = { ...((e as any).imagens || {}), streetView: d.url };
+            ok++;
+          } else { fail++; }
+        } catch { fail++; }
+        if ((ok + fail) % 5 === 0) showToast(t('sv.batchProgress', { ok, fail, remaining: semFoto.length - ok - fail }), 'info');
+      }
+      setSvBatchRunning(false);
+      showToast(t('sv.batchDone', { ok, fail }), ok > 0 ? 'success' : 'warn');
+    };
+    (window as any)._svMedirCombo = async () => {
+      const map = leafletRef.current;
+      if (!map) return;
+      const bounds = map.getBounds();
+      const semFoto = estacoesRef.current.filter((e: any) => {
+        if (!filtros.has(e.tipo) || !filtrosStatus.has(e.status)) return false;
+        if (e.imagens?.foto || e.imagens?.streetView) return false;
+        return bounds.contains([e.lat, e.lng]);
+      });
+      const semMedida = estacoesRef.current.filter((e: any) => {
+        if (!filtros.has(e.tipo) || !filtrosStatus.has(e.status)) return false;
+        const fotoUrl = e.imagens?.foto || e.imagens?.streetView || '';
+        if (!fotoUrl) return false;
+        if (typeof fotoUrl === 'string' && fotoUrl.includes('_medida')) return false;
+        return bounds.contains([e.lat, e.lng]);
+      });
+      if (!semFoto.length && !semMedida.length) { showToast(t('medir.batchEmpty'), 'info'); return; }
+      if (!confirm(t('sv.comboConfirm', { svCount: semFoto.length, medirCount: semFoto.length + semMedida.length }))) return;
+      // Step 1: Generate SVs
+      if (semFoto.length) {
+        setSvBatchRunning(true);
+        let ok = 0, fail = 0;
+        for (const e of semFoto) {
+          try {
+            const r = await fnGerarStreetView()({ codigo: e.codigo, lat: e.lat, lng: e.lng });
+            const d = (r.data || r) as { url?: string; fonte?: string };
+            if (d.url) {
+              await supabase.from('estacoes').update({ imagens: { ...((e as any).imagens || {}), streetView: d.url } }).or(`id.eq.${e.id},firebase_id.eq.${e.id}`);
+              (e as any).imagens = { ...((e as any).imagens || {}), streetView: d.url };
+              ok++;
+            } else { fail++; }
+          } catch { fail++; }
+          if ((ok + fail) % 5 === 0) showToast(t('sv.batchProgress', { ok, fail, remaining: semFoto.length - ok - fail }), 'info');
+        }
+        setSvBatchRunning(false);
+        showToast(t('sv.comboDone', { ok }), 'success');
+      }
+      // Step 2: Open measurement queue
+      setTimeout(() => (window as any)._medirBatch?.(), 500);
+    };
+    (window as any)._medirBatch = () => {
+      const map = leafletRef.current;
+      if (!map) return;
+      const bounds = map.getBounds();
+      const semMedida = estacoesRef.current.filter((e: any) => {
+        if (!filtros.has(e.tipo) || !filtrosStatus.has(e.status)) return false;
+        const fotoUrl = e.imagens?.foto || e.imagens?.streetView || '';
+        if (!fotoUrl) return false;
+        if (typeof fotoUrl === 'string' && fotoUrl.includes('_medida')) return false;
+        return bounds.contains([e.lat, e.lng]);
+      });
+      if (!semMedida.length) { showToast(t('medir.batchEmpty'), 'info'); return; }
+      leafletRef.current?.closePopup();
+      setMedirFila({ lista: semMedida, idx: 0 });
     };
     (window as any)._editClick = (id: string) => {
       const e = estacoes.find(x => x.id === id);
@@ -2060,6 +2286,8 @@ const fotoSrc = sanitizarFotoUrl(e.imagens?.foto || (e as any).foto || (e as any
         <span style={{ fontSize: 9, color: 'rgba(255,255,255,.2)', textTransform: 'uppercase', letterSpacing: .8, whiteSpace: 'nowrap', paddingRight: 2 }}>Status</span>
         {/* Seleção múltipla de status — todos por padrão */}
         {([
+          { k: 'ATIVO',      label: 'Ativo',                 cor: '#10b981' },
+          { k: 'PLANEJADO',  label: 'Planejado',             cor: '#8b5cf6' },
           { k: 'NEGOCIACAO', label: t('filters.negotiation'), cor: '#fbbf24' },
           { k: 'SOLICITADO', label: t('filters.requested'), cor: '#93c5fd' },
           { k: 'APROVADO',   label: t('filters.approved'),   cor: '#3b82f6' },
@@ -2268,54 +2496,84 @@ const fotoSrc = sanitizarFotoUrl(e.imagens?.foto || (e as any).foto || (e as any
           const map = leafletRef.current; if (!map) return;
           if ((map as any)._satLayer) { map.removeLayer((map as any)._satLayer); (map as any)._satLayer = null; setSatOn(false); }
           else { const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{ attribution:'© Esri', maxZoom:19 }); sat.addTo(map); (map as any)._satLayer = sat; setSatOn(true); }
-        }} title="Satélite" style={{ width: 40, height: 40, borderRadius: 10, border: `2px solid ${satOn?'#fbbf24':'rgba(255,255,255,.15)'}`, cursor: 'pointer',
+        }} title={t('fab.satelite')} style={{ width: 40, height: 40, borderRadius: 10, border: `2px solid ${satOn?'#fbbf24':'rgba(255,255,255,.15)'}`, cursor: 'pointer',
           background: satOn ? 'rgba(251,191,36,.2)' : 'rgba(13,18,30,.85)', backdropFilter: 'blur(8px)',
           color: satOn ? '#fbbf24' : 'rgba(255,255,255,.5)', fontSize: 16,
           display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,.4)',
         }}>🛰</button>
 
-        {/* GoJet ao vivo */}
+        {/* Ferramentas de estação (expandível) */}
+        {isGestor && showToolsFab && (
+          <>
+            <button onClick={() => { (window as any)._svMedirCombo?.(); setShowToolsFab(false); }}
+              title={t('fab.svCombo')}
+              style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+                border:'2px solid rgba(59,130,246,.4)', background:'rgba(59,130,246,.15)',
+                backdropFilter:'blur(8px)', color:'#60a5fa',
+                fontSize:11, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center',
+                boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>⚡</button>
+            <button onClick={() => { (window as any)._svBatch?.(); setShowToolsFab(false); }}
+              title={t('fab.svBatch')} disabled={svBatchRunning}
+              style={{ width:40, height:40, borderRadius:10, cursor: svBatchRunning ? 'wait' : 'pointer',
+                border:`2px solid ${svBatchRunning?'rgba(0,91,255,.5)':'rgba(255,255,255,.2)'}`,
+                background: svBatchRunning ? 'rgba(0,91,255,.2)' : 'rgba(13,18,30,.85)',
+                backdropFilter:'blur(8px)', opacity: svBatchRunning ? 0.7 : 1,
+                color: svBatchRunning ? '#60a5fa' : 'rgba(255,255,255,.5)',
+                fontSize:14, display:'flex', alignItems:'center', justifyContent:'center',
+                boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>{svBatchRunning ? '⏳' : '🌐'}</button>
+            <button onClick={() => { (window as any)._medirBatch?.(); setShowToolsFab(false); }}
+              title={t('fab.medirBatch')}
+              style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+                border:'2px solid rgba(255,255,255,.2)', background:'rgba(13,18,30,.85)',
+                backdropFilter:'blur(8px)', color:'rgba(255,255,255,.5)',
+                fontSize:14, display:'flex', alignItems:'center', justifyContent:'center',
+                boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>📐</button>
+          </>
+        )}
+        {isGestor && <button onClick={() => setShowToolsFab(v => !v)}
+          title={t('fab.tools')}
+          style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+            border:`2px solid ${showToolsFab?'rgba(59,130,246,.5)':'rgba(255,255,255,.15)'}`,
+            background: showToolsFab ? 'rgba(59,130,246,.2)' : 'rgba(13,18,30,.85)',
+            backdropFilter:'blur(8px)',
+            color: showToolsFab ? '#60a5fa' : 'rgba(255,255,255,.5)',
+            fontSize:14, display:'flex', alignItems:'center', justifyContent:'center',
+            boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>
+          {showToolsFab ? '✕' : '🛠'}
+        </button>}
+
+        {/* GoJet — sub-botões expandem ao ativar layer */}
+        {(isGestorApp || isCampo || isLogisticaApp) && showGoJetLayer && isGestor && (
+          <>
+            <button title={t('fab.gojetAnalytics')} onClick={() => setGojetAnalytics(v => !v)}
+              style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+                border:`2px solid ${gojetAnalytics?'rgba(167,139,250,.5)':'rgba(255,255,255,.2)'}`,
+                background: gojetAnalytics?'rgba(167,139,250,.2)':'rgba(13,18,30,.85)',
+                backdropFilter:'blur(8px)', color: gojetAnalytics?'#a78bfa':'rgba(255,255,255,.5)',
+                fontSize:16, display:'flex', alignItems:'center', justifyContent:'center',
+                boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>📈</button>
+            <button title={t('fab.gojetDash')} onClick={() => setGojetDash(v => !v)}
+              style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+                border:`2px solid ${gojetDash?'rgba(59,130,246,.5)':'rgba(255,255,255,.2)'}`,
+                background: gojetDash?'rgba(59,130,246,.2)':'rgba(13,18,30,.85)',
+                backdropFilter:'blur(8px)', color: gojetDash?'#60a5fa':'rgba(255,255,255,.5)',
+                fontSize:16, display:'flex', alignItems:'center', justifyContent:'center',
+                boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>📊</button>
+          </>
+        )}
         {(isGestorApp || isCampo || isLogisticaApp) && (
-          <button title="GoJet ao vivo" onClick={() => setShowGoJetLayer(v => !v)}
-            style={{ width: 40, height: 40, borderRadius: 10, cursor: 'pointer',
-              border: `2px solid ${showGoJetLayer ? 'rgba(16,185,129,.5)' : 'rgba(255,255,255,.15)'}`,
-              background: showGoJetLayer ? 'rgba(16,185,129,.2)' : 'rgba(13,18,30,.85)',
-              backdropFilter: 'blur(8px)',
-              color: showGoJetLayer ? '#10b981' : 'rgba(255,255,255,.5)',
-              fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 2px 8px rgba(0,0,0,.4)',
-            }}>🛴</button>
-        )}
-
-        {/* GoJet Dashboard */}
-        {isGestor && (
-          <button title="GoJet Dashboard" onClick={() => setGojetDash(v => !v)}
-            style={{ width: 40, height: 40, borderRadius: 10, cursor: 'pointer',
-              border: `2px solid ${gojetDash ? 'rgba(59,130,246,.5)' : 'rgba(255,255,255,.15)'}`,
-              background: gojetDash ? 'rgba(59,130,246,.2)' : 'rgba(13,18,30,.85)',
-              backdropFilter: 'blur(8px)',
-              color: gojetDash ? '#60a5fa' : 'rgba(255,255,255,.5)',
-              fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 2px 8px rgba(0,0,0,.4)',
-            }}>📊</button>
-        )}
-
-        {/* GoJet Analytics — breakdown zonas/patinetes */}
-        {isGestor && (
-          <button title="Analytics GoJet" onClick={() => setGojetAnalytics(v => !v)}
-            style={{ width: 40, height: 40, borderRadius: 10, cursor: 'pointer',
-              border: `2px solid ${gojetAnalytics ? 'rgba(167,139,250,.5)' : 'rgba(255,255,255,.15)'}`,
-              background: gojetAnalytics ? 'rgba(167,139,250,.2)' : 'rgba(13,18,30,.85)',
-              backdropFilter: 'blur(8px)',
-              color: gojetAnalytics ? '#a78bfa' : 'rgba(255,255,255,.5)',
-              fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 2px 8px rgba(0,0,0,.4)',
-            }}>📈</button>
+          <button title={t('fab.gojet')} onClick={() => setShowGoJetLayer(v => !v)}
+            style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+              border:`2px solid ${showGoJetLayer?'rgba(16,185,129,.5)':'rgba(255,255,255,.15)'}`,
+              background: showGoJetLayer?'rgba(16,185,129,.2)':'rgba(13,18,30,.85)',
+              backdropFilter:'blur(8px)', color: showGoJetLayer?'#10b981':'rgba(255,255,255,.5)',
+              fontSize:16, display:'flex', alignItems:'center', justifyContent:'center',
+              boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>🛴</button>
         )}
 
         {/* Turno — registro entrada/saída */}
         {(usuario?.role === 'campo' || usuario?.role === 'logistica' || usuario?.role === 'motorista' || isGestorApp) && (
-          <button title="Registro de Turno" onClick={() => setTurnoRegistro(v => !v)}
+          <button title={t('fab.turno')} onClick={() => setTurnoRegistro(v => !v)}
             style={{ width: 40, height: 40, borderRadius: 10, cursor: 'pointer',
               border: `2px solid ${turnoRegistro ? 'rgba(34,197,94,.5)' : 'rgba(255,255,255,.15)'}`,
               background: turnoRegistro ? 'rgba(34,197,94,.2)' : 'rgba(13,18,30,.85)',
@@ -2789,22 +3047,63 @@ const fotoSrc = sanitizarFotoUrl(e.imagens?.foto || (e as any).foto || (e as any
       {fotoCapturaCtx?.context === 'existente' && fotoCapturaCtx.estacaoId && (
         <div style={{ position:'fixed', inset:0, zIndex:1800, background:'rgba(0,0,0,.8)',
           display:'flex', alignItems:'flex-end', justifyContent:'center' }}
-          onClick={e => e.target===e.currentTarget && setFotoCapturaCtx(null)}>
+          onClick={e => e.target===e.currentTarget && setFotoCapturaCtx(null)}
+          tabIndex={-1} ref={el => el?.focus()}
+          onPaste={async (ev) => {
+            const items = ev.clipboardData?.items;
+            if (!items) return;
+            let file: File | null = null;
+            for (const item of Array.from(items)) {
+              if (item.type.startsWith('image/')) { file = item.getAsFile(); break; }
+            }
+            if (!file) return;
+            ev.preventDefault();
+            const id = fotoCapturaCtx.estacaoId!;
+            try {
+              showToast('Colando imagem...', 'info');
+              const comp = await comprimir(file);
+              const url = await uploadComRetry(comp, 'estacoes/fotos/' + id + '_' + Date.now() + '.jpg');
+              await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(`id.eq.${id},firebase_id.eq.${id}`);
+              const est = estacoesRef.current.find((x: any) => x.id === id);
+              if (est) (est as any).imagens = { ...((est as any).imagens || {}), foto: url };
+              showToast('Foto colada e salva!', 'success');
+              setFotoCapturaCtx(null);
+            } catch (err: any) { showToast('Erro ao colar: ' + err.message, 'error'); }
+          }}>
           <div style={{ width:'100%', maxWidth:400, background:'#0d1521',
             borderRadius:'16px 16px 0 0', padding:20, fontFamily:'Inter,sans-serif' }}>
             <div style={{ fontSize:14, fontWeight:700, color:'#dce8ff', marginBottom:4 }}>📷 Foto da estação</div>
             <div style={{ fontSize:11, color:'#4a5a7a', marginBottom:16 }}>Selecione uma foto para esta estação</div>
-            <div style={{ display:'flex', gap:8 }}>
-              <label style={{ flex:1, padding:'14px', borderRadius:10, cursor:'pointer', textAlign:'center',
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              <label style={{ flex:1, minWidth:80, padding:'14px', borderRadius:10, cursor:'pointer', textAlign:'center',
                 background:'rgba(16,185,129,.1)', border:'1px solid rgba(16,185,129,.3)', color:'#34d399',
-                fontSize:13, fontWeight:600, display:'block' }}>
+                fontSize:13, fontWeight:600, display:'block' }}
+                onClick={async (ev) => {
+                  if (isAndroidNative()) {
+                    ev.preventDefault();
+                    let file: File | null = null;
+                    try { file = await capturarFotoNativa(); } catch {}
+                    if (file) {
+                      const id = fotoCapturaCtx.estacaoId!;
+                      try {
+                        const comp = await comprimir(file);
+                        const url = await uploadComRetry(comp, 'estacoes/fotos/' + id + '_' + Date.now() + '.jpg');
+                        const { doc: fsDoc, updateDoc } = await import('firebase/firestore');
+                        await updateDoc(fsDoc(db, 'estacoes', id), { 'imagens.foto': url });
+                        showToast('Foto salva!', 'success');
+                      } catch (err:any) { showToast('Erro: ' + err.message, 'error'); }
+                      setFotoCapturaCtx(null);
+                    }
+                  }
+                }}>
                 📷 Câmera
                 <input type="file" accept="image/*" capture="environment" style={{ display:'none' }}
-                  onChange={async e => {
-                    const file = e.target.files?.[0]; if (!file) return;
+                  onChange={async ev2 => {
+                    const file = ev2.target.files?.[0]; if (!file) return;
                     const id = fotoCapturaCtx.estacaoId!;
                     try {
-                      const url = await uploadComRetry(file, 'estacoes/fotos/' + id + '_' + Date.now() + '.jpg');
+                      const comp = await comprimir(file);
+                      const url = await uploadComRetry(comp, 'estacoes/fotos/' + id + '_' + Date.now() + '.jpg');
                       const { doc: fsDoc, updateDoc } = await import('firebase/firestore');
                       await updateDoc(fsDoc(db, 'estacoes', id), { 'imagens.foto': url });
                       showToast('Foto salva!', 'success');
@@ -2812,16 +3111,17 @@ const fotoSrc = sanitizarFotoUrl(e.imagens?.foto || (e as any).foto || (e as any
                     setFotoCapturaCtx(null);
                   }} />
               </label>
-              <label style={{ flex:1, padding:'14px', borderRadius:10, cursor:'pointer', textAlign:'center',
+              <label style={{ flex:1, minWidth:80, padding:'14px', borderRadius:10, cursor:'pointer', textAlign:'center',
                 background:'rgba(59,130,246,.1)', border:'1px solid rgba(59,130,246,.3)', color:'#60a5fa',
                 fontSize:13, fontWeight:600, display:'block' }}>
                 🖼 Galeria
                 <input type="file" accept="image/*" style={{ display:'none' }}
-                  onChange={async e => {
-                    const file = e.target.files?.[0]; if (!file) return;
+                  onChange={async ev2 => {
+                    const file = ev2.target.files?.[0]; if (!file) return;
                     const id = fotoCapturaCtx.estacaoId!;
                     try {
-                      const url = await uploadComRetry(file, 'estacoes/fotos/' + id + '_' + Date.now() + '.jpg');
+                      const comp = await comprimir(file);
+                      const url = await uploadComRetry(comp, 'estacoes/fotos/' + id + '_' + Date.now() + '.jpg');
                       const { doc: fsDoc, updateDoc } = await import('firebase/firestore');
                       await updateDoc(fsDoc(db, 'estacoes', id), { 'imagens.foto': url });
                       showToast('Foto salva!', 'success');
@@ -2829,6 +3129,34 @@ const fotoSrc = sanitizarFotoUrl(e.imagens?.foto || (e as any).foto || (e as any
                     setFotoCapturaCtx(null);
                   }} />
               </label>
+              <button style={{ flex:1, minWidth:80, padding:'14px', borderRadius:10, cursor:'pointer', textAlign:'center',
+                background:'rgba(245,200,66,.1)', border:'1px solid rgba(245,200,66,.3)', color:'#f5c842',
+                fontSize:13, fontWeight:600 }}
+                onClick={async () => {
+                  try {
+                    const items = await navigator.clipboard.read();
+                    let blob: Blob | null = null;
+                    for (const item of items) {
+                      const imgType = item.types.find(t => t.startsWith('image/'));
+                      if (imgType) { blob = await item.getType(imgType); break; }
+                    }
+                    if (!blob) { showToast('Nenhuma imagem no clipboard. Copie a imagem primeiro (Print/Ctrl+C).', 'warn'); return; }
+                    const file = new File([blob], 'paste.jpg', { type: blob.type });
+                    const id = fotoCapturaCtx.estacaoId!;
+                    const comp = await comprimir(file);
+                    const url = await uploadComRetry(comp, 'estacoes/fotos/' + id + '_' + Date.now() + '.jpg');
+                    await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(`id.eq.${id},firebase_id.eq.${id}`);
+                    const est = estacoesRef.current.find((x: any) => x.id === id);
+                    if (est) (est as any).imagens = { ...((est as any).imagens || {}), foto: url };
+                    showToast('Foto colada e salva!', 'success');
+                    setFotoCapturaCtx(null);
+                  } catch (err: any) { showToast('Erro ao colar: ' + err.message, 'error'); }
+                }}>
+                📋 Colar
+              </button>
+            </div>
+            <div style={{ fontSize:10, color:'#4a5a7a', marginTop:8, textAlign:'center' }}>
+              Dica: tire print (Win+Shift+S), depois clique em 📋 Colar
             </div>
             <button onClick={() => setFotoCapturaCtx(null)}
               style={{ width:'100%', marginTop:10, padding:'10px', borderRadius:10, cursor:'pointer',
@@ -2851,6 +3179,160 @@ const fotoSrc = sanitizarFotoUrl(e.imagens?.foto || (e as any).foto || (e as any
             onCancelar={() => setFotoMedidasCtx(null)}
           />
         </div>
+      )}
+
+      {/* Medir em lote — carrossel */}
+      {medirFila && medirFila.idx < medirFila.lista.length && (() => {
+        const est = medirFila.lista[medirFila.idx];
+        const fotoUrl = fixDriveUrl(est.imagens?.foto || '') || est.imagens?.foto || est.imagens?.streetView || '';
+        const isSv = !est.imagens?.foto && !!est.imagens?.streetView;
+        const total = medirFila.lista.length;
+        const atual = medirFila.idx + 1;
+        const salvarMedida = async (base64Anotado: string) => {
+          try {
+            const fetchRes = await fetch(base64Anotado);
+            const blob = await fetchRes.blob();
+            const url = await uploadComRetry(blob, 'estacoes/fotos/' + Date.now() + '_medida.jpg');
+            const { data: rows } = await supabase.from('estacoes').select('id,imagens').or(`id.eq.${est.id},firebase_id.eq.${est.id}`).limit(1);
+            const row = rows?.[0];
+            if (row) {
+              await supabase.from('estacoes').update({ imagens: { ...(row.imagens || {}), foto: url } }).eq('id', row.id);
+              const local = estacoesRef.current.find((e: any) => e.id === row.id || e.id === est.id);
+              if (local) (local as any).imagens = { ...((local as any).imagens || {}), foto: url };
+            }
+            showToast(t('medir.saved', { current: atual, total }), 'success');
+          } catch (err: any) { showToast('Erro: ' + err.message, 'error'); }
+          setMedirFila(prev => prev ? { ...prev, idx: prev.idx + 1 } : null);
+        };
+        return (
+          <div style={{ position:'fixed', inset:0, zIndex:2000, background:'#0d1220', display:'flex', flexDirection:'column' }}
+            tabIndex={-1} ref={el => el?.focus()}
+            onKeyDown={ev => {
+              if (ev.key === 'Escape') { setMedirFila(null); ev.preventDefault(); }
+              if (ev.key === 'ArrowRight') { setMedirFila(prev => prev ? { ...prev, idx: prev.idx + 1 } : null); ev.preventDefault(); }
+            }}>
+            {/* Header da fila */}
+            <div style={{ flexShrink:0, display:'flex', alignItems:'center', gap:10, padding:'8px 16px',
+              background:'#131a2b', borderBottom:'1px solid #1c2535' }}>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:'#dce8ff' }}>
+                  📐 {t('medir.batch')} — {atual}/{total}
+                </div>
+                <div style={{ fontSize:11, color:'#4a5a7a' }}>
+                  {est.codigo} · {est.endereco || est.bairro || ''}
+                  {isSv ? ' · 🌐 SV' : ''}
+                </div>
+              </div>
+              <div style={{ background:'#1c2535', borderRadius:8, padding:'4px 10px', fontSize:11, color:'#60a5fa', fontWeight:600 }}>
+                {atual}/{total}
+              </div>
+              <div style={{ fontSize:9, color:'#4a5a7a', display:'flex', gap:4 }}>
+                <kbd style={{ background:'#1c2535', padding:'1px 4px', borderRadius:3, fontSize:9 }}>→</kbd> {t('medir.kbSkip')}
+                <kbd style={{ background:'#1c2535', padding:'1px 4px', borderRadius:3, fontSize:9 }}>Esc</kbd> {t('medir.kbStop')}
+              </div>
+              <button onClick={() => setMedirFila(prev => prev ? { ...prev, idx: prev.idx + 1 } : null)}
+                style={{ padding:'6px 12px', borderRadius:6, border:'none', cursor:'pointer',
+                  background:'rgba(251,191,36,.15)', color:'#fbbf24', fontSize:11, fontWeight:600 }}>
+                {t('medir.skip')} ⏭
+              </button>
+              <button onClick={() => setMedirFila(null)}
+                style={{ padding:'6px 12px', borderRadius:6, border:'none', cursor:'pointer',
+                  background:'rgba(239,68,68,.15)', color:'#ef4444', fontSize:11, fontWeight:600 }}>
+                {t('medir.stop')} ✕
+              </button>
+            </div>
+            {/* Barra de progresso */}
+            <div style={{ height:3, background:'#1c2535', flexShrink:0 }}>
+              <div style={{ height:'100%', background:'#3b82f6', width:`${(atual/total)*100}%`, transition:'width .3s' }} />
+            </div>
+            {/* Editor */}
+            <div style={{ flex:1, overflow:'hidden' }}>
+              <FotoMedidas
+                key={est.id}
+                fotoUrl={fotoUrl}
+                fotoFile={null}
+                onSalvar={salvarMedida}
+                onCancelar={() => setMedirFila(prev => prev ? { ...prev, idx: prev.idx + 1 } : null)}
+              />
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Conclusão do lote */}
+      {medirFila && medirFila.idx >= medirFila.lista.length && (
+        <div style={{ position:'fixed', inset:0, zIndex:2000, background:'rgba(0,0,0,.85)',
+          display:'flex', alignItems:'center', justifyContent:'center' }}
+          onClick={() => setMedirFila(null)}>
+          <div style={{ background:'#0d1521', borderRadius:12, padding:24, textAlign:'center', maxWidth:320 }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>✅</div>
+            <div style={{ fontSize:16, fontWeight:700, color:'#dce8ff', marginBottom:8 }}>{t('medir.done')}</div>
+            <div style={{ fontSize:12, color:'#4a5a7a', marginBottom:16 }}>
+              {t('medir.doneDesc', { count: medirFila.lista.length })}
+            </div>
+            <button onClick={() => setMedirFila(null)}
+              style={{ padding:'10px 24px', borderRadius:8, border:'none', cursor:'pointer',
+                background:'rgba(16,185,129,.15)', color:'#34d399', fontSize:13, fontWeight:600 }}>
+              {t('medir.backToMap')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* SV Preview — mostra imagem gerada antes de salvar */}
+      {svPreview && (
+        <div style={{ position:'fixed', inset:0, zIndex:2500, background:'rgba(0,0,0,.85)', backdropFilter:'blur(6px)',
+          display:'flex', alignItems:'center', justifyContent:'center' }}
+          onClick={e => { if (e.target === e.currentTarget) setSvPreview(null); }}>
+          <div style={{ background:'#0d1521', borderRadius:12, padding:16, maxWidth:380, width:'90vw',
+            boxShadow:'0 24px 80px rgba(0,0,0,.9)', border:'1px solid #1c2535' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize:13, fontWeight:700, color:'#dce8ff', marginBottom:8 }}>
+              🌐 {t('sv.preview')} <span style={{ fontSize:10, fontWeight:400, color:'#4a5a7a', marginLeft:6 }}>({svPreview.fonte})</span>
+            </div>
+            <img src={svPreview.url} referrerPolicy="no-referrer"
+              style={{ width:'100%', borderRadius:8, marginBottom:12, maxHeight:240, objectFit:'cover' }} />
+            <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+              <button onClick={async () => {
+                await (window as any)._svSaveFn?.(svPreview.id, svPreview.url);
+                setSvPreview(null);
+              }} style={{ flex:1, padding:'10px', borderRadius:8, border:'none', cursor:'pointer',
+                background:'rgba(16,185,129,.15)', color:'#34d399', fontSize:12, fontWeight:600 }}>
+                ✅ {t('sv.save')}
+              </button>
+              <button onClick={async () => {
+                await (window as any)._svSaveFn?.(svPreview.id, svPreview.url);
+                const medirUrl = svPreview.url;
+                const medirId = svPreview.id;
+                setSvPreview(null);
+                window.dispatchEvent(new CustomEvent('jetMedirFoto', { detail: { id: medirId, fotoUrl: medirUrl } }));
+              }} style={{ flex:1, padding:'10px', borderRadius:8, border:'none', cursor:'pointer',
+                background:'rgba(29,78,216,.15)', color:'#60a5fa', fontSize:12, fontWeight:600 }}>
+                📐 {t('sv.saveAndMeasure')}
+              </button>
+              <button onClick={() => setSvPreview(null)}
+                style={{ flex:'0 0 100%', padding:'8px', borderRadius:8, cursor:'pointer',
+                  background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.1)',
+                  color:'rgba(255,255,255,.4)', fontSize:11 }}>
+                {t('sv.discard')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Street View Modal */}
+      {streetViewTarget && (
+        <StreetViewModal
+          lat={streetViewTarget.lat}
+          lng={streetViewTarget.lng}
+          nome={streetViewTarget.nome}
+          onClose={() => setStreetViewTarget(null)}
+          onCapturarFoto={() => {
+            setFotoCapturaCtx({ context: 'existente', lat: streetViewTarget.lat, lng: streetViewTarget.lng, estacaoId: streetViewTarget.estacaoId, estacaoCodigo: streetViewTarget.estacaoCodigo });
+            setStreetViewTarget(null);
+          }}
+        />
       )}
 
       {/* Painel de filtros POI */}
@@ -3086,7 +3568,7 @@ const fotoSrc = sanitizarFotoUrl(e.imagens?.foto || (e as any).foto || (e as any
 
       {slotsModulo && (isGestorLog || isPrestadorLogistica) && (
         <SlotsTeamsModule
-          usuario={{ uid: usuario.uid, nome: usuario.nome, email: usuario.email, role: usuario.role, cidade }}
+          usuario={{ uid: usuario.uid, nome: usuario.nome, email: usuario.email, role: usuario.role, cidade, cargoPrestador: usuario.cargoPrestador }}
           cidade={cidade}
           onFechar={() => setSlotsModulo(false)}
         />
