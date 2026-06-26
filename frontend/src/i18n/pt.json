@@ -527,6 +527,152 @@
           }
         ]
       },
+      "pois": {
+        "titulo": "Pontos de Interesse (POIs)",
+        "passos": [
+          {
+            "titulo": "POIs do OSM",
+            "desc": "Toque no botão 🔍 e depois 📍 para carregar pontos do OpenStreetMap."
+          },
+          {
+            "titulo": "Pontos Candidatos",
+            "desc": "Toque em 🎯 para abrir o painel de pontos candidatos.",
+            "dica": "Ajuste Gap Radius, Area Radius e Min Score para calibrar as sugestões."
+          }
+        ]
+      },
+      "locais-logisticos": {
+        "titulo": "Locais Logísticos",
+        "passos": [
+          {
+            "titulo": "O que são",
+            "desc": "Bases de Carga, Centros de Serviço, Galpões e Pontos de Redistribuição — onde patinetes são carregados, reparados ou armazenados."
+          },
+          {
+            "titulo": "Ativar no mapa",
+            "desc": "Toque no botão 🏭. Os pinos aparecem com ícone por tipo.",
+            "dica": "Toque em qualquer pino para editar o local."
+          },
+          {
+            "titulo": "Adicionar novo local",
+            "desc": "Com 🏭 ativo, toque 📍 e clique no mapa. O formulário abre com nome, tipo, foto, capacidade e responsável."
+          },
+          {
+            "titulo": "Gestão financeira",
+            "desc": "Toque em 💳 para abrir o painel financeiro. Selecione um local e mês para ver os pagamentos.",
+            "dica": "Para energia, leitura anterior + atual calcula o valor automaticamente."
+          }
+        ]
+      },
+      "zonas": {
+        "titulo": "Zonas e polígonos",
+        "passos": [
+          {
+            "titulo": "Criar zona",
+            "desc": "Toque no botão ⬡ e depois 'Nova zona'. Clique no mapa para adicionar vértices."
+          },
+          {
+            "titulo": "Importar KMZ",
+            "desc": "Toque '📂 KMZ' para importar zonas de um arquivo Google My Maps. Estações são ignoradas — só polígonos são importados."
+          },
+          {
+            "titulo": "Editar vértices",
+            "desc": "Selecione uma zona e toque 'Editar vértices' para arrastar os pontos."
+          },
+          {
+            "titulo": "Configurar",
+            "desc": "Defina nome, grupo, fase, cor e prioridade."
+          }
+        ]
+      },
+      "gps-alertas": {
+        "titulo": "📡 Alertas automáticos de GPS",
+        "passos": [
+          {
+            "titulo": "O que é",
+            "desc": "O sistema monitora o GPS dos operadores em campo e envia alertas automáticos via Telegram."
+          },
+          {
+            "titulo": "Alerta de chegada",
+            "desc": "Se o operador não chegar ao ponto em até 20 minutos após iniciar a tarefa, o Telegram notifica o gestor com a distância atual."
+          },
+          {
+            "titulo": "Alerta de atraso",
+            "desc": "Se uma tarefa roda por mais de 30 minutos sem concluir, um alerta é enviado com o progresso (ex: 3/5 entregues)."
+          },
+          {
+            "titulo": "GPS perdido",
+            "desc": "Se um operador com tarefa ativa fica mais de 10 minutos sem enviar GPS, o Telegram alerta para verificar o app.",
+            "dica": "Configure em Ajustes → Apps → JET OS → Bateria → Sem restrição."
+          },
+          {
+            "titulo": "Cooldown",
+            "desc": "Alertas têm cooldown de 30 minutos para evitar spam. O mesmo operador/tarefa não gera alertas repetidos antes disso."
+          }
+        ]
+      },
+      "guard-expandido": {
+        "titulo": "🛡 Guard e Segurança",
+        "passos": [
+          {
+            "titulo": "Registrar ocorrência",
+            "desc": "Toque no botão 🛡. Preencha tipo, descrição, local e fotos. O Telegram recebe notificações automáticas para Roubo, Vandalismo e Tentativa. Recuperação também notifica."
+          },
+          {
+            "titulo": "Tipos de ocorrência",
+            "desc": "Vandalismo, Roubo, Tentativa, Recuperação, Outro. Roubos aparecem no Painel de Roubos. Vandalismo tem campos extras de avaliação de dano (%, R$)."
+          },
+          {
+            "titulo": "Dano de vandalismo",
+            "desc": "Ao editar uma ocorrência de Vandalismo, preencha '% Dano' (0–100) e 'Valor R$' após avaliação da oficina. Aparecem no Guard Dashboard e no Relatório."
+          },
+          {
+            "titulo": "Linha do tempo",
+            "desc": "Cada alteração salva (status, tipo, ativo, BO, procurando) é registrada no histórico da ocorrência com nome do usuário, campo alterado e timestamp. Visível no modal de edição."
+          },
+          {
+            "titulo": "Aba Procurando",
+            "desc": "Na tela Guard mobile, a aba 🔍 Procurando lista todos os ativos marcados como procurados. Busque por ID do ativo, cidade ou tipo."
+          },
+          {
+            "titulo": "Filtros por cidade",
+            "desc": "No painel Guard do mapa, chips de cidade aparecem acima da lista. Toque para filtrar ocorrências da cidade desejada."
+          },
+          {
+            "titulo": "Guard Dashboard",
+            "desc": "O botão '📊 Guard Dash' no header mostra Roubos, Vandalismo, R$ dano, perdas BRPD, taxa de recuperação e tendência semanal."
+          }
+        ]
+      },
+      "roubos": {
+        "titulo": "🔴 Roubos e Relatórios Guard",
+        "passos": [
+          {
+            "titulo": "Abrir painel",
+            "desc": "Toque em 🔴 Roubos nos botões do mapa. Disponível para manager, gestor_seg e admin. Pinos vermelhos aparecem no mapa quando Guard está aberto."
+          },
+          {
+            "titulo": "KPIs",
+            "desc": "Total de roubos, recuperados, taxa de recuperação, procurados abertos. Filtros: 7d / 30d / 90d / todos. Busca por ID do ativo, cidade ou descrição."
+          },
+          {
+            "titulo": "Relatório diário automático",
+            "desc": "Enviado às 7h de terça a domingo no grupo Telegram. Reporta o dia anterior. Na segunda envia o relatório semanal (dom → sáb da semana anterior)."
+          },
+          {
+            "titulo": "Relatório manual",
+            "desc": "Botão 'Enviar Relatório' no Guard Dashboard. Gera e envia imediatamente o PDF executivo de 4 páginas mais mensagem PT-BR + RU."
+          },
+          {
+            "titulo": "Estrutura do PDF",
+            "desc": "P1 PT: Roubos abertos (sem recuperados), KPIs, tabela por cidade, detalhes 24h. P2 RU: mesma info em russo. P3: Vandalismo com R$ e % dano. P4: Perdas BRPD, KPIs gerais e apêndice com fotos clicáveis."
+          },
+          {
+            "titulo": "Datas reais no relatório",
+            "desc": "Ontem mostra a data real (ex: 09/06). Mês atual mostra o intervalo (ex: 01/06 a 09/06). Acumulado mostra o intervalo de anos dos dados (ex: 2023–2026)."
+          }
+        ]
+      },
       "gestor-logistica": {
         "titulo": "Gestor Logística",
         "passos": [
