@@ -33,14 +33,43 @@ async function sendTelegram(
   sb: ReturnType<typeof createClient>,
   chatId: string | number,
   text: string,
+  threadId?: string | number | null,
 ) {
   const token = await getTelegramToken(sb);
+  const payload: Record<string, unknown> = {
+    chat_id: chatId, text, parse_mode: "Markdown",
+  };
+  if (threadId) payload.message_thread_id = Number(threadId);
   const res = await fetch(
     `https://api.telegram.org/bot${token}/sendMessage`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "Markdown" }),
+      body: JSON.stringify(payload),
+    },
+  );
+  return res.json();
+}
+
+async function sendTelegramPhoto(
+  sb: ReturnType<typeof createClient>,
+  chatId: string | number,
+  photoUrl: string,
+  caption: string,
+  threadId?: string | number | null,
+) {
+  const token = await getTelegramToken(sb);
+  const payload: Record<string, unknown> = {
+    chat_id: chatId, photo: photoUrl, caption,
+    parse_mode: "Markdown",
+  };
+  if (threadId) payload.message_thread_id = Number(threadId);
+  const res = await fetch(
+    `https://api.telegram.org/bot${token}/sendPhoto`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     },
   );
   return res.json();
@@ -94,39 +123,77 @@ async function handleNotificarOcorrencia(
   sb: ReturnType<typeof createClient>,
   body: Record<string, unknown>,
 ) {
-  const tipo = body.tipo as string;
-  const local = body.local as string;
-  const descricao = body.descricao as string;
-  const urgencia = (body.urgencia as string) || "";
+  const ocorrenciaId = (body.ocorrenciaId || body.id) as string;
+  const statusAtualizado = body.statusAtualizado as string | undefined;
 
-  // Read config for group chat IDs
+  if (!ocorrenciaId) return json({ error: "ocorrenciaId required" }, 400);
+
+  const { data: oc, error: ocErr } = await sb
+    .from("ocorrencias")
+    .select("*")
+    .eq("id", ocorrenciaId)
+    .single();
+
+  if (ocErr || !oc) return json({ error: "ocorrencia not found" }, 404);
+
   const { data: cfg } = await sb
     .from("telegram_config")
-    .select("*")
+    .select("bot_token, guard_chat_id, guard_thread_id")
     .eq("id", "global")
     .single();
 
-  if (!cfg) return json({ error: "telegram_config not found" }, 500);
+  if (!cfg?.guard_chat_id) return json({ error: "guard_chat_id not configured" }, 500);
 
-  const isAlerta = ["roubo", "tentativa", "procurando"].includes(urgencia);
-  const chatIds: string[] = isAlerta
-    ? (cfg.alertas_chat_ids ?? [])
-    : (cfg.guard_chat_ids ?? []);
+  const tipoLabel: Record<string, string> = {
+    Roubo: "🚨 ROUBO", Tentativa: "🟠 Tentativa de roubo",
+    Vandalismo: "🟡 Vandalismo", Recuperacao: "🟢 Recuperação",
+    Perda: "🟣 Perda", Outro: "📝 Ocorrência",
+  };
 
-  if (chatIds.length === 0)
-    return json({ error: "no chat_ids configured for this urgencia" }, 404);
+  const statusFinal = statusAtualizado || oc.status;
+  const isRecuperado = statusFinal === "Recuperado" && !!statusAtualizado;
+  const urgente = ["Roubo", "Tentativa"].includes(oc.tipo) || !!oc.procurando || isRecuperado;
+  const tipoEmoji = tipoLabel[oc.tipo] ?? "📝 Ocorrência";
+  const assetInfo = [oc.asset_id, oc.ativo_tipo].filter(Boolean).join(" · ");
 
-  let text = `🚨 *Ocorrência: ${tipo}*\n📍 ${local}`;
-  if (descricao) text += `\n${descricao}`;
-  if (urgencia) text += `\nUrgência: *${urgencia}*`;
+  const turnoLabel: Record<string, string> = {
+    T0: "Madrugada (00–06h)", T1: "Manhã (06–14h)", T2: "Tarde (14–22h)", T3: "Noite (22–00h)",
+  };
 
-  let sent = 0;
-  for (const cid of chatIds) {
-    await sendTelegram(sb, cid, text);
-    sent++;
+  const localParts = [oc.cidade || "—"];
+  if (oc.bairro) localParts[0] += ` / ${oc.bairro}`;
+  if (oc.endereco) localParts.push(`📍 ${oc.endereco}`);
+
+  const texto = [
+    isRecuperado ? "✅ *RECUPERADO*" : urgente ? "🚨 *ALERTA URGENTE*" : "",
+    tipoEmoji,
+    "",
+    `👤 *${oc.registrado_por_nome || "Guard"}*${oc.turno ? " · " + (turnoLabel[oc.turno] || oc.turno) : ""}`,
+    `🏙 ${localParts[0]}`,
+    localParts[1] || "",
+    assetInfo ? `🛴 ${assetInfo}` : "",
+    oc.procurando && oc.procurando !== "false"
+      ? `\n🔍 *PROCURANDO:* ${typeof oc.procurando === "string" ? oc.procurando : "Em aberto"}`
+      : "",
+    oc.bo_numero ? `📋 BO: ${oc.bo_numero}` : "",
+    "",
+    oc.descricao ? `_${String(oc.descricao).slice(0, 300)}_` : "",
+    "",
+    `🕐 ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`,
+    `🆔 ${ocorrenciaId}`,
+  ].filter((l) => l !== "").join("\n");
+
+  const threadId = cfg.guard_thread_id;
+
+  if (oc.foto1_url) {
+    await sendTelegramPhoto(sb, cfg.guard_chat_id, oc.foto1_url, texto, threadId);
+  } else {
+    await sendTelegram(sb, cfg.guard_chat_id, texto, threadId);
   }
 
-  return json({ ok: true, sent });
+  await sb.from("ocorrencias").update({ telegram_enviado: true }).eq("id", ocorrenciaId);
+
+  return json({ ok: true, sent: 1, urgente });
 }
 
 async function handleNotificarTarefa(
