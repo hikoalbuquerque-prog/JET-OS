@@ -2686,8 +2686,25 @@ Portagem de todas as features V2 para V1, organizadas por prioridade.
 |------------|------|--------|
 | 🔴 Alta | Validar auth flip em produção (login/logout/reload) | Pendente |
 | 🔴 Alta | Rebuild APK (shim user.uid, GPS nativo) | Pendente |
-| 🟠 Alta | Mirror Firestore→Supabase: estações novas (Medellín/Santiago não sincronizaram) | Pendente |
+| 🟠 Alta | Mirror Firestore→Supabase: estações novas (Medellín/Santiago não sincronizaram) | ✅ Feito |
 | 🟡 Média | Relatórios Guard v2 (por cidade + turnos) | Pendente |
 | 🟡 Média | Chat in-app (sign-off jurídico LGPD) | Pendente |
 | ⚪ Baixa | Desligar Firebase Auth/Firestore (após validação) | Futuro |
 | ⚪ Baixa | NFS-e module | Futuro |
+
+### 19.10 Deploy mirrors Firestore→Supabase (26/06/2026)
+
+**Cloud Functions deployadas:**
+- `espelharEstacaoSupabase` — mirror estações (onDocumentWritten `estacoes/{id}`)
+- `espelharZonaSupabase` — mirror zonas/polígonos (onDocumentWritten `poligonos/{id}`)
+- `espelharLocalSupabase` — mirror locais operacionais (onDocumentWritten `locais_operacionais/{id}`)
+- `espelharOcorrenciaSupabase` — mirror ocorrências/Guard (onDocumentWritten `ocorrencias/{id}`)
+- `espelharSolicitacaoPrestadorSupabase` — mirror solicitações prestadores
+- `espelharTurnoLogisticaSupabase` — mirror turnos logística
+
+**Backfill completo:**
+- Estações: 1878 docs sincronizados (inclui Medellín CO + Santiago CL com país correto)
+- Zonas: 50 polígonos sincronizados
+- Locais operacionais: 4 docs sincronizados
+
+A partir de agora, qualquer escrita no Firestore (estações/zonas/locais/ocorrências/solicitações/turnos) é automaticamente espelhada no Supabase em tempo real via Cloud Functions.
