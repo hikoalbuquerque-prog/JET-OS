@@ -46,6 +46,12 @@ function bucket15(nowMs: number): string {
   return new Date(Math.floor(nowMs / q) * q).toISOString();
 }
 
+// bucket de 1 min em ISO (para bike_history — transições)
+function bucket1m(nowMs: number): string {
+  const q = 60 * 1000;
+  return new Date(Math.floor(nowMs / q) * q).toISOString();
+}
+
 async function fetchAllPages(kind: "parkings" | "bikes", cityId: string): Promise<any[]> {
   const out: any[] = [];
   let cookie = "";
@@ -105,12 +111,41 @@ async function coletarCidade(admin: any, cityId: string, cidade: string) {
     .filter((r) => r.bikes_disponiveis !== null)
     .map((r) => ({ city_id: cityId, parking_id: r.id, bikes_disponiveis: r.bikes_disponiveis, bucket_ts: bkt }));
 
+  // ── Ler status anterior das bikes ANTES do upsert (para detectar transições) ──
+  const { data: prevBikes } = await admin.from("bikes").select("id, status").eq("city_id", cityId);
+  const prevStatusMap = new Map<string, string>();
+  if (prevBikes) for (const b of prevBikes) prevStatusMap.set(b.id, b.status);
+
   const chunk = (a: any[], n = 500) => Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
   for (const part of chunk(pRows)) { const { error } = await admin.from("parkings").upsert(part, { onConflict: "city_id,id" }); if (error) throw new Error("parkings: " + error.message); }
   for (const part of chunk(bRows)) { const { error } = await admin.from("bikes").upsert(part, { onConflict: "city_id,id" }); if (error) throw new Error("bikes: " + error.message); }
   for (const part of chunk(hRows)) { await admin.from("parking_history").upsert(part, { onConflict: "city_id,parking_id,bucket_ts", ignoreDuplicates: true }); }
 
-  return { parkings: pRows.length, bikes: bRows.length };
+  // ── bike_history: log por transições (só grava quando status muda) ──────
+  let bikeTransitions = 0;
+  const bkt1 = bucket1m(Date.parse(agora));
+  const transRows = bRows
+    .filter((b) => {
+      const prev = prevStatusMap.get(b.id);
+      return prev === undefined || prev !== b.status;
+    })
+    .map((b) => ({
+      bike_id: b.id,
+      city_id: cityId,
+      status: b.status,
+      lat: b.geo ? parseFloat(b.geo.replace(/.*POINT\(([^ ]+) ([^ ]+)\)/, "$2")) : null,
+      lng: b.geo ? parseFloat(b.geo.replace(/.*POINT\(([^ ]+) ([^ ]+)\)/, "$1")) : null,
+      bateria: b.bateria,
+      observed_at: agora,
+      bucket_ts: bkt1,
+    }));
+
+  for (const part of chunk(transRows)) {
+    await admin.from("bike_history").upsert(part, { onConflict: "bike_id,bucket_ts", ignoreDuplicates: true });
+  }
+  bikeTransitions = transRows.length;
+
+  return { parkings: pRows.length, bikes: bRows.length, bikeTransitions };
 }
 
 Deno.serve(async (req) => {

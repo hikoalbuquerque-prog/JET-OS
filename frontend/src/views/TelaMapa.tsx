@@ -42,6 +42,7 @@ import PainelControlePerdasSeg from '../components/PainelControlePerdasSeg';
 import TarefasLogisticaModule from '../components/TarefasLogisticaModule';
 import TurnoRegistro from '../components/TurnoRegistro';
 import GoJetAnalyticsPanel from '../components/GoJetAnalyticsPanel';
+import ShiftPanel from '../components/ShiftPanel';
 import UpdateBanner from '../components/UpdateBanner';
 import { useShiftNotifications, formatTurnoToast } from '../components/ShiftNotifications';
 import type { LocalOperacional, TipoLocal } from '../components/LocaisFinanceiro';
@@ -184,6 +185,7 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
   const [pagamentosOpen,  setPagamentosOpen]    = useState(false);
   const [pagamentosAdminOpen, setPagamentosAdminOpen] = useState(false);
   const [tarefasLogistica, setTarefasLogistica] = useState(false);
+  const [shiftPanel,      setShiftPanel     ] = useState(false);
 
   const [tarefaDeepLinkId, setTarefaDeepLinkId] = useState<string | null>(
     () => new URLSearchParams(window.location.search).get('tarefa')
@@ -2559,6 +2561,13 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                 backdropFilter:'blur(8px)', color: gojetDash?'#60a5fa':'rgba(255,255,255,.5)',
                 fontSize:16, display:'flex', alignItems:'center', justifyContent:'center',
                 boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>📊</button>
+            <button title="Turnos (gestor)" onClick={() => setShiftPanel(v => !v)}
+              style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+                border:`2px solid ${shiftPanel?'rgba(34,197,94,.5)':'rgba(255,255,255,.2)'}`,
+                background: shiftPanel?'rgba(34,197,94,.2)':'rgba(13,18,30,.85)',
+                backdropFilter:'blur(8px)', color: shiftPanel?'#22c55e':'rgba(255,255,255,.5)',
+                fontSize:16, display:'flex', alignItems:'center', justifyContent:'center',
+                boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>⏱</button>
           </>
         )}
         {(isGestorApp || isCampo || isLogisticaApp) && (
@@ -3647,6 +3656,15 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         <GoJetDashboard
           visivel={gojetDash}
           onFechar={() => setGojetDash(false)}
+          cidade={cidade}
+        />
+      )}
+
+      {/* Shift Panel — gestor visualiza todos os turnos */}
+      {shiftPanel && isGestor && (
+        <ShiftPanel
+          visivel={shiftPanel}
+          onFechar={() => setShiftPanel(false)}
           cidade={cidade}
         />
       )}

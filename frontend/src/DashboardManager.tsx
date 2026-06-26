@@ -5,6 +5,7 @@ import { collection, getDocs, query, where, doc, writeBatch, getDoc, updateDoc, 
 import { useState as useLocalState } from 'react';
 import { db, auth } from './lib/firebase';
 import { guardProviderSupabase, carregarOcorrenciasSupabase, buscarOcorrenciaSupabase, guardWriteSupabase, atualizarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
+import { mapaProviderSupabase, carregarEstacoesSupabase } from './lib/estacoes-supabase';
 import JSZip from 'jszip';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
@@ -431,7 +432,10 @@ async function importarEstacoes(
   return result;
 }
 
-// ── RELATÓRIO DE PARCERIA ─────────────────────────────────────────
+// ── RELATÓRIO DE ESTAÇÕES ─────────────────────────────────────────
+
+const JET_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="54" height="54"><defs><linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#060d1a"/><stop offset="100%" style="stop-color:#0d1f35"/></linearGradient><linearGradient id="hx" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#1e7fd8"/><stop offset="100%" style="stop-color:#0ab4f5"/></linearGradient></defs><rect width="512" height="512" rx="96" fill="url(#bg)"/><polygon points="256,72 424,166 424,346 256,440 88,346 88,166" fill="none" stroke="url(#hx)" stroke-width="5" opacity=".9"/><text x="256" y="280" font-family="Arial Black,Impact,Arial,sans-serif" font-size="160" font-weight="900" fill="#fff" text-anchor="middle" letter-spacing="-6">JET</text></svg>`;
+
 interface CampoRelatorio { key: string; label: string; grupo: string; default: boolean; }
 
 const CAMPOS_RELATORIO: CampoRelatorio[] = [
@@ -530,7 +534,7 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
   const T = {
     abaPrefeitura: { pt:'📋 Relatório Prefeitura', en:'📋 City Hall Report', es:'📋 Informe Ayuntamiento', ru:'📋 Отчёт мэрии' },
     abaSuporte:    { pt:'📊 Suporte JET (Excel)', en:'📊 JET Support (Excel)', es:'📊 Soporte JET (Excel)', ru:'📊 Поддержка JET (Excel)' },
-    headerTitulo:  { pt:'Relatório de Parceria', en:'Partnership Report', es:'Informe de Asociación', ru:'Отчёт о партнёрстве' },
+    headerTitulo:  { pt:'Relatório de Estações', en:'Stations Report', es:'Informe de Estaciones', ru:'Отчёт о станциях' },
     headerSub:     { pt:'Selecione as estações e gere o PDF no formato de relatório de pontos', en:'Select the stations and generate the PDF in the points report format', es:'Seleccione las estaciones y genere el PDF en formato de informe de puntos', ru:'Выберите станции и создайте PDF в формате отчёта о точках' },
     todos:         { pt:'Todos', en:'All', es:'Todos', ru:'Все' },
     privadas:      { pt:'🏢 Privadas', en:'🏢 Private', es:'🏢 Privadas', ru:'🏢 Частные' },
@@ -581,7 +585,7 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
   const labelCampo = (k: string, fallback: string) => campoLabels[k] ? pick(campoLabels[k]) : fallback;
   // Filtra apenas PRIVADAS por padrão, ordenadas por criadoEm desc
   const [filtroTipo,   setFiltroTipo]   = useState<'TODOS'|'PRIVADA'|'PUBLICA'|'CONCORRENTE'>('PRIVADA');
-  const [filtroStatus, setFiltroStatus] = useState<string>('SOLICITADO');
+  const [filtroStatus, setFiltroStatus] = useState<string>('TODOS');
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
   const [gerando,      setGerando]      = useState(false);
   const [idiomaRelat,  setIdiomaRelat]  = useState<'pt-BR'|'es'|'en'>('pt-BR');
@@ -635,12 +639,12 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
   // ── Traduções do relatório ────────────────────────────────────
   const i18nRelat: Record<string, Record<string,string>> = {
     'pt-BR': {
-      titulo:      'Relatório de Pontos de Parceria',
+      titulo:      'Relatório de Estações',
       cidade:      'Cidade',
       data:        'Data',
       prep:        'Elaborado por',
       empresa:     'JET Scooters',
-      tabelaTit:   'Pontos de Parceria Cadastrados',
+      tabelaTit:   'Estações Cadastradas',
       codigo:      'Código',
       endereco:    'Endereço',
       bairro:      'Bairro',
@@ -669,12 +673,12 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
       nomeLocal:   'Local',
     },
     'es': {
-      titulo:      'Informe de Puntos de Asociación',
+      titulo:      'Informe de Estaciones',
       cidade:      'Ciudad',
       data:        'Fecha',
       prep:        'Elaborado por',
       empresa:     'JET Scooters',
-      tabelaTit:   'Puntos de Asociación Registrados',
+      tabelaTit:   'Estaciones Registradas',
       codigo:      'Código',
       endereco:    'Dirección',
       bairro:      'Barrio',
@@ -703,12 +707,12 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
       nomeLocal:   'Local',
     },
     'en': {
-      titulo:      'Partnership Points Report',
+      titulo:      'Stations Report',
       cidade:      'City',
       data:        'Date',
       prep:        'Prepared by',
       empresa:     'JET Scooters',
-      tabelaTit:   'Registered Partnership Points',
+      tabelaTit:   'Registered Stations',
       codigo:      'Code',
       endereco:    'Address',
       bairro:      'Neighborhood',
@@ -745,10 +749,12 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
     const tr2 = i18nRelat[idiomaRelat] || i18nRelat['pt-BR'];
     const dataHoje = new Date().toLocaleDateString(locale, { day:'2-digit', month:'long', year:'numeric' });
     const statusCor2: Record<string,string> = {
-      APROVADO:'#065f46', SOLICITADO:'#1e40af', INSTALADO:'#4c1d95', REPROVADO:'#991b1b', CANCELADO:'#374151'
+      APROVADO:'#065f46', SOLICITADO:'#1e40af', INSTALADO:'#4c1d95', REPROVADO:'#991b1b', CANCELADO:'#374151',
+      ATIVO:'#15803d', PLANEJADO:'#0369a1', NEGOCIACAO:'#92400e'
     };
     const statusBg2: Record<string,string> = {
-      APROVADO:'#d1fae5', SOLICITADO:'#dbeafe', INSTALADO:'#ede9fe', REPROVADO:'#fee2e2', CANCELADO:'#f3f4f6'
+      APROVADO:'#d1fae5', SOLICITADO:'#dbeafe', INSTALADO:'#ede9fe', REPROVADO:'#fee2e2', CANCELADO:'#f3f4f6',
+      ATIVO:'#dcfce7', PLANEJADO:'#e0f2fe', NEGOCIACAO:'#fef3c7'
     };
 
     // Colunas respeitam campos selecionados na UI
@@ -756,9 +762,7 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
     const mostrarEndereco  = campos.includes('endereco');
     const mostrarBairro    = campos.includes('bairro') || campos.includes('endereco');
     const mostrarStatus    = campos.includes('status');
-    const mostrarDataReg   = campos.includes('criadoEm');
     const mostrarSV        = campos.includes('streetView');
-    const mostrarConsultor = campos.includes('consultor');
 
     const fmtD = (ts: any) => {
       if (!ts) return '';
@@ -788,8 +792,16 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
         : '<span style="color:#d1d5db;font-size:18px">—</span>';
 
       const svHtml = svUrl
-        ? '<a href="' + svUrl + '" target="_blank" style="background:#1a73e8;color:#fff;text-decoration:none;padding:3px 8px;border-radius:5px;font-size:9px;font-weight:600;white-space:nowrap;display:inline-block">🌐 SV</a>'
+        ? '<a href="' + svUrl + '" target="_blank" style="color:#1a73e8;text-decoration:none;font-size:9px;font-weight:600;white-space:nowrap">🌐 ' + tr2.svLabel + '</a>'
         : '<span style="color:#d1d5db">—</span>';
+
+      const croquiUrl = (e as any).imagens?.croqui || (e as any).croqui_url || (e as any).croquiUrl || '';
+      const croquiHtml = croquiUrl
+        ? '<a href="' + croquiUrl + '" target="_blank" style="color:#1a73e8;text-decoration:none;font-size:9px;font-weight:600;white-space:nowrap">📐 ' + tr2.croquiLabel + '</a>'
+        : '<span style="color:#d1d5db">—</span>';
+
+      const latStr = e.lat != null ? String(Number(e.lat).toFixed(6)) : '—';
+      const lngStr = e.lng != null ? String(Number(e.lng).toFixed(6)) : '—';
 
       let row = '<tr style="background:' + bgRow + ';page-break-inside:avoid">';
       row += '<td style="padding:5px 6px;text-align:center;font-size:10px;font-weight:700;color:#9ca3af;white-space:nowrap">' + String(i+1).padStart(2,'0') + '</td>';
@@ -798,9 +810,10 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
       if (mostrarEndereco)  row += '<td style="padding:5px 6px;font-size:10px;color:#374151;word-break:break-word;min-width:140px">' + end + '</td>';
       if (mostrarBairro)    row += '<td style="padding:5px 6px;font-size:10px;color:#374151;word-break:break-word;min-width:80px">' + bairro + '</td>';
       if (mostrarStatus)    row += '<td style="padding:5px 6px;text-align:center"><span style="background:' + sBg + ';color:' + sCor + ';padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;white-space:nowrap">' + e.status + '</span></td>';
-      if (mostrarDataReg)   row += '<td style="padding:5px 6px;font-size:10px;color:#374151;white-space:nowrap">' + fmtD(e.criadoEm) + '</td>';
+      row += '<td style="padding:5px 6px;font-size:10px;color:#374151;white-space:nowrap">' + latStr + '</td>';
+      row += '<td style="padding:5px 6px;font-size:10px;color:#374151;white-space:nowrap">' + lngStr + '</td>';
       if (mostrarSV)        row += '<td style="padding:5px 6px;text-align:center">' + svHtml + '</td>';
-      if (mostrarConsultor) row += '<td style="padding:5px 6px;font-size:10px;color:#374151;word-break:break-word">' + (e.consultor || '—') + '</td>';
+      row += '<td style="padding:5px 6px;text-align:center">' + croquiHtml + '</td>';
       row += '</tr>';
       return row;
     }).join('');
@@ -812,9 +825,10 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
     if (mostrarEndereco)  thead += '<th style="padding:7px 6px;font-size:9px;text-transform:uppercase;text-align:left">' + tr2.endereco + '</th>';
     if (mostrarBairro)    thead += '<th style="padding:7px 6px;font-size:9px;text-transform:uppercase;text-align:left">' + tr2.bairro + '</th>';
     if (mostrarStatus)    thead += '<th style="padding:7px 6px;font-size:9px;text-transform:uppercase">' + tr2.status + '</th>';
-    if (mostrarDataReg)   thead += '<th style="padding:7px 6px;font-size:9px;text-transform:uppercase;white-space:nowrap">' + tr2.dataReg + '</th>';
+    thead += '<th style="padding:7px 6px;font-size:9px;text-transform:uppercase">Lat</th>';
+    thead += '<th style="padding:7px 6px;font-size:9px;text-transform:uppercase">Lng</th>';
     if (mostrarSV)        thead += '<th style="padding:7px 6px;font-size:9px;text-transform:uppercase">Street View</th>';
-    if (mostrarConsultor) thead += '<th style="padding:7px 6px;font-size:9px;text-transform:uppercase;text-align:left">' + tr2.consultor + '</th>';
+    thead += '<th style="padding:7px 6px;font-size:9px;text-transform:uppercase">' + tr2.croquiLabel + '</th>';
     thead += '</tr>';
 
     const html = '<!DOCTYPE html><html><head><meta charset="utf-8">'
@@ -832,9 +846,11 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
       + '@media print{.printbar{display:none}body{padding:8px}}'
       + '</style></head><body>'
       + '<div class="printbar"><button onclick="window.print()" style="padding:8px 18px;background:#1a6fd4;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2)">🖨 Imprimir / Salvar PDF</button></div>'
-      + '<h1>' + tr2.titulo.toUpperCase() + '</h1>'
-      + '<p class="sub">JET Scooters — ' + cidade + ' | ' + dataHoje
-        + ' | ' + estRelatorio.length + ' ' + (estRelatorio.length === 1 ? tr2.estacao : tr2.estacoes) + '</p>'
+      + '<div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:4px">'
+      + JET_LOGO_SVG
+      + '<div><h1 style="margin:0">' + tr2.titulo.toUpperCase() + '</h1>'
+      + '<p class="sub" style="margin:0">' + cidade + ' | ' + dataHoje
+        + ' | ' + estRelatorio.length + ' ' + (estRelatorio.length === 1 ? tr2.estacao : tr2.estacoes) + '</p></div></div>'
       + '<table><thead>' + thead + '</thead><tbody>' + rows + '</tbody></table>'
       + '<p class="foot">' + tr2.rodape + ' | ' + new Date().getFullYear() + '</p>'
       + '</body></html>';
@@ -859,11 +875,13 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
 
     const statusCor: Record<string,string> = {
       APROVADO:'#065f46', SOLICITADO:'#1e40af', INSTALADO:'#4c1d95',
-      REPROVADO:'#991b1b', CANCELADO:'#374151'
+      REPROVADO:'#991b1b', CANCELADO:'#374151',
+      ATIVO:'#15803d', PLANEJADO:'#0369a1', NEGOCIACAO:'#92400e'
     };
     const statusBg: Record<string,string> = {
       APROVADO:'#d1fae5', SOLICITADO:'#dbeafe', INSTALADO:'#ede9fe',
-      REPROVADO:'#fee2e2', CANCELADO:'#f3f4f6'
+      REPROVADO:'#fee2e2', CANCELADO:'#f3f4f6',
+      ATIVO:'#dcfce7', PLANEJADO:'#e0f2fe', NEGOCIACAO:'#fef3c7'
     };
 
     const cards = estRelatorio.map((e, i) => {
@@ -1005,8 +1023,10 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
         '@media print{.printbar{display:none}body{padding:12px}.card-est{page-break-inside:avoid;break-inside:avoid}}' +
       '</style></head><body>' +
       '<div class="printbar"><button onclick="window.print()" style="padding:8px 18px;background:#1a6fd4;color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2)">🖨 Imprimir / Salvar PDF</button></div>' +
-      '<h1>' + tr.titulo.toUpperCase() + '</h1>' +
-      '<p class="subtitle">JET Scooters — ' + cidade + ' | ' + dataHoje + '</p>' +
+      '<div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:4px">' +
+      JET_LOGO_SVG +
+      '<div><h1 style="margin:0">' + tr.titulo.toUpperCase() + '</h1>' +
+      '<p class="subtitle" style="margin:0">JET Scooters — ' + cidade + ' | ' + dataHoje + '</p></div></div>' +
       '<hr/>' +
       cards +
       '<hr/>' +
@@ -1109,7 +1129,7 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
         ))}
       </div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-        {(['TODOS','SOLICITADO','APROVADO','INSTALADO','REPROVADO','CANCELADO'] as const).map(s => (
+        {(['TODOS','ATIVO','PLANEJADO','NEGOCIACAO','SOLICITADO','APROVADO','INSTALADO','REPROVADO','CANCELADO'] as const).map(s => (
           <button key={s} onClick={() => { setFiltroStatus(s); setSelecionadas(new Set()); }}
             style={{ ...inp,
               background: filtroStatus === s ? 'rgba(96,165,250,.15)' : 'rgba(255,255,255,.04)',
@@ -4551,19 +4571,25 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
   const isGestor    = ['admin','gestor'].includes(roleAtual);
   const isGestorSeg = ['admin','gestor','gestor_seg'].includes(roleAtual);
 
-  // Carrega estações da cidade
+  // Carrega estações da cidade (Firestore + Supabase quando ativo)
   useEffect(() => {
     setCarregando(true);
-    // Busca por cidade sem filtrar pais (campo pais pode estar errado nas estações importadas)
     const q = cidades.length === 1
       ? query(collection(db, 'estacoes'), where('cidade','==',cidades[0]))
       : cidades.length > 1
         ? query(collection(db, 'estacoes'), where('cidade','in',cidades.slice(0,10)))
         : query(collection(db, 'estacoes'));
-    getDocs(q).then(snap => {
-      setEstacoes(snap.docs.map(d => ({ id: d.id, ...d.data() } as Estacao)));
+    const pFirestore = getDocs(q).then(snap =>
+      snap.docs.map(d => ({ id: d.id, ...d.data() } as Estacao))
+    ).catch(() => [] as Estacao[]);
+    const pSupabase = mapaProviderSupabase() && cidades.length
+      ? Promise.all(cidades.map(c => carregarEstacoesSupabase(c).catch(() => []))).then(arrs => arrs.flat() as Estacao[])
+      : Promise.resolve([] as Estacao[]);
+    Promise.all([pFirestore, pSupabase]).then(([fs, sb]) => {
+      const ids = new Set(fs.map(e => e.id));
+      setEstacoes([...fs, ...sb.filter(e => !ids.has(e.id))]);
       setCarregando(false);
-    }).catch(() => setCarregando(false));
+    });
   }, [cidades, pais]);
 
   // Calcula stats

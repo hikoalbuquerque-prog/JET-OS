@@ -1,5 +1,5 @@
 # Jet OS Firebase — Master Debrief
-**Atualizado em:** 25/06/2026 (Street View completo + Medir lote + FABs reorganizados · Curitiba 2685 estações — 17.17 · GPS flip supabase default — 17.17 · Telegram webhook migrado — 17.17 · Auth flip Supabase primário — 17.9 · Default flip flags — 17.8 · GPS NATIVO — 10.8 · LGPD — 11 · NFS-e — 13)  
+**Atualizado em:** 26/06/2026 (V2 Features portadas P0-P5 — 18.1 · Street View completo + Medir lote + FABs reorganizados · Curitiba 2685 estações — 17.17 · GPS flip supabase default — 17.17 · Telegram webhook migrado — 17.17 · Auth flip Supabase primário — 17.9 · Default flip flags — 17.8 · GPS NATIVO — 10.8 · LGPD — 11 · NFS-e — 13)  
 **Projeto:** jet-os-1 | Firebase Hosting + Firestore + Storage + Cloud Functions  
 **Stack:** React + Vite + TypeScript + Leaflet + deck.gl | Node.js 22 Cloud Functions
 
@@ -2542,3 +2542,57 @@ Durante a migração, a sessão Supabase JS não persiste (login feito antes do 
 | Keys pt→ru | ⚠️ 36 faltando (guia) |
 | Strings hardcoded PT | 🔴 26+ strings em 5 arquivos |
 | Prioridade | 1. Hardcoded → t() · 2. es/ru guide keys |
+
+---
+
+## 18. Sessão 26/06 — V2 Features portadas (P0–P5)
+
+Portagem de todas as features V2 para V1, organizadas por prioridade.
+
+### 18.1 P0 — bike_history + transition-only logging
+
+**Objetivo:** reduzir ~70% do volume de escrita em `bike_history` logando apenas mudanças de status.
+
+- **Migration 0046** (`0046_bike_history.sql`): `ALTER TABLE` na tabela existente — adicionou colunas `lat`, `lng`, `bateria`, `observed_at`. Índice único `(bike_id, bucket_ts)`. RPC `idle_bikes_summary` (bikes paradas >2h por cidade). Cron `cleanup-bike-history` semanal (deleta >90 dias).
+- **scrape-gojet modificado** (`supabase/functions/scrape-gojet/index.ts`): lê status anterior da tabela `bikes` ANTES do upsert; após upsert, compara e só insere em `bike_history` quando `prev !== new`. Campo `bucket_ts` (1-min buckets). Retorna `bikeTransitions` no response.
+
+### 18.2 P1 — Zone Analytics no GoJetDashboard
+
+- **GoJetDashboard.tsx**: nova aba "Zonas" com KPIs por zona (eficiência, monitores vazios, distribuição de bikes por status). Usa `zone-analytics.ts` (já existia no V1) + view `zonas_geo`.
+
+### 18.3 P2 — Tasks workflow + Shift tracking
+
+- **Migration 0047** (`0047_tasks_deliveries.sql`): tabelas `tasks` (PONTO/PATINETE, target_count, status) e `task_deliveries` (foto, GPS, bike_ids). RPC `add_task_delivery` com auto-complete quando `delivered_count >= target_count`. RLS por usuário + gestor CRUD.
+- **Migration 0048** (`0048_shift_records.sql`): tabela `shift_records` (action inicio/intervalo/retorno/fim, turno T0/T1/T2, zonas[], lat/lng, photo_path). RPC `current_shift_status()`.
+- **ShiftPanel.tsx** (novo): painel gestor com KPIs (abertos/pausados/fechados por turno), tabela de trabalhadores por status, histórico de ações. Modal overlay dark theme. Acessível via botão ⏱ no FAB do TelaMapa.
+- Frontend de tasks já existia (`TarefasLogisticaModule.tsx`, 2266 linhas) — só precisou do backend.
+
+### 18.4 P3 — Web Push VAPID
+
+- **Migration 0049** (`0049_push_subscriptions.sql`): `ALTER TABLE` na tabela existente (já tinha `uid`, `endpoint`, `p256dh`, `auth`). Adicionou `user_agent`, índice, unique constraint `(uid, endpoint)`, RLS.
+- **send-push Edge Function** (`supabase/functions/send-push/index.ts`): Web Push via VAPID JWT (ES256). Recebe `user_ids[]`, busca subscriptions, envia via fetch. Secrets: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`.
+- **web-push.ts** (`frontend/src/lib/web-push.ts`): client subscription manager — `subscribePush(userId)` pede permissão, cria subscription PushManager, upsert no Supabase.
+- **VAPID keys geradas** e configuradas: secrets no Supabase + `VITE_VAPID_PUBLIC_KEY` no `.env.local`.
+
+### 18.5 P4 — Operator efficiency + Low battery
+
+- **Migration 0050** (`0050_operator_efficiency.sql`): RPCs `operator_efficiency(p_days)` (score por tasks/deliveries/tempo) e `low_battery_bikes(p_city_id, p_limit)` (top N bikes com menor bateria).
+- **GoJetDashboard.tsx**: ranking de eficiência (top 10 operadores) e grid de bikes com bateria baixa (top 20) adicionados à aba Resumo.
+
+### 18.6 P5 — PWA offline improvements
+
+- **sw.js** (`frontend/public/sw.js`): push event handler (mostra notificação), notificationclick (foca/abre window). Cache Supabase API (stale-while-revalidate para `/rest/`). Cache OSM tiles (cache-first). Cache name `jetos-v2`.
+- **vite.config.ts**: runtime caching rule para supabase-api (NetworkFirst, timeout 5s, max 50 entries, TTL 1h).
+
+### 18.7 Deploy & Status
+
+| Item | Status |
+|------|--------|
+| Migrations 0046–0050 | ✅ Aplicadas |
+| RPCs (idle_bikes_summary, add_task_delivery, current_shift_status, operator_efficiency, low_battery_bikes) | ✅ Criadas |
+| Crons (scrape 15min, cleanup semanal) | ✅ Ativos |
+| Edge Function scrape-gojet (transition logging) | ✅ Deployed |
+| Edge Function send-push (VAPID) | ✅ Deployed |
+| VAPID keys | ✅ Geradas e configuradas |
+| Frontend build | ✅ Compila sem erros TS |
+| GoJet API via cron | ⚠️ Requer `GOJET_PROXY_URL` no secrets (já configurado) |

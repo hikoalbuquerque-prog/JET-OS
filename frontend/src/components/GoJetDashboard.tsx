@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { fetchGojetSnapshot, fetchPontosVazios, type PontoVazio } from '../lib/analytics-supabase';
 import { classifyBike as classifyBikeShared, BIKE_STATUS_HEX, computeFleetStats } from '../lib/bike-classify';
 import { colorForParking } from '../lib/parking-colors';
+import { computeZoneAnalytics, type ZonePolygon, type ZoneStats } from '../lib/zone-analytics';
 
 // ─── i18n (pt fonte, padrão TermosUsoGate: sem json) ─────────────────────────
 
@@ -29,6 +30,25 @@ const TXT: Record<string, Tr> = {
   tabPontos:    { pt:'Pontos', en:'Points', es:'Puntos', ru:'Точки' },
   tabPatinetes: { pt:'Patinetes', en:'Scooters', es:'Patinetes', ru:'Самокаты' },
   tabWorkers:   { pt:'Workers', en:'Workers', es:'Workers', ru:'Работники' },
+  tabZonas:     { pt:'Zonas', en:'Zones', es:'Zonas', ru:'Зоны' },
+  // Zonas
+  zonaNome:     { pt:'Zona', en:'Zone', es:'Zona', ru:'Зона' },
+  zonaEfic:     { pt:'Eficiência', en:'Efficiency', es:'Eficiencia', ru:'Эффективность' },
+  zonaPontos:   { pt:'Pontos', en:'Points', es:'Puntos', ru:'Точки' },
+  zonaMonitor:  { pt:'Monitor', en:'Monitor', es:'Monitor', ru:'Монитор' },
+  zonaVazios:   { pt:'Vazios', en:'Empty', es:'Vacíos', ru:'Пустые' },
+  zonaBikes:    { pt:'Bikes', en:'Bikes', es:'Bikes', ru:'Байки' },
+  zonaFora:     { pt:'Fora', en:'Out', es:'Fuera', ru:'Вне' },
+  zonaSemZonas: { pt:'Nenhuma zona cadastrada', en:'No zones registered', es:'Sin zonas registradas', ru:'Нет зон' },
+  zonaMonitoresVazios: { pt:'Monitores vazios', en:'Empty monitors', es:'Monitores vacíos', ru:'Пустые мониторы' },
+  // Eficiência + Bateria
+  eficienciaTit:  { pt:'Eficiência por operador (7d)', en:'Operator efficiency (7d)', es:'Eficiencia por operador (7d)', ru:'Эффективность по оператору (7д)' },
+  efNome:         { pt:'Operador', en:'Operator', es:'Operador', ru:'Оператор' },
+  efTarefas:      { pt:'Tarefas', en:'Tasks', es:'Tareas', ru:'Задачи' },
+  efEntregas:     { pt:'Entregas', en:'Deliveries', es:'Entregas', ru:'Доставки' },
+  efScore:        { pt:'Score', en:'Score', es:'Puntaje', ru:'Баллы' },
+  efSem:          { pt:'Sem dados de tarefas', en:'No task data', es:'Sin datos de tareas', ru:'Нет данных о задачах' },
+  batBaixa:       { pt:'Bateria mais baixa', en:'Lowest battery', es:'Batería más baja', ru:'Самый низкий заряд' },
   // KPIs resumo
   kpiPontosTotal: { pt:'Pontos total', en:'Total points', es:'Puntos total', ru:'Всего точек' },
   kpiZerados:     { pt:'Zerados', en:'Empty', es:'Vacíos', ru:'Пустые' },
@@ -167,7 +187,7 @@ function parsePostGISPoint(geo: any): { lat: number; lng: number } | null {
 }
 
 type BikeStatus = 'available'|'renting'|'reserved'|'maintenance'|'workshop'|'low_battery';
-type TabId = 'pontos'|'patinetes'|'workers'|'resumo';
+type TabId = 'pontos'|'patinetes'|'workers'|'resumo'|'zonas';
 
 interface Props { visivel: boolean; onFechar: () => void; cidade?: string; }
 
@@ -280,6 +300,9 @@ export default function GoJetDashboard({ visivel, onFechar, cidade }: Props) {
   const [filtroP,  setFiltroP ] = useState<keyof typeof COR_PONTO|'todos'>('todos');
   const [filtroB,  setFiltroB ] = useState<BikeStatus|'todos'>('todos');
   const [sortP,    setSortP   ] = useState<'status'|'nome'|'avail'>('status');
+  const [zonas,    setZonas   ] = useState<ZonePolygon[]>([]);
+  const [eficiencia, setEficiencia] = useState<any[]>([]);
+  const [lowBat,   setLowBat  ] = useState<any[]>([]);
 
   // Carrega parkings + bikes do Supabase
   useEffect(() => {
@@ -293,6 +316,32 @@ export default function GoJetDashboard({ visivel, onFechar, cidade }: Props) {
 
     // Duração de pontos vazios (parking_history via RPC 0044) — independente do snapshot.
     fetchPontosVazios(cidade).then(setVazios).catch(e => console.warn('[GoJetDash] vazios:', e));
+
+    // Zonas (para aba Zonas)
+    (async () => {
+      let q = supabase.from('zonas_geo').select('*').eq('ativo', true);
+      if (cidade) q = q.eq('cidade', cidade);
+      const { data } = await q;
+      if (data) {
+        setZonas(data.map((z: any) => {
+          const geojson = typeof z.geojson === 'string' ? JSON.parse(z.geojson) : z.geojson;
+          const coords: [number, number][] = geojson?.coordinates?.[0] ?? [];
+          return { id: z.id ?? z.firebase_id, nome: z.nome, cor: z.cor, coordenadas: coords };
+        }));
+      }
+    })().catch(e => console.warn('[GoJetDash] zonas:', e));
+
+    // Eficiência por operador (RPC)
+    (async () => {
+      const { data } = await supabase.rpc('operator_efficiency', { p_days: 7 });
+      if (data) setEficiencia(data);
+    })().catch(() => {});
+
+    // Bateria mais baixa
+    (async () => {
+      const { data } = await supabase.rpc('low_battery_bikes', { p_city_id: cidade || null, p_limit: 20 });
+      if (data) setLowBat(data);
+    })().catch(() => {});
   }, [visivel, cidade]);
 
   // Workers GPS — lê usuarios com ultima_pos recente (Supabase) + Realtime
@@ -367,6 +416,23 @@ export default function GoJetDashboard({ visivel, onFechar, cidade }: Props) {
 
   const online30 = workers.filter(w => mAtras(w.atualizadoEm) < 30).length;
 
+  // Zone analytics
+  const zoneStats = useMemo(() => {
+    if (!zonas.length || !parkings.length) return [] as ZoneStats[];
+    const pPoints = parkings.map(p => ({
+      id: p.id, name: p.name, latitude: p.latitude, longitude: p.longitude,
+      monitor: p.monitor, availableCount: p.availableCount, target_bikes_count: p.target_bikes_count,
+    }));
+    const bPoints = bikes.map(b => ({
+      id: b.id, location_lat: b.location_lat, location_lng: b.location_lng,
+      parking_id: b.parking_id, business_status: b.business_status,
+      business_sub_status: b.business_sub_status, disabled: b.disabled,
+      ordered: b.ordered, booked: b.booked, service_mode: b.service_mode,
+      battery_percent: b.battery_percent,
+    }));
+    return computeZoneAnalytics(zonas, pPoints, bPoints);
+  }, [zonas, parkings, bikes]);
+
   // ── Filtros ───────────────────────────────────────────────────────────────
 
   const parkingsFilt = useMemo(() => {
@@ -422,6 +488,7 @@ export default function GoJetDashboard({ visivel, onFechar, cidade }: Props) {
             ['pontos',    `🅿️ ${t('tabPontos')}`    ],
             ['patinetes', `🛴 ${t('tabPatinetes')}` ],
             ['workers',   `👷 ${t('tabWorkers')}`  ],
+            ['zonas',     `🗺 ${t('tabZonas')}`    ],
           ] as [TabId,string][]).map(([id,label]) => (
             <button key={id} onClick={() => setTab(id)} style={S.tab(tab===id)}>{label}</button>
           ))}
@@ -619,6 +686,69 @@ export default function GoJetDashboard({ visivel, onFechar, cidade }: Props) {
                   </div>
                 </div>
               </div>
+
+              {/* Eficiência por operador (P4) */}
+              {eficiencia.length > 0 && (
+                <div style={S.card('#3b82f6')}>
+                  <div style={{ fontSize:10, fontWeight:700, color:T.dim, textTransform:'uppercase', letterSpacing:'1px', marginBottom:10 }}>
+                    🏆 {t('eficienciaTit')}
+                  </div>
+                  <div style={{ overflowX:'auto' }}>
+                    <table style={{ ...S.table, minWidth:400 }}>
+                      <thead><tr>
+                        {[t('efNome'), t('efTarefas'), t('efEntregas'), t('efScore')].map(h => (
+                          <th key={h} style={S.th}>{h}</th>
+                        ))}
+                      </tr></thead>
+                      <tbody>
+                        {eficiencia.slice(0, 10).map((op: any, i: number) => {
+                          const scoreCor = op.score >= 50 ? '#22c55e' : op.score >= 20 ? '#f59e0b' : '#ef4444';
+                          return (
+                            <tr key={op.user_id || i}>
+                              <td style={{ ...S.td, fontWeight:600, color:T.txt }}>{op.nome || '—'}</td>
+                              <td style={S.td}>
+                                <span style={{ color:'#22c55e', fontWeight:700 }}>{op.tasks_done}</span>
+                                <span style={{ color:T.dim }}>/{op.tasks_total}</span>
+                              </td>
+                              <td style={{ ...S.td, color:T.txt }}>{op.deliveries} ({op.bikes_moved} 🛴)</td>
+                              <td style={S.td}>
+                                <span style={{ color:scoreCor, fontWeight:800, fontSize:14 }}>{op.score}</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Bateria mais baixa (P4) */}
+              {lowBat.length > 0 && (
+                <div style={S.card('#f97316')}>
+                  <div style={{ fontSize:10, fontWeight:700, color:T.dim, textTransform:'uppercase', letterSpacing:'1px', marginBottom:10 }}>
+                    🔋 {t('batBaixa')} (Top {lowBat.length})
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(140px, 1fr))', gap:6 }}>
+                    {lowBat.map((b: any) => {
+                      const pct = b.bateria ?? 0;
+                      const cor = pct < 10 ? '#ef4444' : pct < 20 ? '#f97316' : pct < 40 ? '#f59e0b' : '#22c55e';
+                      return (
+                        <div key={b.bike_id} style={{ background:'rgba(255,255,255,.04)', borderRadius:8, padding:'6px 10px', border:`1px solid ${cor}22` }}>
+                          <div style={{ fontSize:11, fontWeight:700, color:T.txt, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{b.bike_id.slice(-8)}</div>
+                          <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:2 }}>
+                            <div style={{ flex:1, height:4, background:'rgba(255,255,255,.08)', borderRadius:2, overflow:'hidden' }}>
+                              <div style={{ height:'100%', width:`${pct}%`, background:cor, borderRadius:2 }}/>
+                            </div>
+                            <span style={{ fontSize:11, fontWeight:700, color:cor }}>{pct}%</span>
+                          </div>
+                          <div style={{ fontSize:9, color:T.dim, marginTop:1 }}>{b.status}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -830,6 +960,102 @@ export default function GoJetDashboard({ visivel, onFechar, cidade }: Props) {
                   </tbody>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* ── ZONAS ──────────────────────────────────────────────────── */}
+          {tab === 'zonas' && (
+            <div>
+              {zoneStats.length === 0 ? (
+                <div style={{ textAlign:'center', padding:40, color:T.dim }}>{t('zonaSemZonas')}</div>
+              ) : (
+                <>
+                  {/* KPIs agregados */}
+                  <div style={S.kpiRow}>
+                    {[
+                      { n: zoneStats.length, l: t('tabZonas'), c: '#307FE2' },
+                      { n: zoneStats.reduce((s,z) => s + z.monitorEmpty, 0), l: `🔴 ${t('zonaVazios')} (monitor)`, c: '#ef4444' },
+                      { n: zoneStats.reduce((s,z) => s + z.bikesOutOfParking, 0), l: `⚠️ ${t('zonaFora')}`, c: '#f97316' },
+                    ].map(({n,l,c}) => (
+                      <div key={l} style={S.kpi(c)}>
+                        <div style={S.kpiN(c)}>{n}</div>
+                        <div style={S.kpiL}>{l}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Tabela por zona */}
+                  <div style={{ overflowX:'auto', background:T.card, borderRadius:12, border:`1px solid ${T.bdr}` }}>
+                    <table style={{ ...S.table, minWidth:700 }}>
+                      <thead><tr>
+                        {[t('zonaNome'), t('zonaEfic'), t('zonaPontos'), t('zonaMonitor'), t('zonaVazios'), t('zonaBikes'), t('zonaFora')].map(h => (
+                          <th key={h} style={S.th}>{h}</th>
+                        ))}
+                      </tr></thead>
+                      <tbody>
+                        {[...zoneStats].sort((a,b) => a.efficiencyPct - b.efficiencyPct).map(z => {
+                          const efCor = z.efficiencyPct >= 80 ? '#22c55e' : z.efficiencyPct >= 50 ? '#f59e0b' : '#ef4444';
+                          return (
+                            <tr key={z.zoneId}>
+                              <td style={{ ...S.td, fontWeight:700, color:T.txt }}>{z.zoneName}</td>
+                              <td style={S.td}>
+                                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                                  <span style={{ color:efCor, fontWeight:700, fontSize:14 }}>{z.efficiencyPct}%</span>
+                                  <div style={{ width:50, height:5, background:'rgba(255,255,255,.08)', borderRadius:3, overflow:'hidden' }}>
+                                    <div style={{ height:'100%', width:`${z.efficiencyPct}%`, background:efCor, borderRadius:3 }}/>
+                                  </div>
+                                </div>
+                              </td>
+                              <td style={{ ...S.td, color:T.dim }}>{z.parkingsTotal}</td>
+                              <td style={S.td}>
+                                <span style={{ color:'#3b82f6', fontWeight:600 }}>{z.monitorTotal}</span>
+                                {z.monitorEmpty > 0 && <span style={{ color:'#ef4444', marginLeft:4, fontSize:10 }}>({z.monitorEmpty} ⚠)</span>}
+                              </td>
+                              <td style={S.td}>
+                                <span style={{ color: z.pontosEmpty > 0 ? '#ef4444' : '#22c55e', fontWeight:600 }}>{z.pontosEmpty}</span>
+                              </td>
+                              <td style={S.td}>
+                                <div style={{ fontSize:11, color:T.dim }}>
+                                  <span style={{ color:'#22c55e' }}>🟢{z.bikesAvailable}</span>{' '}
+                                  <span style={{ color:'#eab308' }}>🟡{z.bikesRenting}</span>{' '}
+                                  <span style={{ color:'#ef4444' }}>🔴{z.bikesUnavailable}</span>
+                                </div>
+                              </td>
+                              <td style={S.td}>
+                                {z.bikesOutOfParking > 0 ? (
+                                  <span style={{ color:'#f97316', fontWeight:600 }}>{z.bikesOutOfParking}</span>
+                                ) : <span style={{ color:T.dim }}>—</span>}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Monitores vazios por zona */}
+                  {zoneStats.some(z => z.emptyMonitors.length > 0) && (
+                    <div style={{ ...S.card('#ef4444'), marginTop:12 }}>
+                      <div style={{ fontSize:10, fontWeight:700, color:T.dim, textTransform:'uppercase', letterSpacing:'1px', marginBottom:10 }}>
+                        🔴 {t('zonaMonitoresVazios')}
+                      </div>
+                      {zoneStats.filter(z => z.emptyMonitors.length > 0).map(z => (
+                        <div key={z.zoneId} style={{ marginBottom:10 }}>
+                          <div style={{ fontSize:12, fontWeight:700, color:T.txt, marginBottom:4 }}>{z.zoneName} ({z.emptyMonitors.length})</div>
+                          {z.emptyMonitors.slice(0, 5).map(em => (
+                            <div key={em.id} style={{ fontSize:11, color:T.dim, marginLeft:12, marginBottom:2 }}>
+                              • {em.name}
+                            </div>
+                          ))}
+                          {z.emptyMonitors.length > 5 && (
+                            <div style={{ fontSize:10, color:T.dim, marginLeft:12 }}>+{z.emptyMonitors.length - 5} {t('vaziosMais')}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>
