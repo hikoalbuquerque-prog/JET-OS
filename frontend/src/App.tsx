@@ -51,22 +51,20 @@ export default function App() {
 
     if (usuario.senhaTemporaria) { setTela('trocar-senha'); return; }
 
-    // Log de acesso (fire-and-forget via Firestore residual)
+    // Log de acesso (fire-and-forget via Supabase)
     if (usuario.uid && usuario.email) {
-      import('firebase/firestore').then(({ addDoc, collection: col }) => {
-        import('./lib/firebase').then(({ db }) => {
-          addDoc(col(db, 'logs_acesso'), {
-            uid:        usuario.uid || 'unknown',
-            email:      usuario.email || 'unknown',
-            nome:       usuario.nome || 'unknown',
-            role:       usuario.role || 'viewer',
-            ts:         Date.now(),
-            userAgent:  navigator.userAgent.slice(0, 200),
-            plataforma: navigator.platform,
-            idioma:     navigator.language,
-            online:     navigator.onLine,
-          }).catch((err: any) => console.error('Log erro:', err));
-        });
+      import('./lib/supabase').then(({ supabase: sb }) => {
+        sb.from('logs_acesso').insert({
+          uid:        usuario.uid || 'unknown',
+          email:      usuario.email || 'unknown',
+          nome:       usuario.nome || 'unknown',
+          role:       usuario.role || 'viewer',
+          ts:         Date.now(),
+          user_agent: navigator.userAgent.slice(0, 200),
+          plataforma: navigator.platform,
+          idioma:     navigator.language,
+          online:     navigator.onLine,
+        }).then(({ error }) => { if (error) console.error('Log erro:', error.message); });
       });
     }
 

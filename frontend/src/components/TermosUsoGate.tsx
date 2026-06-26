@@ -20,8 +20,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 
 // Versão dos termos. Incrementar quando o texto mudar → força novo aceite.
 export const TERMOS_VERSAO = '1.0';
@@ -39,35 +38,35 @@ interface Props {
   onRecusado: () => void; // recusou → logout (não pode usar sem aceitar)
 }
 
-// Verifica se já existe aceite da versão atual para este usuário.
 async function jaAceitou(uid: string): Promise<boolean> {
   try {
-    const ref = doc(db, 'aceites_termos', `${uid}_v${TERMOS_VERSAO}`);
-    const snap = await getDoc(ref);
-    return snap.exists();
+    const { data } = await supabase
+      .from('aceites_termos')
+      .select('id')
+      .eq('id', `${uid}_v${TERMOS_VERSAO}`)
+      .maybeSingle();
+    return !!data;
   } catch {
-    // Falha de rede/permissão: por segurança, reapresenta (não bloqueia o fluxo legal).
     return false;
   }
 }
 
 async function registrarAceite(p: Props): Promise<void> {
-  const ref = doc(db, 'aceites_termos', `${p.uid}_v${TERMOS_VERSAO}`);
-  await setDoc(ref, {
-    uid:                p.uid,
-    email:              p.email || '',
-    nome:               p.nome || '',
-    role:               p.role || '',
-    tipoCadastro:       p.tipoCadastro || '',
-    versao:             TERMOS_VERSAO,
-    aceitouTermos:      true,
-    aceitouPrivacidade: true,
-    aceitoEm:           serverTimestamp(),
-    aceitoEmTs:         Date.now(),
-    userAgent:          navigator.userAgent.slice(0, 300),
-    plataforma:         navigator.platform,
-    idioma:             navigator.language,
+  const { error } = await supabase.from('aceites_termos').upsert({
+    id:                  `${p.uid}_v${TERMOS_VERSAO}`,
+    uid:                 p.uid,
+    email:               p.email || '',
+    nome:                p.nome || '',
+    role:                p.role || '',
+    tipo_cadastro:       p.tipoCadastro || '',
+    versao:              TERMOS_VERSAO,
+    aceitou_termos:      true,
+    aceitou_privacidade: true,
+    user_agent:          navigator.userAgent.slice(0, 300),
+    plataforma:          navigator.platform,
+    idioma:              navigator.language,
   });
+  if (error) throw error;
 }
 
 // ─────────────────────────── Textos (pt / en / es / ru) ───────────────────────────
