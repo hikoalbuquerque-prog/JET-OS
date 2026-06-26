@@ -1,5 +1,5 @@
 # Jet OS Firebase — Master Debrief
-**Atualizado em:** 26/06/2026 (§19 Auth flip C.9 + segurança + relatórios Guard + fix mapa país + filtro país · V2 Features portadas P0-P5 — 18.1 · GPS NATIVO — 10.8 · LGPD — 11 · NFS-e — 13)  
+**Atualizado em:** 26/06/2026 (§19.11 Audit Firestore completo + mirrors deployados + roadmap Ondas D-H · Auth flip C.9 + segurança + relatórios Guard + fix mapa país · V2 Features portadas P0-P5 — 18.1 · GPS NATIVO — 10.8 · LGPD — 11 · NFS-e — 13)  
 **Projeto:** jet-os-1 | Firebase Hosting + Firestore + Storage + Cloud Functions  
 **Stack:** React + Vite + TypeScript + Leaflet + deck.gl | Node.js 22 Cloud Functions
 
@@ -2708,3 +2708,95 @@ Portagem de todas as features V2 para V1, organizadas por prioridade.
 - Locais operacionais: 4 docs sincronizados
 
 A partir de agora, qualquer escrita no Firestore (estações/zonas/locais/ocorrências/solicitações/turnos) é automaticamente espelhada no Supabase em tempo real via Cloud Functions.
+
+### 19.11 Audit completo Firestore→Supabase (26/06/2026)
+
+Auditoria de todas as 35 coleções Firestore referenciadas no código (frontend + functions). 46 arquivos frontend ainda importam `firebase/firestore`. Resultado:
+
+#### A) Mirror ativo — sync automático em tempo real (6 coleções)
+
+| Firestore | Supabase | Cloud Function | Backfill |
+|-----------|----------|----------------|----------|
+| `estacoes` | `estacoes` | `espelharEstacaoSupabase` | 1878 docs |
+| `ocorrencias` | `ocorrencias` | `espelharOcorrenciaSupabase` | 585 docs (anterior) |
+| `poligonos` | `zonas` | `espelharZonaSupabase` | 50 docs |
+| `locais_operacionais` | `locais_operacionais` | `espelharLocalSupabase` | 4 docs |
+| `solicitacoes_prestadores` | `solicitacoes_prestadores` | `espelharSolicitacaoPrestadorSupabase` | via backfill-operacional |
+| `turnos_logistica` | `turnos_logistica` | `espelharTurnoLogisticaSupabase` | via backfill-operacional |
+
+#### B) Tabela Supabase existe, falta cutover de leitura (8 coleções)
+
+| Firestore | Supabase | Situação | Próximo passo |
+|-----------|----------|----------|---------------|
+| `usuarios` | `usuarios` | Auth flip C.9 feito, mas ~9 arquivos ainda leem Firestore direto | Trocar `getDocs('usuarios')` por query Supabase |
+| `slots` | `slots` | Gerador portado (Edge Fn `gerar-slots`), flag `VITE_ANALYTICS_PROVIDER` | Desligar `gerarSlotsAgendado` Firebase + validar 1 dia |
+| `tarefas` | `tarefas` | Tabela criada (0036), sem mirror, frontend lê Firestore | Criar mirror ou portar escritor |
+| `tarefas_logistica` | `tarefas_logistica` | Tabela criada (0001), sem mirror | Criar mirror ou portar escritor |
+| `telegram_config` | `telegram_config` | Tabela criada (0001+0051), functions leem Firestore | Portar leituras nas Cloud Functions |
+| `telegram_vinculos` | `telegram_vinculos` | Tabela criada (0001), telegram-vinculo.ts lê Firestore | Portar para Edge Function |
+| `gojet_config` | `gojet_config` | Tabela criada (0001), frontend lê Firestore | Portar leitura (2 arquivos) |
+| `gojet_snapshots` | `gojet_snapshots` | Tabela criada (0036), scraper portado para Edge Fn | Cutover de leitura no frontend |
+
+#### C) GPS — dados já no Supabase, leitura ainda Firestore (2 coleções)
+
+| Firestore | Supabase | Situação |
+|-----------|----------|----------|
+| `gps_logistica` | `gps_locations` | Edge Fn `ingest-gps` já grava no Supabase; 7 arquivos frontend leem Firestore (`onSnapshot`) |
+| `gps_logistica_hist` | `gps_history` | Histórico já no Supabase; 3 arquivos frontend leem Firestore |
+
+**Arquivos que precisam cutover GPS:** LiveTrackingMap, LiveWorkersPanel, GpsHeatmapPanel, SlotsModule, GpsRotaPanel, GestorLogisticaPanel, gps-background.ts
+
+#### D) Config dispersa — sem tabela dedicada (3 coleções)
+
+| Firestore | Uso | Mapeamento Supabase |
+|-----------|-----|---------------------|
+| `config` | 3 frontend + 4 functions (DashboardManager, importar-guard, relatorio, relatorios, slots, streetview) | → `app_settings` (já existe) |
+| `guard_config` | 1 function (relatorio.ts) — regiões/filiais para relatório | → `regioes_filiais` (já existe, 0009) + `app_settings` |
+| `app_config` | 1 function (automacao-tarefas) — clima/OpenWeather config | → `app_settings` |
+
+#### E) Firestore-only — baixa prioridade (6 coleções)
+
+| Firestore | Uso | Ação |
+|-----------|-----|------|
+| `prestadores` | 3 files (SlotsTeamsModule) | Dados cobertos por `prestadores_fiscal` + `usuarios`; mapear |
+| `pontos` | 3 files (GpsRotaPanel, SlotsTeamsModule, gps-background) | Criar tabela ou mapear para `locais_operacionais` |
+| `solicitacoes` | 2 frontend + 4 funcs (diferente de `solicitacoes_prestadores`) | Avaliar se é coleção legada |
+| `operacoes` | 7 refs em auth.ts (functions-only) | Migrar quando cortar Firebase Auth |
+| `rotas` | 3 refs em auth.ts (functions-only) | Migrar quando cortar Firebase Auth |
+| `eventos` | 1 file (EventoGoJetPanel) | Criar tabela ou desativar feature |
+
+#### F) Mortas / vazias / cobertas por outra tabela (9 coleções)
+
+| Firestore | Situação |
+|-----------|----------|
+| `config_auto_slots` | Vazia no Firestore; tabela Supabase criada (0036) |
+| `parking_history` | Vazia no Firestore; `parking_history` Supabase populada pelo scraper GoJet |
+| `slot_config` | Portada para Supabase (0015); Firebase pode ser desligado |
+| `slot_aceites` | Tabela Supabase criada (0019); uso mínimo |
+| `log_slots_auto` | Tabela Supabase criada (0036); uso mínimo |
+| `logs_automacao` | Tabela Supabase criada (0036); functions-only |
+| `monitor_alertas` | Tabela Supabase criada (0036) |
+| `monitor_config` | Tabela Supabase criada (0036) |
+| `slot_alertas` / `slot_lembretes` | Usadas só em slot-confirmacao.ts; baixo volume |
+| `fcm_tokens` | Equivale a `push_subscriptions` (já existe) |
+| `logs_acesso` | Já migrado para Supabase (0054-0056) |
+
+#### Resumo quantitativo
+
+| Categoria | Coleções | % |
+|-----------|----------|---|
+| Mirror ativo (sync automático) | 6 | 17% |
+| Tabela existe, falta cutover | 8 | 23% |
+| GPS (dados lá, leitura aqui) | 2 | 6% |
+| Config dispersa | 3 | 9% |
+| Firestore-only (baixa prioridade) | 6 | 17% |
+| Mortas / cobertas | 10 | 28% |
+| **Total** | **35** | **100%** |
+
+#### Roadmap de cutover sugerido
+
+1. **Onda D — GPS leitura** (2 coleções, 7 arquivos): `gps_logistica` → `gps_locations`, `gps_logistica_hist` → `gps_history`. Dados já no Supabase via `ingest-gps`. Maior impacto (real-time tracking).
+2. **Onda E — Usuarios leitura** (~9 arquivos): trocar `getDocs('usuarios')` por query Supabase. Auth flip já feito.
+3. **Onda F — Config consolidação** (3 coleções → `app_settings`): `config` + `guard_config` + `app_config`.
+4. **Onda G — Tarefas + Telegram** (4 coleções): criar mirrors ou portar escritores de `tarefas`, `tarefas_logistica`, `telegram_config`, `telegram_vinculos`.
+5. **Onda H — Limpeza** (6+10 coleções): portar ou desativar `prestadores`, `pontos`, `solicitacoes`, `operacoes`, `rotas`, `eventos`; desligar coleções mortas.
