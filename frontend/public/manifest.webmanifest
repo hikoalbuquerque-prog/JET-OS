@@ -1,0 +1,41 @@
+{
+  "name": "JET OS — Operational System",
+  "short_name": "JET OS",
+  "description": "Sistema operacional completo para gestão de frotas e operações urbanas",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d1521",
+  "theme_color": "#1a6fd4",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Adicionar Estação",
+      "short_name": "Add Estação",
+      "description": "Ativar modo de adição de estação no mapa",
+      "url": "/?shortcut=add-station",
+      "icons": [{ "src": "/icon-add-station.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Nova Ocorrência",
+      "short_name": "Ocorrência",
+      "description": "Registrar nova ocorrência Guard",
+      "url": "/?shortcut=new-incident",
+      "icons": [{ "src": "/icon-guard.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Minha Localização",
+      "short_name": "Localização",
+      "description": "Centralizar mapa na posição atual",
+      "url": "/?shortcut=my-location",
+      "icons": [{ "src": "/icon-location.png", "sizes": "96x96" }]
+    }
+  ],
+  "categories": ["productivity", "utilities"],
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "prefer_related_applications": false
+}
