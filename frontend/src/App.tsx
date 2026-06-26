@@ -55,6 +55,18 @@ export default function App() {
     const unsub = onAuthStateChanged(auth, async (user: User | null) => {
       if (user) {
         try {
+          // Garante sessão Supabase ativa (RLS). Se o token persistido expirou,
+          // autoRefreshToken renova. Se nunca existiu, força re-login silencioso.
+          try {
+            const { supabase: sb } = await import('./lib/supabase');
+            const { data: sess } = await sb.auth.getSession();
+            if (!sess?.session) {
+              console.warn('[auth] Supabase sem sessão — forçando re-login');
+              await signOut(auth);
+              return;
+            }
+          } catch { /* não-fatal */ }
+
           const docRef = doc(db, 'usuarios', user.uid);
           const docSnap = await getDoc(docRef);
           if (docSnap.exists()) {
