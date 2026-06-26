@@ -30,12 +30,16 @@ const CAMPOS_SELF: Record<string, string> = {
   nome: "nome", email: "email", cpf: "cpf", cpf_cnpj: "cpf",
   cidade: "cidade", cargo: "cargo", cargoPrestador: "cargo",
   telegram_chat_id: "telegram_chat_id",
+  senhaTemporaria: "senha_temporaria",
 };
 // Colunas adicionais que SÓ gestor/admin pode mudar (autorização/escopo).
 const CAMPOS_GESTOR: Record<string, string> = {
   role: "role", ativo: "ativo",
   cidadesPermitidas: "cidades_permitidas", cidades_permitidas: "cidades_permitidas",
+  cidadesGerenciaLog: "cidades_gerencia_log", cidades_gerencia_log: "cidades_gerencia_log",
   paises: "paises",
+  tipoCadastro: "tipo_cadastro", tipo_cadastro: "tipo_cadastro",
+  statusPrestador: "status_prestador", status_prestador: "status_prestador",
 };
 
 function mapPatch(patch: Record<string, unknown>, isGestor: boolean) {

@@ -1,5 +1,5 @@
 # Jet OS Firebase — Master Debrief
-**Atualizado em:** 26/06/2026 (V2 Features portadas P0-P5 — 18.1 · Street View completo + Medir lote + FABs reorganizados · Curitiba 2685 estações — 17.17 · GPS flip supabase default — 17.17 · Telegram webhook migrado — 17.17 · Auth flip Supabase primário — 17.9 · Default flip flags — 17.8 · GPS NATIVO — 10.8 · LGPD — 11 · NFS-e — 13)  
+**Atualizado em:** 26/06/2026 (§19 Auth flip C.9 App.tsx + segurança anon fechada + relatório Guard completo + alertas ocorrência · V2 Features portadas P0-P5 — 18.1 · GPS NATIVO — 10.8 · LGPD — 11 · NFS-e — 13)  
 **Projeto:** jet-os-1 | Firebase Hosting + Firestore + Storage + Cloud Functions  
 **Stack:** React + Vite + TypeScript + Leaflet + deck.gl | Node.js 22 Cloud Functions
 
@@ -2596,3 +2596,70 @@ Portagem de todas as features V2 para V1, organizadas por prioridade.
 | VAPID keys | ✅ Geradas e configuradas |
 | Frontend build | ✅ Compila sem erros TS |
 | GoJet API via cron | ⚠️ Requer `GOJET_PROXY_URL` no secrets (já configurado) |
+
+---
+
+## 19. SESSÃO 26/06/2026 (cont.) — Auth flip C.9 + Segurança + Relatórios Guard
+
+### 19.1 Relatório Guard Supabase (completo)
+
+**Problema:** relatório Guard diário (7h) não enviava — crons em UTC errado, colunas `telegram_config` faltando, Edge Function simplificada.
+
+**Fix:**
+- **Migration 0051** (`0051_fix_telegram_config_and_crons.sql`): adicionou `guard_chat_id/thread_id`, `perdas_chat_id/thread_id` à `telegram_config`; recriou 4 crons com offset BRT (UTC-3).
+- **`relatorios/index.ts`** (1970 linhas): port completo do Firebase — `buildMensagem()` (double shield, weekday date, bar charts, BRPD, responsáveis, alertas), `gerarPdfHtml()` (3 páginas, SVG charts, Chart.js, lightbox, i18n 4 idiomas PT/EN/ES/RU).
+- **Crons:** `relatorio-guard-diario` 10h UTC = 7h BRT (ter-dom), `guard-semanal` 10h UTC seg, `perdas-diario` 11h UTC = 8h BRT diário, `perdas-semanal` 11h UTC seg.
+
+### 19.2 Alertas de ocorrência (notificar-ocorrencia)
+
+**Problema:** `handleNotificarOcorrencia` em `slots-actions/index.ts` era stub quebrado — esperava `tipo/local/descricao/urgencia` mas frontend envia `ocorrenciaId/statusAtualizado`.
+
+**Fix (reescrita completa):**
+- Busca ocorrência por UUID no Supabase
+- Mensagem rica: header urgência (🚨 ALERTA URGENTE / ✅ RECUPERADO), tipo com emoji, guard+turno, cidade/bairro/endereço, asset, PROCURANDO, BO, descrição, timestamp, ID
+- **Foto Telegram**: se `foto1_url` existe, envia via `sendPhoto` com caption (muito mais visual)
+- **Thread support**: envia no tópico correto (`guard_thread_id`)
+- **`telegram_enviado = true`**: marca a ocorrência após envio
+- Testado com ocorrências reais (Roubo + Vandalismo Ilhabela)
+
+### 19.3 Segurança — Fechamento de políticas anon
+
+**Problema:** migrations 0041-0043 criaram políticas `anon` temporárias (storage uploads, ocorrencias insert/update, estacoes update) durante migração — qualquer request sem auth podia escrever.
+
+**Fix:**
+- **Migration 0052** (`0052_close_anon_policies.sql`): drop das 5 políticas anon, recria como `to authenticated`.
+- **App.tsx**: detecta Firebase logado mas Supabase sem sessão → `signOut` automático → user re-loga → `estabelecerSessaoSupabase` cria sessão → token persistido com `autoRefreshToken`.
+
+### 19.4 Auth flip C.9 — Supabase primário no App.tsx
+
+**Mudança:** `App.tsx` reescrito para usar `useAuthProvider()` (Supabase `onAuthStateChange`) em vez de Firebase `onAuthStateChanged` + Firestore perfil.
+
+- **`useAuth.ts`**: `_loadProfile` expandido — carrega `cidadesPermitidas`, `cargoPrestador`, `tipoCadastro`, `statusPrestador`, `cidade`, `senhaTemporaria` do Supabase.
+- **Migration 0053** (`0053_usuarios_missing_columns.sql`): adicionou `tipo_cadastro`, `status_prestador`, `cidades_gerencia_log`, `senha_temporaria` à tabela `usuarios`.
+- **Backfill** (`supabase/scripts/backfill-usuarios.mjs`): migrou campos de 56/57 usuários do Firestore → Supabase (0 erros).
+- **Firebase login** mantido como fallback lazy (não-fatal) para Firestore reads residuais.
+- **AuthCtx.Provider** envolve TelaMapa e TelaGuard para componentes filhos.
+
+### 19.5 Commits desta sessão
+
+| Commit | Descrição |
+|--------|-----------|
+| `d8ff1fd` | feat(supabase): relatório Guard completo + alertas ocorrência corrigidos |
+| `f910ba3` | fix(security): fechar políticas anon + forçar re-login sem sessão Supabase |
+| `fa91016` | feat(auth): flip C.9 — Supabase auth primário no App.tsx |
+| `b7c73ab` | chore: backfill script + execução — tipo_cadastro/status_prestador em usuarios |
+
+### 19.6 Pendências pós-sessão
+
+| Prioridade | Item | Status |
+|------------|------|--------|
+| 🔴 Alta | Validar auth flip em produção (login/logout/reload) | Pendente |
+| 🔴 Alta | Rebuild APK (shim user.uid, GPS nativo) | Pendente |
+| 🟠 Alta | `maxInstances: 10` nas ~44 Cloud Functions | Pendente |
+| 🟠 Alta | Firebase Storage → Supabase Storage (uploadUtils.ts) | Pendente |
+| 🟠 Alta | Mirror/dual-write incluir campos novos (tipo_cadastro etc.) | Pendente |
+| 🟡 Média | i18n (en/es/ru ~20-35 keys) | Pendente |
+| 🟡 Média | Chat in-app (sign-off jurídico LGPD) | Pendente |
+| 🟡 Média | Relatórios Guard v2 (por cidade + turnos) | Pendente |
+| ⚪ Baixa | Desligar Firebase Auth/Firestore (após validação) | Futuro |
+| ⚪ Baixa | NFS-e module | Futuro |
