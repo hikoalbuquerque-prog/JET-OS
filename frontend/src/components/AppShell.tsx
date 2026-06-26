@@ -13,6 +13,7 @@ import { logisticaWriteSupabase, criarSolicitacaoSupabase } from '../lib/onda-b-
 import L from 'leaflet';
 import { uploadComRetry } from '../lib/uploadUtils';
 import { comprimirImagem, capturarFotoNativa } from '../lib/imageUtils';
+import { LangSelector } from './MapaHelpers';
 import { isAndroidNative } from '../lib/gps-native';
 import TelegramVinculo, { useTelegramVinculado } from '../TelegramVinculo';
 import i18n from '../i18n/index';
@@ -186,17 +187,21 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
   };
 
   return (
-    <div style={{ 
+    <div style={{
       background: 'linear-gradient(135deg,#0d1220,#0f1928)',
-      fontFamily: 'Inter,sans-serif', 
+      fontFamily: 'Inter,sans-serif',
       minHeight: '100vh',
       maxHeight: '100vh',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
       overflowY: 'auto',
-      WebkitOverflowScrolling: 'touch' as any
+      WebkitOverflowScrolling: 'touch' as any,
+      position: 'relative'
     }}>
+      <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
+        <LangSelector />
+      </div>
       <div style={{ width: '100%', maxWidth: 420, paddingBottom: 40, marginLeft: 'auto', marginRight: 'auto', paddingLeft: 20, paddingRight: 20, paddingTop: 20 }}>
         <button onClick={onVoltar} style={{
           background: 'none', border: 'none', color: 'rgba(255,255,255,.4)',
@@ -484,7 +489,11 @@ export function TelaLogin({ onLogin }: { onLogin: (e: string, s: string) => Prom
 
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg,#0d1220,#0f1928)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
+      display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif',
+      position: 'relative' }}>
+      <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
+        <LangSelector />
+      </div>
       <div style={{ width: 360, padding: '0 20px' }}>
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
           <div style={{ width: 64, height: 64, borderRadius: 16, margin: '0 auto 16px',

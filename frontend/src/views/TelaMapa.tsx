@@ -140,6 +140,7 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
   const [mapMode,       setMapMode]       = useState<'dark'|'light'>('dark');
 
   const [buscaCidade,   setBuscaCidade]   = useState('');
+  const [filtroPais,    setFiltroPais]    = useState(() => localStorage.getItem('jet_filtro_pais') || 'TODOS');
   const [toast, setToast] = useState<{msg:string;tipo:string;acao?:{label:string;fn:()=>void}}|null>(null);
   const [contagem,      setContagem]      = useState(0);
   const [filtros, setFiltros] = useState<Set<string>>(() => {
@@ -919,7 +920,7 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
 
   // Pinos de cidade no mapa mundial — busca cidades reais do Firestore
   const cidadePinsRef  = useRef<L.LayerGroup | null>(null);
-  const [cidadesReais, setCidadesReais] = useState<{cidade: string; count: number; lat: number; lng: number}[]>([]);
+  const [cidadesReais, setCidadesReais] = useState<{cidade: string; count: number; lat: number; lng: number; pais: string}[]>([]);
   const [modoCluster, setModoCluster] = useState(true); // true=cluster por cidade, false=pins individuais
   const [ocorrCidades, setOcorrCidades] = useState<{cidade:string;count:number;lat:number;lng:number;tipos:Record<string,number>}[]>([]);
   const ocorrCidadesRef = useRef<L.LayerGroup|null>(null);
@@ -932,9 +933,14 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
       for (const r of rows) {
         const c = r.cidade;
         if (!c || !r.lat || !r.lng) continue;
-        let coordPais = r.pais || 'BR';
-        if (r.lat > 14 && r.lat < 33 && r.lng > -118 && r.lng < -86) coordPais = 'MX';
-        else if (r.lat > -35 && r.lat < 5 && r.lng > -75 && r.lng < -30) coordPais = 'BR';
+        const paisExplicito = typeof r.pais === 'string' && /^[A-Z]{2}$/.test(r.pais);
+        let coordPais = paisExplicito ? r.pais! : 'BR';
+        if (!paisExplicito) {
+          if (r.lat > 14 && r.lat < 33 && r.lng > -118 && r.lng < -86) coordPais = 'MX';
+          else if (r.lat > -56 && r.lat < -17 && r.lng > -76 && r.lng < -65) coordPais = 'CL';
+          else if (r.lat > -5 && r.lat < 14 && r.lng > -80 && r.lng < -66) coordPais = 'CO';
+          else coordPais = 'BR';
+        }
         if (!userIsAdmin && !paisesDoUsuario.includes(coordPais)) continue;
         if (!mapa[c]) mapa[c] = { lats: [], lngs: [], count: 0, pais: coordPais };
         mapa[c].lats.push(r.lat);
@@ -2826,16 +2832,29 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
             </div>
 
             {/* Campo de busca com autocomplete */}
-            <div style={{ position:'relative', marginBottom:12, flexShrink:0 }}>
+            <div style={{ display:'flex', gap:8, marginBottom:12, flexShrink:0 }}>
               <input
                 value={buscaCidade}
                 onChange={e => setBuscaCidade(e.target.value)}
                 placeholder={t('cities.search')}
                 autoFocus
-                style={{ width:'100%', padding:'9px 12px', borderRadius:10, boxSizing:'border-box',
+                style={{ flex:1, padding:'9px 12px', borderRadius:10, boxSizing:'border-box',
                   border:'1px solid rgba(255,255,255,.15)', background:'rgba(255,255,255,.06)',
                   color:'#fff', fontSize:13, outline:'none' }}
               />
+              <select value={filtroPais} onChange={e => { const v = e.target.value; setFiltroPais(v); localStorage.setItem('jet_filtro_pais', v); }}
+                style={{ padding:'9px 10px', borderRadius:10, border:'1px solid rgba(255,255,255,.15)',
+                  background:'rgba(255,255,255,.06)', color:'#fff', fontSize:12, outline:'none',
+                  cursor:'pointer', minWidth:90 }}>
+                <option value="TODOS" style={{background:'#131a2e'}}>🌎 Todos</option>
+                {(() => {
+                  const FLAG: Record<string,string> = { BR:'🇧🇷', MX:'🇲🇽', AR:'🇦🇷', CO:'🇨🇴', CL:'🇨🇱', PE:'🇵🇪' };
+                  const NOME: Record<string,string> = { BR:'Brasil', MX:'México', AR:'Argentina', CO:'Colômbia', CL:'Chile', PE:'Peru' };
+                  const paises = Array.from(new Set(cidadesReais.map(c => c.pais).filter(Boolean)))
+                    .sort((a,b) => a === 'BR' ? -1 : b === 'BR' ? 1 : a.localeCompare(b));
+                  return paises.map(p => <option key={p} value={p} style={{background:'#131a2e'}}>{FLAG[p]||'🌍'} {NOME[p]||p}</option>);
+                })()}
+              </select>
             </div>
 
             {/* Chips selecionadas */}
@@ -2866,14 +2885,18 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                 const cidadesVisiveis = isViewer && usuario.cidadesPermitidas?.length
                   ? cidadesReais.filter(c => usuario.cidadesPermitidas!.includes(c.cidade))
                   : cidadesReais;
+                const fp = filtroPais;
                 // Cidades com estações
                 const comEst = cidadesVisiveis
                   .filter(c => !busca || c.cidade.toLowerCase().includes(busca))
+                  .filter(c => fp === 'TODOS' || c.pais === fp)
                   .sort((a,b) => a.cidade.localeCompare(b.cidade));
                 // Cidades sem estações (planejamento) — só gestor — todos os países
                 const todosPaisesUser = usuario.paises || ['BR'];
                 const semEst = isGestor
-                  ? todosPaisesUser.flatMap((p: string) =>
+                  ? todosPaisesUser
+                      .filter((p: string) => fp === 'TODOS' || p === fp)
+                      .flatMap((p: string) =>
                       (CIDADES[p] || [])
                         .filter((c: string) => !cidadesReais.find(r => r.cidade === c))
                         .filter((c: string) => !busca || c.toLowerCase().includes(busca))

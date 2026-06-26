@@ -70,12 +70,17 @@ export const COORDS_CIDADES: Record<string, [number, number]> = {
   'Zapopan':                [20.7214,  -103.3907],
   'San Luis Potosí':        [22.1565,  -100.9855],
   'Aguascalientes':         [21.8853,  -102.2916],
+  'Medellín':               [6.2476,   -75.5658],
+  'Bogotá':                 [4.7110,   -74.0721],
+  'Santiago':               [-33.4489, -70.6693],
 };
 
 // Available cities by country
 export const CIDADES: Record<string, string[]> = {
   BR: ['São Paulo','Curitiba','Rio de Janeiro','Belo Horizonte','Porto Alegre','Fortaleza','Recife','Salvador','Manaus','Brasília','Osasco','Guarulhos','Campinas','São Bernardo do Campo'],
-  MX: ['Ciudad de México','Guadalajara','Monterrey','Puebla','Tijuana','León','Mérida','Zapopan','San Luis Potosí','Aguascalientes']
+  MX: ['Ciudad de México','Guadalajara','Monterrey','Puebla','Tijuana','León','Mérida','Zapopan','San Luis Potosí','Aguascalientes'],
+  CO: ['Medellín','Bogotá'],
+  CL: ['Santiago']
 };
 
 // Shared Estacao interface

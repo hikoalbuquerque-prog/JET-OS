@@ -1,5 +1,5 @@
 # Jet OS Firebase — Master Debrief
-**Atualizado em:** 26/06/2026 (§19 Auth flip C.9 App.tsx + segurança anon fechada + relatório Guard completo + alertas ocorrência · V2 Features portadas P0-P5 — 18.1 · GPS NATIVO — 10.8 · LGPD — 11 · NFS-e — 13)  
+**Atualizado em:** 26/06/2026 (§19 Auth flip C.9 + segurança + relatórios Guard + fix mapa país + filtro país · V2 Features portadas P0-P5 — 18.1 · GPS NATIVO — 10.8 · LGPD — 11 · NFS-e — 13)  
 **Projeto:** jet-os-1 | Firebase Hosting + Firestore + Storage + Cloud Functions  
 **Stack:** React + Vite + TypeScript + Leaflet + deck.gl | Node.js 22 Cloud Functions
 
@@ -2649,17 +2649,45 @@ Portagem de todas as features V2 para V1, organizadas por prioridade.
 | `fa91016` | feat(auth): flip C.9 — Supabase auth primário no App.tsx |
 | `b7c73ab` | chore: backfill script + execução — tipo_cadastro/status_prestador em usuarios |
 
-### 19.6 Pendências pós-sessão
+### 19.6 Fix Firestore→Supabase: TermosUso, LGPD, logs_acesso
+
+**Problema:** após auth flip, Firestore writes falhavam (`Missing or insufficient permissions`) para `logs_acesso`, `TermosUsoGate`, `LgpdConsentGate` — Firebase auth não era mais primário.
+
+**Fix:**
+- **`TermosUsoGate.tsx`** e **`LgpdConsentGate.tsx`**: migrados de Firestore para Supabase `aceites_termos` table (upsert por id `${uid}_v${VERSAO}`).
+- **`App.tsx`**: `logs_acesso` agora escreve no Supabase (não Firestore).
+- **Migration 0054** (`aceites_termos` + `logs_acesso`), **0055** (add missing columns), **0056** (drop+recreate `logs_acesso` com schema correto — uid text, ts bigint).
+- **favicon.svg** + **manifest.webmanifest** criados (resolveu 404s no console).
+
+### 19.7 Fix mapa: agrupamento cidade/país
+
+**Problema:** São Paulo não aparecia sob Brasil; Medellín e Santiago apareciam sob Brasil.
+
+**Causa raiz (3 bugs):**
+1. Mirror Firestore→Supabase escreveu `pais='[]'` (string literal) em 1409 estações — truthy, não cai no fallback `'BR'`.
+2. Medellín (`pais:'BR'`) e Santiago (`pais:'BR'`) foram cadastradas com país errado no Firestore.
+3. `buildMapa` em TelaMapa.tsx sobrescrevia `pais` com geo-detecção cujo bounding box Brasil cobria Colômbia e Chile.
+
+**Fix:**
+- **Supabase**: `UPDATE estacoes SET pais='BR' WHERE pais='[]'` (1409 rows).
+- **Firestore**: Medellín → `pais:'CO'`, Santiago → `pais:'CL'`.
+- **`TelaMapa.tsx` buildMapa**: geo-detecção só como fallback quando `pais` não é código 2 letras válido (`/^[A-Z]{2}$/`).
+- **`app-utils.ts`**: adicionados `CO: ['Medellín','Bogotá']`, `CL: ['Santiago']` em `CIDADES` e `COORDS_CIDADES`.
+
+### 19.8 Filtro por país na lista de cidades
+
+- Dropdown ao lado da busca: "Todos", Brasil, Colômbia, Chile, etc. (dinâmico por países com estações).
+- Persistência via `localStorage` (`jet_filtro_pais`) — lembra seleção entre sessões.
+- Filtra cidades com estações e cidades de planejamento.
+
+### 19.9 Pendências pós-sessão
 
 | Prioridade | Item | Status |
 |------------|------|--------|
 | 🔴 Alta | Validar auth flip em produção (login/logout/reload) | Pendente |
 | 🔴 Alta | Rebuild APK (shim user.uid, GPS nativo) | Pendente |
-| 🟠 Alta | `maxInstances: 10` nas ~44 Cloud Functions | Pendente |
-| 🟠 Alta | Firebase Storage → Supabase Storage (uploadUtils.ts) | Pendente |
-| 🟠 Alta | Mirror/dual-write incluir campos novos (tipo_cadastro etc.) | Pendente |
-| 🟡 Média | i18n (en/es/ru ~20-35 keys) | Pendente |
-| 🟡 Média | Chat in-app (sign-off jurídico LGPD) | Pendente |
+| 🟠 Alta | Mirror Firestore→Supabase: estações novas (Medellín/Santiago não sincronizaram) | Pendente |
 | 🟡 Média | Relatórios Guard v2 (por cidade + turnos) | Pendente |
+| 🟡 Média | Chat in-app (sign-off jurídico LGPD) | Pendente |
 | ⚪ Baixa | Desligar Firebase Auth/Firestore (após validação) | Futuro |
 | ⚪ Baixa | NFS-e module | Futuro |
