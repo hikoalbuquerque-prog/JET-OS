@@ -4,7 +4,6 @@
 //   - Captura AUTOMÁTICA: erros não-tratados (window.error / unhandledrejection).
 // Gestão lê em components/BugReportsPanel. Sem Telegram/e-mail (decisão do produto).
 
-import { auth } from './firebase';
 import { supabase } from './supabase';
 
 export const APP_VERSAO = '1.0.0'; // manter alinhado com frontend/package.json
@@ -39,15 +38,16 @@ export interface BugUserCtx {
 }
 
 export async function enviarBugReport(input: BugReportInput, user?: BugUserCtx): Promise<void> {
-  const uid = user?.uid || auth.currentUser?.uid;
+  const sbUser = (await supabase.auth.getUser()).data.user;
+  const uid = user?.uid || sbUser?.id;
   if (!uid) throw new Error('Faça login para enviar um report.');
   const ctx = coletarContexto();
   const criadoEmTs = Date.now();
   const id = crypto.randomUUID();
   const { error } = await supabase.from('bug_reports').upsert({
     id, uid,
-    nome: user?.nome ?? auth.currentUser?.displayName ?? '',
-    email: user?.email ?? auth.currentUser?.email ?? '',
+    nome: user?.nome ?? sbUser?.user_metadata?.nome ?? '',
+    email: user?.email ?? sbUser?.email ?? '',
     role: user?.role ?? '',
     tipo_cadastro: user?.tipoCadastro ?? '',
     tipo: input.tipo,

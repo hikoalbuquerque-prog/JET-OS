@@ -1,7 +1,7 @@
 // src/components/POIPanel.tsx — busca POIs via Edge Function buscar-pois-osm
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { fnBuscarPOIs } from '../lib/firebase';
+import { fnBuscarPOIs } from '../lib/edge-functions';
 
 // ── I18N (padrão objeto T, sem json) ─────────────────────────────
 type Lang = 'pt' | 'en' | 'es' | 'ru';

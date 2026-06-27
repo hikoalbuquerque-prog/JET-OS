@@ -27,7 +27,7 @@
 
 import { registerPlugin } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getEdgeCallable } from './edge-functions';
 import { supabase } from './supabase';
 import { isAndroidNative, iniciarGpsNativo, atualizarSlotNativo, pararGpsNativo } from './gps-native';
 
@@ -199,14 +199,13 @@ async function uploadPonto(ponto: PontoGPS): Promise<boolean> {
     // Alerta backend quando mock GPS detectado (best-effort)
     if (ponto.isMock) {
       try {
-        const fns = getFunctions(undefined, 'southamerica-east1');
-        const alertarMock = httpsCallable(fns, 'alertarMockGPS');
-        alertarMock({
+        const alertarMock = getEdgeCallable('alertarMockGPS')!();
+        alertarMock({ data: {
           uid:        ponto.uid,
           lat:        ponto.lat,
           lng:        ponto.lng,
           capturedAt: ponto.capturedAt,
-        }).catch(() => { /* best-effort */ });
+        } }).catch(() => { /* best-effort */ });
       } catch (mockErr: any) {
         console.warn('[GPS-BG] alertarMockGPS falhou (best-effort):', mockErr?.code);
       }

@@ -13,7 +13,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { buscarCityIdSupabase } from '../lib/gojet-config-supabase';
-import { fnScraperGoJetManual } from '../lib/firebase';
+import { fnScraperGoJetManual } from '../lib/edge-functions';
 import { carregarEstacoesSupabase } from '../lib/estacoes-supabase';
 import { fetchGojetSnapshot } from '../lib/analytics-supabase';
 import { supabase } from '../lib/supabase';

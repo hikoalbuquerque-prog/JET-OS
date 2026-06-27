@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getEdgeCallable } from '../lib/edge-functions';
 
 // ---------------------------------------------------------------------------
 // i18n (pt fonte fiel) — padrão objeto T + pick, sem chaves json
@@ -363,9 +363,7 @@ function chamarNotificarStatusNF(params: {
   motivo?: string;
   semana?: string;
 }) {
-  const fns = getFunctions(undefined, 'southamerica-east1');
-  const fn = httpsCallable(fns, 'notificarStatusNF');
-  fn(params).catch(() => {});
+  getEdgeCallable('notificarStatusNF')!()(  { data: params }).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------

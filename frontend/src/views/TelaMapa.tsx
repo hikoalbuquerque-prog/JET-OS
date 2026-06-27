@@ -1,7 +1,7 @@
 ﻿// TelaMapa.tsx — Main map component extracted from App.tsx
 import { useState, useEffect, useRef, useCallback, CSSProperties, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
-import { auth, fnGerarCroqui, fnGerarStreetView, fnAnalisarCalcada, fnBuscarPOIs } from '../lib/firebase';
+import { fnGerarCroqui, fnGerarStreetView, fnAnalisarCalcada, fnBuscarPOIs } from '../lib/edge-functions';
 import { carregarOcorrenciasSupabase } from '../lib/ocorrencias-supabase';
 import L from 'leaflet';
 import { uploadComRetry } from '../lib/uploadUtils';

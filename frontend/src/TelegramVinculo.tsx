@@ -17,7 +17,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { fetchUsuario, escreverUsuarioSupabase } from './lib/usuarios-supabase';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getEdgeCallable } from './lib/edge-functions';
 
 // ─── i18n (pt/en/es/ru) — padrão objeto T + pick, sem json ─────────────────────
 
@@ -477,9 +477,8 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
   const vincularUmToque = async () => {
     setBusy(true); setErro('');
     try {
-      const fns = getFunctions(undefined, 'southamerica-east1');
-      const fn = httpsCallable(fns, 'iniciarVinculoTelegram');
-      const res = await fn({}) as any;
+      const fn = getEdgeCallable('iniciarVinculoTelegram')!();
+      const res = await fn({ data: {} }) as any;
       const deepLink = res.data?.deepLink as string;
       if (!deepLink) {
         // bot username não configurado no Firestore → cai pro fluxo de código
@@ -518,9 +517,8 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
     setBusy(true);
     setErro('');
     try {
-      const fns = getFunctions(undefined, 'southamerica-east1');
-      const fn = httpsCallable(fns, 'validarVinculoTelegram');
-      const result = await fn({ codigo: codigo.trim() }) as any;
+      const fn = getEdgeCallable('validarVinculoTelegram')!();
+      const result = await fn({ data: { codigo: codigo.trim() } }) as any;
       if (result.data?.sucesso) {
         setChatIdAtual(result.data.chatId);
         setEtapa('ok');

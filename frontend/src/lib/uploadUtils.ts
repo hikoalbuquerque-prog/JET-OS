@@ -4,8 +4,6 @@
 // Paths "ocorrencias/*" → bucket "ocorrencias" (0061); demais → bucket "uploads" (0034).
 // A assinatura não muda — 12 call sites inalterados.
 
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from './firebase';
 import { supabase } from './supabase';
 
 const TENTATIVAS = 4;
@@ -71,9 +69,11 @@ export async function uploadComRetry(file: File | Blob, path: string): Promise<s
   for (let i = 0; i < TENTATIVAS; i++) {
     try {
       if (useSupa) return await uploadSupabase(file, path);
-      const r = storageRef(storage, path);
-      await uploadBytes(r, file);
-      return await getDownloadURL(r);
+      const { ref: sRef, uploadBytes: ub, getDownloadURL: gdl } = await import('firebase/storage');
+      const { storage: fbStorage } = await import('./firebase');
+      const r = sRef(fbStorage, path);
+      await ub(r, file);
+      return await gdl(r);
     } catch (err) {
       ultimoErro = err;
       const wait = BASE_DELAY * Math.pow(2, i);

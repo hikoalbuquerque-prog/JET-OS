@@ -68,8 +68,27 @@ const EDGE_MAP: Record<string, () => CallableFn> = {
   enviarResumoManual:       edgeCallable('slots-telegram', 'enviar-resumo-manual'),
   relatorioGuardManualFn:   edgeCallable('relatorios', 'guard-manual'),
   enviarRelatorioManual:    edgeCallable('relatorios', 'guard-manual'),
+  notificarAprovacaoPrestador: edgeCallable('slots-actions', 'notificar-aprovacao-prestador'),
+  iniciarVinculoTelegram:      edgeCallable('slots-actions', 'iniciar-vinculo-telegram'),
+  validarVinculoTelegram:      edgeCallable('slots-actions', 'validar-vinculo-telegram'),
+  alertarMockGPS:              edgeCallable('slots-actions', 'alertar-mock-gps'),
+  notificarStatusNF:           edgeCallable('slots-actions', 'notificar-status-nf'),
+  notificarTarefaAtribuida:    edgeCallable('slots-actions', 'notificar-tarefa-atribuida'),
 };
 
 export function getEdgeCallable(firebaseFnName: string): (() => CallableFn) | null {
   return EDGE_MAP[firebaseFnName] ?? null;
 }
+
+// Direct exports — substituem os fn* de firebase.ts sem puxar o Firebase SDK
+export const fnGerarCroqui             = EDGE_MAP['gerarCroquiFn']!;
+export const fnGerarCroquisLote        = EDGE_MAP['gerarCroquisLoteFn']!;
+export const fnGerarStreetView         = EDGE_MAP['gerarStreetViewFn']!;
+export const fnSvEstatisticas          = EDGE_MAP['svEstatisticasFn']!;
+export const fnAnalisarCalcada         = EDGE_MAP['analisarCalcadaFn']!;
+export const fnBuscarPOIs              = EDGE_MAP['buscarPOIsFn']!;
+export const fnGeocodeForward          = EDGE_MAP['geocodeForwardFn']!;
+export const fnNotificarTarefa         = EDGE_MAP['notificarTarefa']!;
+export const fnGerarSlotsManual        = EDGE_MAP['gerarSlotsManualFn']!;
+export const fnScraperGoJetManual      = EDGE_MAP['scraperGoJetManual']!;
+export const fnExportarHistoricoParking = EDGE_MAP['exportarHistoricoParking']!;

@@ -3,7 +3,7 @@
 // (migração preguiçosa de senha Firebase→Supabase). State via onAuthStateChange do Supabase.
 // Firebase login mantido como fallback NÃO-FATAL (para Firestore reads residuais).
 import { useState, useEffect, createContext, useContext } from 'react';
-import type { User } from 'firebase/auth';
+type User = { uid: string; email: string | null };
 import { supabase } from '../lib/supabase';
 import { SUPA_REFRESH_KEY, carregarPerfilSupabase, encerrarSessaoSupabase } from '../lib/supabase-auth';
 

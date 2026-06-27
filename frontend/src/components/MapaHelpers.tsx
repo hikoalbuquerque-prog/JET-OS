@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import L from 'leaflet';
 import { uploadComRetry } from '../lib/uploadUtils';
 import { comprimirImagem } from '../lib/imageUtils';
-import { fnGeocodeForward } from '../lib/firebase';
+import { fnGeocodeForward } from '../lib/edge-functions';
 import i18n from '../i18n/index';
 import type { Estacao } from '../lib/app-utils';
 import { POIPanel } from './POIPanel';

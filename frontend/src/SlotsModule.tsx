@@ -5,7 +5,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { gpsBackground, capturarPosicaoUnica, TrackingStats } from './lib/gps-background';
-import { fnNotificarTarefa, fnGerarSlotsManual, fnScraperGoJetManual } from './lib/firebase';
+import { fnNotificarTarefa, fnGerarSlotsManual, fnScraperGoJetManual } from './lib/edge-functions';
 import { supabase } from './lib/supabase';
 import { carregarOcorrenciasSupabase, criarOcorrenciaSupabase, atualizarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
 import { fetchWorkerPos } from './lib/gps-supabase';
@@ -3008,11 +3008,7 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
                     const edge = getEdgeCallable('enviarResumoManual');
                     fn = edge ? edge() : null;
                   }
-                  if (!fn) {
-                    const { getFunctions, httpsCallable } = await import('firebase/functions');
-                    fn = httpsCallable(getFunctions(undefined, 'southamerica-east1'), 'enviarResumoManual');
-                  }
-                  await fn({ cidade });
+                  if (fn) await fn({ cidade });
                   alert('Resumo enviado ao Telegram!');
                 } catch (e: any) {
                   alert('Erro ao enviar: ' + (e?.message ?? e));

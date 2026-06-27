@@ -355,12 +355,7 @@ function ModalEdicao({ ocorrencia, onFechar, onSalvo, showToast, roleUsuario = '
             const edge = getEdgeCallable('notificarOcorrencia');
             fn = edge ? edge() : null;
           }
-          if (!fn) {
-            const { getFunctions, httpsCallable } = await import('firebase/functions');
-            const { getApp } = await import('firebase/app');
-            fn = httpsCallable(getFunctions(getApp(), 'southamerica-east1'), 'notificarOcorrencia');
-          }
-          fn({ ocorrenciaId: ocorrencia.id, statusAtualizado: status }).catch(() => {});
+          if (fn) fn({ ocorrenciaId: ocorrencia.id, statusAtualizado: status }).catch(() => {});
         } catch { /* best-effort */ }
       }
 

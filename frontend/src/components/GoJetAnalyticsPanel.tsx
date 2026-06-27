@@ -10,7 +10,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { fnExportarHistoricoParking } from '../lib/firebase';
+import { fnExportarHistoricoParking } from '../lib/edge-functions';
 import { supabase } from '../lib/supabase';
 import { classifyBike, BIKE_STATUS_HEX, BIKE_STATUS_LABEL, BikeForClassify, BikeStatus } from '../lib/bike-classify';
 import { fetchGojetSnapshot } from '../lib/analytics-supabase';

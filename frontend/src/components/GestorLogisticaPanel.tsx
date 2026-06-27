@@ -4,7 +4,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getFunctions, httpsCallable } from 'firebase/functions';
 import { fetchUsuarios } from '../lib/usuarios-supabase';
 import {
   fetchCidadesEstacoes,
@@ -540,11 +539,11 @@ const S = {
 
 // ─── Utilitários ──────────────────────────────────────────────────────────────
 
-import { functionsProviderSupabase, getEdgeCallable } from '../lib/edge-functions';
-const fnsCli = getFunctions(undefined as any, 'southamerica-east1');
+import { getEdgeCallable } from '../lib/edge-functions';
 function fnBridge(name: string) {
-  if (functionsProviderSupabase()) { const e = getEdgeCallable(name); if (e) return e(); }
-  return httpsCallable(fnsCli, name);
+  const e = getEdgeCallable(name);
+  if (e) return e();
+  throw new Error(`[fnBridge] função não mapeada: ${name}`);
 }
 const hoje   = () => new Date().toLocaleDateString('pt-BR');
 const amanha  = () => new Date(Date.now()+86400000).toLocaleDateString('pt-BR');

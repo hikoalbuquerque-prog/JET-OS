@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import L from 'leaflet';
-import { auth, db } from './lib/firebase';
+import { supabase } from './lib/supabase';
 import 'leaflet/dist/leaflet.css';
 
 interface Usuario {

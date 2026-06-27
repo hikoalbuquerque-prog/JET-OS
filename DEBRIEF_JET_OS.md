@@ -1,5 +1,5 @@
 # Jet OS Firebase — Master Debrief
-**Atualizado em:** 27/06/2026 (§19.23 Triggers→inline + AppShell migrado + deploy total · §19.22 Ondas A-D purge Firestore total · §19.21 Migração 22 coleções · §19.20 Remoção mirrors · §19.19 Dual-write Fase 2 · §19.18 Audit pré-shutdown · §19.17 i18n + POI + deploy)  
+**Atualizado em:** 27/06/2026 (§19.24 Purge firebase.ts zero imports estáticos · §19.23 Triggers→inline + AppShell migrado + deploy total · §19.22 Ondas A-D purge Firestore total · §19.21 Migração 22 coleções · §19.20 Remoção mirrors · §19.19 Dual-write Fase 2 · §19.18 Audit pré-shutdown · §19.17 i18n + POI + deploy)  
 **Projeto:** jet-os-1 | Firebase Hosting + Firestore + Storage + Cloud Functions  
 **Stack:** React + Vite + TypeScript + Leaflet + deck.gl | Node.js 22 Cloud Functions
 
@@ -3221,19 +3221,49 @@ Os 3 triggers Firestore (`onDocumentCreated`) foram convertidos a funções asyn
 #### vite.config.ts — fix HMR
 - Adicionado `server: { hmr: { overlay: true } }` para resolver erro `ws://localhost:undefined`
 
+### §19.24 — Purge firebase.ts: zero imports estáticos
+
+Migrados **todos os 15 arquivos** que importavam de `lib/firebase.ts` ou diretamente de `firebase/*`:
+
+| Arquivo | Antes | Depois |
+|---|---|---|
+| GoJetAnalyticsPanel | `fnExportarHistoricoParking` de firebase | edge-functions |
+| GoJetOverlay | `fnScraperGoJetManual` de firebase | edge-functions |
+| MapaHelpers | `fnGeocodeForward` de firebase | edge-functions |
+| POIPanel | `fnBuscarPOIs` de firebase | edge-functions |
+| SlotsModule | `fnNotificarTarefa, fnGerarSlotsManual, fnScraperGoJetManual` + dynamic httpsCallable | edge-functions + getEdgeCallable |
+| TelaMapa | `auth, fnGerarCroqui, fnGerarStreetView, fnAnalisarCalcada, fnBuscarPOIs` | edge-functions (auth removido — não usado) |
+| DashboardManager | `db, auth, fnGerarCroquisLote, fnSvEstatisticas` + `getFunctions/httpsCallable/getApp` | supabase + edge-functions (poligonos, estacoes, usuarios Firestore→Supabase) |
+| UsuariosManager | `auth` + `getFunctions/httpsCallable` | supabase.auth + getEdgeCallable |
+| EstacoesCampo | `auth, db` | supabase (era stub, imports não usados) |
+| bugReport.ts | `auth` | supabase.auth.getUser() |
+| TelaGuard | dynamic httpsCallable fallback | removido, só edge |
+| TarefasLogisticaModule (agent anterior) | dynamic httpsCallable fallback | parcial — dynamic imports restam |
+| GestorLogisticaPanel | getFunctions/httpsCallable | edge-only fnBridge |
+| PagamentosAdminPanel | getFunctions/httpsCallable | getEdgeCallable |
+| gps-background.ts | getFunctions/httpsCallable | getEdgeCallable |
+
+**edge-functions.ts** expandido com direct exports (fnGerarCroqui, fnBuscarPOIs, etc.) e 5 novas entradas no EDGE_MAP (notificarAprovacaoPrestador, iniciarVinculoTelegram, validarVinculoTelegram, alertarMockGPS, notificarStatusNF, notificarTarefaAtribuida).
+
 #### 📊 Estado final — o que resta de Firebase
 
-**Frontend (10 arquivos ainda importam `lib/firebase.ts`):**
-- `auth`: DashboardManager, EstacoesCampo, UsuariosManager, TelaMapa (Firebase Auth como fallback)
-- `db`: DashboardManager, EstacoesCampo (Firestore reads residuais)
-- `fn*` callables: GoJetAnalyticsPanel, GoJetOverlay, MapaHelpers, POIPanel, SlotsModule, TelaMapa (proxy fn→edge function via flag)
+**Zero imports estáticos de `lib/firebase.ts`** fora do próprio arquivo. `firebase.ts` existe mas só é carregado via **dynamic import lazy** por:
+- `useAuth.ts` — login/logout Firebase Auth (fallback)
+- `uploadUtils.ts` — Firebase Storage (fallback)
+- `gps-native.ts` — auth token para GPS ingest endpoint
 
-**Cloud Functions:** `firebase-admin/auth` mantido para verificação de tokens (ingestGps, etc.); `firebase-functions/v2/https` para onCall/onRequest. Zero Firestore triggers. Zero Firestore reads/writes diretos.
+**Dynamic imports de `firebase/*` packages (lazy, não entram no bundle principal):**
+- `useAuth.ts` — `firebase/auth` (signIn/signOut fallback)
+- `TelaMapa.tsx` — `firebase/messaging` (FCM push notifications — requer Firebase)
+- `uploadUtils.ts` — `firebase/storage` (upload fallback)
+- `TarefasLogisticaModule.tsx` — `firebase/functions` (3 blocos fallback)
+
+**Cloud Functions:** `firebase-admin/auth` para tokens; `firebase-functions/v2/https` para onCall/onRequest. Zero Firestore.
 
 **Próximos passos:**
 1. Wiring `notificarTurnoFn` (Supabase DB trigger ou callable)
-2. Migrar 10 arquivos frontend que ainda usam firebase.ts (auth→Supabase auth, db→Supabase, fn*→edge direto)
-3. Remover `firebase.ts` do bundle
+2. Eliminar dynamic imports restantes de firebase (migrar FCM, Storage, Auth fallback)
+3. Deletar `firebase.ts` do código
 4. Rotacionar service_role key (exposta em chat) — **SEGURANÇA**
 5. Rotacionar keystore password (mover de build.gradle para keystore.properties)
 6. Desabilitar Firebase Auth

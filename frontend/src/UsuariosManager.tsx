@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import { auth } from './lib/firebase';
+import { getEdgeCallable } from './lib/edge-functions';
+import { supabase } from './lib/supabase';
 import { carregarSolicitacoesPendentesSupabase, atualizarSolicitacaoSupabase } from './lib/onda-b-supabase';
 import { escreverUsuarioSupabase, fetchUsuarios } from './lib/usuarios-supabase';
 import { carregarCidadesSupabase } from './lib/estacoes-supabase';
@@ -294,6 +294,8 @@ export default function UsuariosManager({
   const [filtroRole, setFiltroRole] = useState<string>('todos');
   const [selecionadosLote, setSelecionadosLote] = useState<Set<string>>(new Set());
   const [aprovandoLote, setAprovandoLote] = useState(false);
+  const [currentUid, setCurrentUid] = useState<string | undefined>();
+  useEffect(() => { supabase.auth.getUser().then(({ data }) => setCurrentUid(data.user?.id)); }, []);
 
   // Carrega cidades reais que têm estações (Supabase)
   useEffect(() => {
@@ -357,7 +359,7 @@ export default function UsuariosManager({
       await atualizarSolicitacaoSupabase(req.id, {
         status: 'aprovado',
         data_resposta: new Date().toISOString(),
-        respondido_por: auth.currentUser?.uid,
+        respondido_por: currentUid,
         roleAtribuido: roleAprovacao,
       });
 
@@ -377,8 +379,7 @@ export default function UsuariosManager({
         ativo: true,
       });
 
-      const fns = getFunctions(undefined, 'southamerica-east1');
-      await httpsCallable(fns, 'notificarAprovacaoPrestador')({ uid: req.uid, aprovado: true }).catch(() => {});
+      await getEdgeCallable('notificarAprovacaoPrestador')!()({ data: { uid: req.uid, aprovado: true } }).catch(() => {});
 
       setSolicitacoes(prev => prev.filter(s => s.id !== req.id));
       setSelecionada(null);
@@ -401,12 +402,11 @@ export default function UsuariosManager({
       await atualizarSolicitacaoSupabase(req.id, {
         status: 'rejeitado',
         data_resposta: new Date().toISOString(),
-        respondido_por: auth.currentUser?.uid,
+        respondido_por: currentUid,
         motivo_rejeicao: motivo,
       });
 
-      const fns = getFunctions(undefined, 'southamerica-east1');
-      await httpsCallable(fns, 'notificarAprovacaoPrestador')({ uid: req.uid, aprovado: false, motivo }).catch(() => {});
+      await getEdgeCallable('notificarAprovacaoPrestador')!()({ data: { uid: req.uid, aprovado: false, motivo } }).catch(() => {});
 
       setSolicitacoes(prev => prev.filter(s => s.id !== req.id));
       setSelecionada(null);
@@ -432,7 +432,6 @@ export default function UsuariosManager({
     };
     if (!window.confirm(pick(confirmLote))) return;
     setAprovandoLote(true);
-    const fns = getFunctions(undefined, 'southamerica-east1');
     let ok = 0;
     for (const id of Array.from(selecionadosLote)) {
       const req = solicitacoes.find(s => s.id === id);
@@ -440,7 +439,7 @@ export default function UsuariosManager({
       try {
         await atualizarSolicitacaoSupabase(id, {
           status: 'aprovado', data_resposta: new Date().toISOString(),
-          respondido_por: auth.currentUser?.uid, roleAtribuido: roleAprovacao,
+          respondido_por: currentUid, roleAtribuido: roleAprovacao,
         });
         await escreverUsuarioSupabase(req.uid, {
           role: roleAprovacao, cidadesPermitidas: cidadesAprovacao,
@@ -451,7 +450,7 @@ export default function UsuariosManager({
           cidade: cidadesAprovacao[0] ?? req.cidade,
           tipo_contrato: req.tipo_contrato, telegram: req.telegram, ativo: true,
         });
-        httpsCallable(fns, 'notificarAprovacaoPrestador')({ uid: req.uid, aprovado: true }).catch(() => {});
+        getEdgeCallable('notificarAprovacaoPrestador')!()({ data: { uid: req.uid, aprovado: true } }).catch(() => {});
         ok++;
       } catch (e) { console.error('Lote erro', id, e); }
     }
@@ -483,8 +482,7 @@ export default function UsuariosManager({
   const executarRemocaoAcesso = async (usuario: UsuarioAtivo) => {
     setRemovendoAcesso(true);
     try {
-      const fn = httpsCallable(getFunctions(undefined, 'southamerica-east1'), 'revogarAcesso');
-      await fn({ uid: usuario.uid });
+      await getEdgeCallable('revogarAcesso')!()({ data: { uid: usuario.uid } });
       showMsg(pick(T.msgAcessoRevogado));
       setUsuarios(prev => prev.filter(u => u.uid !== usuario.uid));
       setUsuarioSelecionado(null);

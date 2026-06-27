@@ -2,16 +2,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useState as useLocalState } from 'react';
-import { db, auth } from './lib/firebase';
 import { carregarOcorrenciasSupabase, buscarOcorrenciaSupabase, atualizarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
 import { carregarEstacoesSupabase, carregarCidadesSupabase } from './lib/estacoes-supabase';
 import { fetchUsuarios, escreverUsuarioSupabase } from './lib/usuarios-supabase';
 import { supabase } from './lib/supabase';
 import JSZip from 'jszip';
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import { getApp } from 'firebase/app';
 import { useCidadesExpansao, STATUS_META, type CidadeExpansao } from './CidadesExpansao';
-import { fnGerarCroquisLote, fnSvEstatisticas } from './lib/firebase';                              
+import { fnGerarCroquisLote, fnSvEstatisticas, getEdgeCallable, functionsProviderSupabase } from './lib/edge-functions';
 import GoJetCidadesPanel from './components/GoJetCidadesPanel';
 
 interface Estacao {
@@ -1578,24 +1575,20 @@ function ZonasInline({ cidade, pais }: { cidade: string; pais: string }) {
 
   useEffect(() => {
     if (!cidade) return;
-    import('firebase/firestore').then(({ getDocs, collection, query, where, updateDoc, doc, deleteDoc }) => {
-      getDocs(query(collection(db, 'poligonos'), where('cidade', 'in', [cidade]))).then(snap => {
-        setZonas(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        setLoading(false);
-      });
+    supabase.from('poligonos').select('*').in('cidade', [cidade]).then(({ data }) => {
+      setZonas(data || []);
+      setLoading(false);
     });
   }, [cidade]);
 
   const toggle = async (zona: any) => {
-    const { doc: fDoc, updateDoc: fUpd } = await import('firebase/firestore');
-    await fUpd(fDoc(db, 'poligonos', zona.id), { ativo: !zona.ativo, atualizadoEm: new Date() });
+    await supabase.from('poligonos').update({ ativo: !zona.ativo, atualizado_em: new Date().toISOString() }).eq('id', zona.id);
     setZonas(prev => prev.map(z => z.id === zona.id ? { ...z, ativo: !zona.ativo } : z));
   };
 
   const excluir = async (zona: any) => {
     if (!confirm(`${pick(T.excluirConfirm)} "${zona.nome}"?`)) return;
-    const { doc: fDoc, deleteDoc: fDel } = await import('firebase/firestore');
-    await fDel(fDoc(db, 'poligonos', zona.id));
+    await supabase.from('poligonos').delete().eq('id', zona.id);
     setZonas(prev => prev.filter(z => z.id !== zona.id));
   };
 
@@ -1695,20 +1688,19 @@ function NormalizarBtn({ cidade, pais, onDone }: { cidade: string; pais: string;
     setRodando(true); setConcluido(false); abortRef.current = false;
     setLog([pick(T.buscando)]);
 
-    const { getDocs, collection, query, where, doc, updateDoc } = await import('firebase/firestore');
-    const snap = await getDocs(query(
-      collection(db, 'estacoes'),
-      where('cidade', '==', cidade)
-    ));
+    const { data: estacoesRows } = await supabase
+      .from('estacoes')
+      .select('id, codigo, lat, lng, bairro, endereco')
+      .eq('cidade', cidade);
 
-    const semBairro = snap.docs.filter(d => !d.data().bairro || !d.data().endereco);
+    const semBairro = (estacoesRows || []).filter((d: any) => !d.bairro || !d.endereco);
     setProg({ normalizados: 0, restantes: semBairro.length });
     setLog([`${semBairro.length} ${pick(T.semBairro)}`]);
 
     let ok = 0;
     for (let i = 0; i < semBairro.length && !abortRef.current; i++) {
-      const docSnap = semBairro[i];
-      const { lat, lng } = docSnap.data();
+      const row = semBairro[i];
+      const { lat, lng } = row;
       if (!lat || !lng) continue;
       try {
         const r = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=pt-BR`, {
@@ -1719,18 +1711,18 @@ function NormalizarBtn({ cidade, pais, onDone }: { cidade: string; pais: string;
         const bairro = addr.suburb || addr.neighbourhood || addr.city_district || addr.district || '';
         const endereco = [addr.road, addr.house_number].filter(Boolean).join(', ') || data.display_name?.split(',')[0] || '';
         if (bairro || endereco) {
-          await updateDoc(doc(db, 'estacoes', docSnap.id), {
+          await supabase.from('estacoes').update({
             ...(bairro   ? { bairro }   : {}),
             ...(endereco ? { endereco } : {}),
-          });
+          }).eq('id', row.id);
           ok++;
           setProg({ normalizados: ok, restantes: semBairro.length - i - 1 });
-          setLog(prev => [...prev, `✓ ${docSnap.data().codigo || docSnap.id}: ${bairro || endereco}`]);
+          setLog(prev => [...prev, `✓ ${row.codigo || row.id}: ${bairro || endereco}`]);
         }
         // Respeita limite Nominatim: 1 req/seg
         await new Promise(res => setTimeout(res, 1100));
       } catch (e: any) {
-        setLog(prev => [...prev, `✗ ${docSnap.id}: ${e.message}`]);
+        setLog(prev => [...prev, `✗ ${row.id}: ${e.message}`]);
       }
     }
     setRodando(false); setConcluido(true);
@@ -2415,9 +2407,8 @@ function AbaDados({ estacoes, cidade, pais, total, isGestor,
 
   const exportPDF = async () => {
     const sorted = sortEstacoes(estacoes);
-    const { getDocs, collection, query, where } = await import('firebase/firestore');
-    const snap = await getDocs(query(collection(db, 'poligonos'), where('cidade', 'in', [cidade])));
-    const zonas = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+    const { data: zonaRows } = await supabase.from('poligonos').select('*').in('cidade', [cidade]);
+    const zonas = (zonaRows || []) as any[];
     const headers = camposSel.map(k => { const f = CAMPOS_EXPORT.find(c=>c.key===k); return f ? labelCampo(f.key, f.label) : k; });
     const statusIdx = camposSel.indexOf('status');
     const rows = sorted.map(e => camposSel.map(k => getValor(e,k)));
@@ -2452,9 +2443,8 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
   };
 
   const exportZonas = async (fmt: 'geojson'|'wkt'|'csv') => {
-    const { getDocs, collection, query, where } = await import('firebase/firestore');
-    const snap = await getDocs(query(collection(db, 'poligonos'), where('cidade', 'in', [cidade])));
-    const zonas = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+    const { data: zonaRows } = await supabase.from('poligonos').select('*').in('cidade', [cidade]);
+    const zonas = (zonaRows || []) as any[];
     let content2 = '', fname = '';
     if (fmt === 'geojson') {
       // Close the polygon ring (first point = last point for valid GeoJSON)
@@ -2889,17 +2879,10 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
     setEnviando(label);
     setResultado(null);
     try {
-      // relatorioGuardManualFn está deployada e funcionando
-      // Passa tipo e periodo — a function ignora o que não conhece (só usa dataStr)
       const fnName = 'relatorioGuardManualFn';
-      const { functionsProviderSupabase, getEdgeCallable } = await import('./lib/edge-functions');
-      let fn: any;
-      if (functionsProviderSupabase()) {
-        const edge = getEdgeCallable(fnName);
-        fn = edge ? edge() : httpsCallable(getFunctions(getApp(), 'southamerica-east1'), fnName);
-      } else {
-        fn = httpsCallable(getFunctions(getApp(), 'southamerica-east1'), fnName);
-      }
+      const edge = getEdgeCallable(fnName);
+      const fn = edge ? edge() : null;
+      if (!fn) throw new Error('Edge function não disponível: ' + fnName);
       const res = await fn({ tipo, periodo, lang: reportLang }) as any;
       const d = res.data as any;
       const total = d.totalOcorrencias ?? d.total ?? 0;
@@ -3850,25 +3833,14 @@ function UsuariosPanel() {
   const aprovar = async (sol: any, role: string) => {
     try {
       const senhaGerada = gerarSenha();
-      // Chama CF para aprovar e criar usuário Firebase Auth
-      const { functionsProviderSupabase, getEdgeCallable } = await import('./lib/edge-functions');
-      let fnAprovar: any;
-      if (functionsProviderSupabase()) {
-        const edge = getEdgeCallable('aprovarSolicitacaoFn');
-        fnAprovar = edge ? edge() : null;
-      }
-      if (!fnAprovar) {
-        const { getFunctions, httpsCallable } = await import('firebase/functions');
-        const { getApp } = await import('firebase/app');
-        fnAprovar = httpsCallable(getFunctions(getApp(), 'southamerica-east1'), 'aprovarSolicitacaoFn');
-      }
-      const res = await fnAprovar({ solicitacaoId: sol.id, role, senhaTemporaria: senhaGerada }) as any;
+      const edgeFnAprovar = getEdgeCallable('aprovarSolicitacaoFn');
+      if (!edgeFnAprovar) throw new Error('Edge function aprovarSolicitacaoFn não disponível');
+      const fnAprovar = edgeFnAprovar();
+      const res = await fnAprovar({ solicitacaoId: sol.id, role, senha_temporaria: senhaGerada }) as any;
       const uid = res.data?.uid || sol.id;
 
-      // Marcar senhaTemporaria: true para forçar troca no primeiro acesso
       try {
-        const { doc: fsDoc, updateDoc, collection: col } = await import('firebase/firestore');
-        await updateDoc(fsDoc(col(db,'usuarios'), uid), { senhaTemporaria: true, role });
+        await supabase.from('usuarios').update({ senha_temporaria: true, role }).eq('id', uid);
       } catch { /* ignora se o doc ainda não existe */ }
 
       setSenhaTemp({ uid, email: sol.email, senha: senhaGerada });
@@ -4643,9 +4615,6 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
     setImportLog(prev => [...prev, pick(T.normalizando)]);
     let novos = 0, atualizados = 0, erros: string[] = [];
 
-    const { doc: fsDoc, setDoc: fSetDoc, getDoc: fGetDoc, collection: fCol, serverTimestamp: fTs } = await import('firebase/firestore');
-    const { db: fdb } = await import('./lib/firebase');
-
     for (let i = 0; i < validos.length; i++) {
       const v = validos[i];
       setImportLog(prev => { const n = [...prev]; n[n.length-1] = `${pick(T.processando)} ${i+1}/${validos.length}: ${v.nome.slice(0,40)}...`; return n; });
@@ -4677,11 +4646,6 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
         const hash = Math.abs(Math.round(v.lat * 1e5) ^ Math.round(v.lng * 1e5)).toString(36).toUpperCase().slice(0, 6);
         const codigo = codigoBase + '-IMP-' + hash;
 
-        // Verificar se já existe (por lat/lng próximos — raio 20m)
-        // Simplificado: checar pelo codigo
-        const docRef = fsDoc(fdb, 'estacoes', codigo);
-        const snap   = await fGetDoc(docRef);
-
         const dados: Record<string, any> = {
           codigo, lat: v.lat, lng: v.lng,
           endereco:  v.nome,
@@ -4692,24 +4656,23 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
           pais:      pais,
           tipo:      'PUBLICA',
           status:    v.inativa ? 'CANCELADO' : 'SOLICITADO',
-          zonaUrent: v.zonas,
-          importadoEm: fTs(),
-          importadoDe: 'urent_xlsx',
+          zona_urent: v.zonas,
+          importado_em: new Date().toISOString(),
+          importado_de: 'urent_xlsx',
         };
 
-        if (snap.exists()) {
-          // Atualizar só campos de geo se estiver vazio
-          const existing = snap.data();
+        const { data: existing } = await supabase.from('estacoes').select('id, bairro, cidade, cep').eq('codigo', codigo).maybeSingle();
+        if (existing) {
           const patch: Record<string, any> = {};
           if (!existing.bairro  && bairro)    patch.bairro    = bairro;
           if (!existing.cidade  && cidadeGeo) patch.cidade    = cidadeGeo;
           if (!existing.cep     && cep)       patch.cep       = cep;
           if (Object.keys(patch).length > 0) {
-            await fSetDoc(docRef, patch, { merge: true });
+            await supabase.from('estacoes').update(patch).eq('codigo', codigo);
             atualizados++;
           }
         } else {
-          await fSetDoc(docRef, dados);
+          await supabase.from('estacoes').insert(dados);
           novos++;
         }
 
@@ -5367,8 +5330,6 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
     setLog([]); setProgresso({ ok:0, erro:0, total: alvo.length });
     let ok = 0, erro = 0;
 
-    const { doc, updateDoc } = await import('firebase/firestore');
-
     for (let i = 0; i < alvo.length && !abortRef.current; i++) {
       const e = alvo[i];
       const url = buildUrl(e);
@@ -5392,10 +5353,9 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
           }
         }
 
-        await updateDoc(doc(db, 'estacoes', e.id), {
-          'imagens.streetView': url,  // URL da imagem estática (exibível diretamente)
-          'imagens.foto': url,        // Também salva como foto para aparecer no InfoWindow
-        });
+        await supabase.from('estacoes').update({
+          imagens: { streetView: url, foto: url },
+        }).eq('id', e.id);
         ok++;
         setLog(prev => [...prev, { msg: `${e.codigo||e.id} (${e.bairro||''}): ${pick(T.fotoSalva)}`, ok: true }]);
       } catch (err: any) {
