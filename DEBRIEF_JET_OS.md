@@ -1,5 +1,5 @@
 # Jet OS Firebase — Master Debrief
-**Atualizado em:** 27/06/2026 (§19.21 Migração 22 coleções Firestore → Supabase · §19.20 Remoção mirrors + purge DashboardManager · §19.19 Dual-write Fase 2 · §19.18 Audit pré-shutdown · §19.17 i18n + POI + deploy · §19.16 APK distribution)  
+**Atualizado em:** 27/06/2026 (§19.22 Ondas A-D purge Firestore total · §19.21 Migração 22 coleções · §19.20 Remoção mirrors · §19.19 Dual-write Fase 2 · §19.18 Audit pré-shutdown · §19.17 i18n + POI + deploy)  
 **Projeto:** jet-os-1 | Firebase Hosting + Firestore + Storage + Cloud Functions  
 **Stack:** React + Vite + TypeScript + Leaflet + deck.gl | Node.js 22 Cloud Functions
 
@@ -3142,34 +3142,67 @@ Maioria para coleções: `slots`, `slots_escala`, `tarefas`, `tarefas_logistica`
 3. **Rotacionar service_role key** — exposta em chat/scripts. Regenerar no dashboard Supabase, atualizar `functions/.env`, Edge Functions secrets
 4. **Rotacionar keystore password** — mover de `build.gradle` para `keystore.properties` (gitignored)
 
-##### 🟠 Firestore shutdown — próximas ondas
-5. **Onda A — Imports residuais sem uso:** Limpar `PainelControlePerdasSeg.tsx`, `PainelRoubos.tsx` (já migrados mas imports ficaram)
-6. **Onda B — Coleções com tabela Supabase existente mas frontend ainda lê Firestore:**
-   - `gojet_snapshots` reads (GoJetAnalyticsPanel, GoJetOverlay, TarefasLogisticaModule, gojet-scraper.ts)
-   - `tarefas_logistica` reads (GoJetOverlay, TarefasLogisticaModule)
-   - `locais_operacionais` (LocaisOperacionais.tsx)
-   - `telegram_config` (AdminTelegramPanel.tsx)
-   - `ocorrencias` (GuardDashboard.tsx — onSnapshot)
-7. **Onda C — Coleções que precisam de tabela + migração frontend:**
-   - `gps_positions` (LiveTrackingMap onSnapshot, LiveWorkersPanel, gps-background write) — realtime critical
-   - `gps_tracks` (GpsHeatmapPanel, GpsRotaPanel)
-   - `slots`/`slots_escala` (SlotsDashboard, ShiftNotifications, LiveWorkersPanel)
-   - `turnos` (ShiftNotifications, LiveWorkersPanel)
-   - `prestadores` (TelaPrestadorPerfil)
-   - `pois` (MapaHelpers)
-   - `operacoes` (callable CFs em auth.ts)
-8. **Onda D — Cloud Functions restantes** (20 arquivos): slots.ts, auth.ts, tasks.ts, gps-ingest.ts, etc.
+##### 🟠 ~~Firestore shutdown — Ondas A-D~~ ✅ CONCLUÍDO (commit `677f8ea`)
+- ~~Onda A~~ ✅ Imports residuais limpos
+- ~~Onda B~~ ✅ 7 arquivos frontend migrados (gojet, tarefas, locais, telegram, ocorrências)
+- ~~Onda C~~ ✅ 10 arquivos frontend migrados (GPS, slots, turnos, prestadores, pois)
+- ~~Onda D~~ ✅ 11 Cloud Functions migradas (automacao, gps, slots, auth, telegram, estacoes, geolocation, relatorios, index)
 
 ##### 🟡 Infra
-9. **Deploy functions** — `firebase deploy --only functions` (cota CPU, usar cirúrgico)
-10. **Deletar mirrors remotos** do Firebase (comando em §19.20)
-11. **Desabilitar Firebase Auth** — após confirmar Supabase auth estável em campo
-12. **Remover `firebase.ts` do bundle** — após zero imports residuais
+5. **Deploy functions** — `firebase deploy --only functions` (cota CPU, usar cirúrgico)
+6. **Deletar mirrors remotos** do Firebase (comando em §19.20)
+7. **Desabilitar Firebase Auth** — após confirmar Supabase auth estável em campo
+8. **Migrar AppShell.tsx** — último arquivo frontend com Firestore (estacoes, usuarios, solicitacoes, ocorrencias)
+9. **Remover `firebase.ts` do bundle** — após zero imports residuais
+10. **Remover Firestore triggers das CFs** — `onDocumentCreated`/`onDocumentUpdated` (após nenhum código escrever Firestore)
 
 ##### 🟢 Produto / Features
-13. **NFS-e** — módulo emissão automática (§13, plano completo)
-14. **Chat in-app** — `CHAT_DESIGN.md` pronto, aguarda sign-off jurídico
-15. **Relatórios Guard v2** — por cidade + turnos
-16. **Slots convergência (§15)** — unificar motor escala + demanda GoJet
-17. **i18n resíduos** — templates PDF/CSV, `STATUS_META.label`
-18. **Front usar `buscarPOIsOSMFn`** — trocar Overpass client-side
+11. **NFS-e** — módulo emissão automática (§13, plano completo)
+12. **Chat in-app** — `CHAT_DESIGN.md` pronto, aguarda sign-off jurídico
+13. **Relatórios Guard v2** — por cidade + turnos
+14. **Slots convergência (§15)** — unificar motor escala + demanda GoJet
+15. **i18n resíduos** — templates PDF/CSV, `STATUS_META.label`
+16. **Front usar `buscarPOIsOSMFn`** — trocar Overpass client-side
+
+---
+
+### 19.22 Sessão 27/06/2026 (cont.) — Ondas A-D: purge total Firestore do frontend + Cloud Functions
+
+#### 📊 Escala da mudança
+- **32 arquivos** modificados, **+1224/−1693 linhas**
+- **Frontend:** 19 arquivos migrados. Firestore imports restantes: apenas `AppShell.tsx` + `lib/firebase.ts`
+- **Cloud Functions:** 11 arquivos migrados. Todos reads/writes agora via `supabase-rest` helpers
+- Commit `677f8ea`, deployed hosting, pushed to GitHub
+
+#### ⚡ Frontend migrado — Ondas A+B+C (19 arquivos)
+| Onda | Arquivos |
+|---|---|
+| A | PainelControlePerdasSeg, PainelRoubos (imports limpos) |
+| B | GoJetAnalyticsPanel, GoJetOverlay, TarefasLogisticaModule, LocaisOperacionais, AdminTelegramPanel, GuardDashboard, gojet-scraper |
+| C | LiveTrackingMap, LiveWorkersPanel, GpsHeatmapPanel, GpsRotaPanel, ShiftNotifications, SlotsDashboard, MapaHelpers, TelaPrestadorPerfil, TelegramVinculo, gps-background |
+
+#### ⚡ Cloud Functions migradas — Onda D (11 arquivos)
+| Arquivo | Coleções migradas |
+|---|---|
+| automacao-tarefas.ts | slots, tarefas, tarefas_logistica, usuarios, fcm_tokens, log_slots_auto |
+| automacao.ts | slots, tarefas, logs_automacao |
+| gps-ingest.ts | gps_logistica, gps_logistica_hist, usuarios |
+| gps-alertas.ts | tarefas_logistica, gps_logistica, slots, usuarios |
+| slots-telegram.ts | telegram_config, slots, usuarios |
+| auth/index.ts | usuarios, solicitacoes_prestadores |
+| telegram-vinculo.ts | telegram_config, telegram_vinculos, usuarios |
+| relatorios.ts | ocorrencias |
+| estacoes/index.ts | estacoes CRUD |
+| geolocation.ts | slots, slot_prestadores |
+| index.ts | usuarios, logs_acesso |
+
+#### 📋 Firestore triggers mantidos (body migrado, trigger definition preservada)
+- `onDocumentCreated('turnos/{turnoId}')` em automacao-tarefas.ts
+- `onDocumentCreated('gps_logistica/{docId}')` em gps-alertas.ts
+- `onDocumentCreated('solicitacoes_prestadores/{docId}')` em notificacoes-prestador.ts
+- Estes triggers só podem ser removidos quando nenhum código mais escrever nessas coleções Firestore
+
+#### 📊 Estado final — o que resta de Firestore
+**Frontend:** 2 arquivos (`AppShell.tsx` com lógica complexa de onboarding, `lib/firebase.ts` como módulo base)
+**Cloud Functions:** `firebase-admin/auth` mantido para verificação de tokens; `firebase-functions` mantido para triggers. Zero Firestore reads/writes diretos remanescentes fora dos triggers.
+**Próximo passo:** Migrar `AppShell.tsx` → remover `firebase.ts` do bundle → desabilitar Firebase Auth → remover triggers
