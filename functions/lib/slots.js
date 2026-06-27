@@ -55,14 +55,20 @@ function addCORS(res) {
 }
 async function getBotToken() {
     try {
-        // Supabase-first
+        // Supabase config_telegram (where DashboardManager saves)
+        const supaCfg = await (0, config_supabase_1.getAppSetting)('config_telegram');
+        const cfgToken = String(supaCfg?.bot_token || supaCfg?.botToken || '').trim();
+        if (cfgToken)
+            return cfgToken;
+        // Supabase app_settings/telegram (legacy key)
         const supa = await (0, config_supabase_1.getAppSetting)('telegram');
         const supaToken = String(supa?.bot_token || supa?.botToken || '').trim();
         if (supaToken)
             return supaToken;
-        // Fallback Firestore
-        const snap = await db.collection('telegram_config').doc('global').get();
-        return snap.data()?.botToken ?? '';
+        // Supabase telegram_config table
+        const { getTelegramConfigSupa } = await Promise.resolve().then(() => __importStar(require('./telegram-supabase')));
+        const tgCfg = await getTelegramConfigSupa('global');
+        return String(tgCfg?.bot_token || '').trim();
     }
     catch {
         return '';
@@ -107,48 +113,37 @@ const CARGO_PARA_GRUPO = {
     seguranca: { grupo: 'seguranca', topico: 'seguranca' },
 };
 async function getConfig() {
-    // Onda G: tenta Supabase telegram_config primeiro, depois Firestore
+    // Supabase telegram_config table
     let supaTgCfg = null;
     try {
         const { getTelegramConfigSupa } = await Promise.resolve().then(() => __importStar(require('./telegram-supabase')));
         supaTgCfg = await getTelegramConfigSupa('global');
     }
     catch { /* fallback */ }
-    const [supaTelegram, gSnap, cSnap, legSnap] = await Promise.all([
+    const [supaCfgTelegram, supaTelegram] = await Promise.all([
+        (0, config_supabase_1.getAppSetting)('config_telegram'),
         (0, config_supabase_1.getAppSetting)('telegram'),
-        db.collection('telegram_config').doc('global').get(),
-        db.collection('telegram_config').doc('cidades').get(),
-        db.collection('config').doc('telegram').get(), // onde DashboardManager salva
     ]);
-    // Monta config global unificando as fontes
-    const gData = gSnap.data() ?? {};
-    const legData = legSnap.data() ?? {};
-    // Prioridade: Supabase telegram_config → app_settings/telegram → Firestore telegram_config/global → config/telegram
+    // Prioridade: Supabase telegram_config → app_settings/config_telegram → app_settings/telegram
     const botToken = (supaTgCfg?.bot_token ||
-        supaTelegram?.bot_token || supaTelegram?.botToken ||
-        gData.botToken || gData.bot_token ||
-        legData.botToken || legData.bot_token || '');
-    // Chat ID do grupo Guard Reports (usado como fallback para alertas)
+        supaCfgTelegram?.bot_token || supaCfgTelegram?.botToken ||
+        supaTelegram?.bot_token || supaTelegram?.botToken || '');
     const guardChatId = (supaTgCfg?.guard_chat_id || supaTgCfg?.relatorios_chat_id ||
-        supaTelegram?.relatorios_chat_id || supaTelegram?.relatoriosChatId || supaTelegram?.chat_id ||
-        gData.relatoriosChatId || gData.chat_id ||
-        legData.relatoriosChatId || legData.chat_id || '');
+        supaCfgTelegram?.chat_id || supaCfgTelegram?.relatoriosChatId ||
+        supaTelegram?.relatorios_chat_id || supaTelegram?.relatoriosChatId || supaTelegram?.chat_id || '');
     const globalCfg = {
-        ...{ botToken: '', diretoria: [], regionais: [] },
-        ...gData,
-        // Overlay Supabase fields if available
-        ...(supaTgCfg?.diretoria ? { diretoria: supaTgCfg.diretoria } : {}),
-        ...(supaTgCfg?.regionais ? { regionais: supaTgCfg.regionais } : {}),
         botToken,
-        guardChatId, // campo extra para fallback
+        diretoria: supaTgCfg?.diretoria ?? [],
+        regionais: supaTgCfg?.regionais ?? [],
+        guardChatId,
     };
-    // Cidades: Supabase cidades jsonb → Firestore telegram_config/cidades
+    // Cidades from Supabase telegram_config
     const cidadesSupa = (supaTgCfg?.cidades && typeof supaTgCfg.cidades === 'object')
         ? supaTgCfg.cidades
-        : null;
+        : {};
     return {
         global: globalCfg,
-        cidades: cidadesSupa ?? (cSnap.data() ?? {}),
+        cidades: cidadesSupa,
     };
 }
 function cidadeParaChave(cidade) {

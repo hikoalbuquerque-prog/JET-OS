@@ -11,46 +11,11 @@
 // Webhooks (chamados pelo app ou scripts):
 //   gerarSlotsAutomatico — webhook seguro para trigger manual
 //   gerarTarefasMonitor  — webhook para trigger manual/teste
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.gerarTarefasMonitor = exports.gerarSlotsAutomatico = exports.limpezaSnapshots = exports.gerarSlotsAgendado = void 0;
-const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const supabase_rest_1 = require("./lib/supabase-rest");
-const db = admin.firestore();
 const CITY_ID = '669f89ebd06775867c31b984';
 const GOJET_BASE = 'https://logistic.gojet.app/api/v0/urent';
 // ─── Mapa de emojis → zonas ───────────────────────────────────────────────────
@@ -199,12 +164,8 @@ async function _gerarTarefasMonitor(parkings, turno) {
         else if (est.tipoMonitor === 'M3') {
             const m3 = monConfig.M3 ?? {};
             if (m3.promotorAtivo) {
-                const slotPromo = await db.collection('slots')
-                    .where('cargo', '==', 'promotor')
-                    .where('cidade', '==', est.cidade)
-                    .where('status', 'in', ['aceito', 'em_andamento'])
-                    .limit(1).get();
-                if (slotPromo.empty) {
+                const slotPromoRows = await (0, supabase_rest_1.supabaseGet)('slots', `select=id&cargo=eq.promotor&cidade=eq.${encodeURIComponent(est.cidade)}&status=in.(aceito,em_andamento)&limit=1`);
+                if (!slotPromoRows || slotPromoRows.length === 0) {
                     precisaTarefa = true;
                     prioridade = 3;
                     descricao = `👤 ${est.nome}: ponto M3 sem promotor ativo`;
@@ -215,14 +176,11 @@ async function _gerarTarefasMonitor(parkings, turno) {
         if (!precisaTarefa)
             continue;
         // Evita duplicata: verifica se já tem tarefa aberta para este ponto hoje
-        const existente = await db.collection('tarefas')
-            .where('estacao.id', '==', est.id)
-            .where('status', 'in', ['pendente', 'aceita', 'em_andamento'])
-            .where('criadaHoje', '==', hoje)
-            .limit(1).get();
-        if (!existente.empty)
+        const existRows = await (0, supabase_rest_1.supabaseGet)('tarefas', `select=id,estacao&status=in.(pendente,aceita,em_andamento)&criada_hoje=eq.${hoje}`);
+        const hasDupe = (existRows ?? []).some((r) => r.estacao?.id === est.id);
+        if (hasDupe)
             continue;
-        await db.collection('tarefas').add({
+        await (0, supabase_rest_1.supabaseInsert)('tarefas', {
             tipo: est.tipoMonitor === 'M3' ? 'promo_abordagem' : 'rebalanceamento',
             titulo: descricao,
             status: 'pendente',
@@ -230,9 +188,9 @@ async function _gerarTarefasMonitor(parkings, turno) {
             cargo,
             cidade: est.cidade ?? '',
             pais: est.pais ?? 'BR',
-            slotId: null,
-            assigneeUid: null,
-            assigneeNome: null,
+            slot_id: null,
+            assignee_uid: null,
+            assignee_nome: null,
             estacao: {
                 id: est.id,
                 nome: est.nome ?? est.codigo,
@@ -240,13 +198,13 @@ async function _gerarTarefasMonitor(parkings, turno) {
                 lat: est.lat,
                 lng: est.lng,
             },
-            gojetParkingId: parking.id,
-            patinetesAtual: patinetes,
-            geradoAutomatico: true,
-            tipoMonitorOrigem: est.tipoMonitor,
-            criadaHoje: hoje,
-            criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-            atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+            gojet_parking_id: parking.id,
+            patinetes_atual: patinetes,
+            gerado_automatico: true,
+            tipo_monitor_origem: est.tipoMonitor,
+            criada_hoje: hoje,
+            criado_em: new Date().toISOString(),
+            atualizado_em: new Date().toISOString(),
         });
         criadas++;
     }
@@ -311,25 +269,25 @@ async function _gerarSlots(cfg, statsZonas) {
         try {
             for (let i = 0; i < vagas; i++) {
                 const [yyyy, mm, dd] = dataStr.split('-');
-                await db.collection('slots').add({
+                await (0, supabase_rest_1.supabaseInsert)('slots', {
                     titulo: `${zonaCfg.cargo === 'charger' ? 'Charger' : 'Scalt'} — ${zonaCfg.zona} ${zonaCfg.turno}`,
                     cargo: zonaCfg.cargo,
                     cidade: zonaCfg.cidade || cfg.cidade,
                     pais: cfg.pais,
-                    turnoInicio: inicio,
-                    turnoFim: fim,
-                    dataSlot: `${dd}/${mm}/${yyyy}`,
+                    turno_inicio: inicio,
+                    turno_fim: fim,
+                    data_slot: `${dd}/${mm}/${yyyy}`,
                     turno: zonaCfg.turno,
                     tipo: zonaCfg.cargo === 'charger' ? 'Charger' : 'Scalt',
                     status: 'aberto',
-                    qtdPessoas: 1,
-                    criadoPor: 'scheduler',
-                    aceitoPor: null,
-                    tarefasIds: [],
-                    geradoAutomatico: true,
-                    zonaOrigem: zonaCfg.zona,
-                    criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-                    atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+                    qtd_pessoas: 1,
+                    criado_por: 'scheduler',
+                    aceito_por: null,
+                    tarefas_ids: [],
+                    gerado_automatico: true,
+                    zona_origem: zonaCfg.zona,
+                    criado_em: new Date().toISOString(),
+                    atualizado_em: new Date().toISOString(),
                 });
                 totalGerados++;
             }
@@ -338,35 +296,24 @@ async function _gerarSlots(cfg, statsZonas) {
             erros.push(`${chave}: ${e.message}`);
         }
     }
-    await db.collection('logs_automacao').add({
+    await (0, supabase_rest_1.supabaseInsert)('logs_automacao', {
         tipo: 'geracao_slots',
         data: dataStr,
-        totalGerados,
+        total_gerados: totalGerados,
         erros,
-        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+        criado_em: new Date().toISOString(),
     });
     console.log(`[gerarSlots] ${totalGerados} slots gerados para ${dataStr}`);
 }
 // ─── FUNCTION: limpezaSnapshots (todo dia 3h) ─────────────────────────────────
+// DESATIVADO — gojet_snapshots migrado para Supabase (upsert por city_id, sem acúmulo).
 exports.limpezaSnapshots = (0, scheduler_1.onSchedule)({
     schedule: '0 3 * * *',
     timeZone: 'America/Sao_Paulo',
     region: 'southamerica-east1',
     maxInstances: 10,
 }, async () => {
-    const limite = new Date();
-    limite.setDate(limite.getDate() - 7);
-    const snap = await db.collection('gojet_snapshots')
-        .where('criadoEm', '<', limite)
-        .limit(500)
-        .get();
-    const batch = db.batch();
-    snap.docs.forEach(d => {
-        if (d.id !== 'latest')
-            batch.delete(d.ref);
-    });
-    await batch.commit();
-    console.log(`[limpeza] ${snap.size} snapshots antigos removidos`);
+    console.log('[limpeza] no-op — snapshots agora em Supabase (upsert, sem cleanup necessário)');
 });
 // ─── FUNCTION: gerarSlotsAutomatico (webhook manual/seguro) ──────────────────
 exports.gerarSlotsAutomatico = (0, https_1.onRequest)(async (req, res) => {

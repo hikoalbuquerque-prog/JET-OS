@@ -1,49 +1,13 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.notificarTarefaAtribuida = exports.notificarStatusNF = exports.notificarAprovacaoPrestador = exports.iniciarVinculoTelegram = exports.validarVinculoTelegram = exports.telegramWebhook = void 0;
-const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const crypto_1 = require("crypto");
 const supabase_admin_1 = require("./lib/supabase-admin");
+const supabase_rest_1 = require("./lib/supabase-rest");
 // functions/src/telegram-vinculo.ts
 // Cloud Functions para vincular Telegram ao usuário JET OS
-// Fase 2: notificações puras (notificarAprovacaoPrestador, notificarStatusNF,
-// notificarTarefaAtribuida) leem do Supabase; vinculação ainda usa Firestore
-// (telegram_vinculos + transações atômicas).
-const db = admin.firestore();
+// Migrado para Supabase (telegram_vinculos, usuarios, telegram_config).
 async function getBotTokenSupa() {
     const { data } = await (0, supabase_admin_1.supaAdmin)().from('telegram_config').select('bot_token').eq('id', 'global').maybeSingle();
     return data?.bot_token ?? '';
@@ -68,17 +32,9 @@ exports.telegramWebhook = (0, https_1.onRequest)((req, res) => {
             const chatId = String(msg.chat.id);
             const text = msg.text.trim();
             const firstName = msg.from?.first_name ?? 'usuário';
-            // Busca token do bot — Supabase-first (Onda G)
-            let botToken = '';
-            try {
-                const { getTelegramBotTokenSupa } = await Promise.resolve().then(() => __importStar(require('./telegram-supabase')));
-                botToken = await getTelegramBotTokenSupa();
-            }
-            catch { /* fallback */ }
-            if (!botToken) {
-                const cfgSnap = await db.collection('telegram_config').doc('global').get();
-                botToken = cfgSnap.data()?.botToken ?? '';
-            }
+            // Busca token do bot — Supabase
+            const botRow = await (0, supabase_rest_1.supabaseGetOne)('telegram_config', 'select=bot_token&id=eq.global');
+            const botToken = botRow?.bot_token ?? '';
             if (!botToken) {
                 res.json({ ok: true });
                 return;
@@ -95,44 +51,43 @@ exports.telegramWebhook = (0, https_1.onRequest)((req, res) => {
                 // já ligado ao uid via iniciarVinculoTelegram). Vincula DIRETO, sem código. ──
                 const param = text.startsWith('/start ') ? text.slice(7).trim() : '';
                 if (/^[a-f0-9]{32}$/.test(param)) {
-                    const tokRef = db.collection('telegram_vinculos').doc(param);
-                    const tokSnap = await tokRef.get();
-                    const tok = tokSnap.data();
-                    const valido = tokSnap.exists && tok?.uid && !tok.usado
-                        && tok.expiraEm?.toDate?.() > new Date();
+                    const tok = await (0, supabase_rest_1.supabaseGetOne)('telegram_vinculos', `select=*&id=eq.${param}`);
+                    const valido = tok && tok.uid && !tok.usado
+                        && new Date(tok.expira_em) > new Date();
                     if (!valido) {
                         await sendMsg(`⚠️ Link de vinculação inválido ou expirado.\nGere um novo no JET OS ("Vincular com 1 toque").`);
                         res.json({ ok: true });
                         return;
                     }
                     // Conflito: este Telegram já está em OUTRA conta?
-                    const jaQ = await db.collection('usuarios')
-                        .where('telegramChatId', '==', chatId).limit(1).get();
-                    if (!jaQ.empty && jaQ.docs[0].id !== tok.uid) {
+                    const jaQ = await (0, supabase_rest_1.supabaseGet)('usuarios', `select=id,uid&telegram_chat_id=eq.${encodeURIComponent(chatId)}&limit=1`);
+                    if (jaQ && jaQ.length > 0 && jaQ[0].uid !== tok.uid) {
                         await sendMsg(`⚠️ Este Telegram já está vinculado a outra conta JET OS.\nEnvie /desvincular antes de vincular a uma nova conta.`);
                         res.json({ ok: true });
                         return;
                     }
-                    await db.collection('usuarios').doc(tok.uid).update({
-                        telegramChatId: chatId,
-                        telegramVinculadoEm: admin.firestore.FieldValue.serverTimestamp(),
-                        telegramModo: 'deeplink',
-                        atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-                    });
-                    await tokRef.delete();
-                    const uSnap = await db.collection('usuarios').doc(tok.uid).get();
-                    await sendMsg(`✅ Conta vinculada com sucesso, <b>${uSnap.data()?.nome ?? firstName}</b>!\n\nVocê já pode fechar esta conversa — as notificações do JET OS chegam aqui.`);
+                    const now = new Date().toISOString();
+                    await (0, supabase_rest_1.supabaseUpdate)('usuarios', {
+                        telegram_chat_id: chatId,
+                        telegram_vinculado_em: now,
+                        telegram_modo: 'deeplink',
+                        atualizado_em: now,
+                    }, `uid=eq.${encodeURIComponent(tok.uid)}`);
+                    await (0, supabase_rest_1.supabaseUpdate)('telegram_vinculos', { usado: true }, `id=eq.${param}`);
+                    const uRow = await (0, supabase_rest_1.supabaseGetOne)('usuarios', `select=nome&uid=eq.${encodeURIComponent(tok.uid)}`);
+                    await sendMsg(`✅ Conta vinculada com sucesso, <b>${uRow?.nome ?? firstName}</b>!\n\nVocê já pode fechar esta conversa — as notificações do JET OS chegam aqui.`);
                     res.json({ ok: true });
                     return;
                 }
                 // ── Fluxo legado (sem token): gera código de 6 dígitos p/ digitar no app ──
                 const codigo = String(Math.floor(100000 + Math.random() * 900000));
                 const expiraEm = new Date(Date.now() + 10 * 60 * 1000); // 10 minutos
-                await db.collection('telegram_vinculos').doc(codigo).set({
-                    chatId,
-                    firstName,
-                    expiraEm: admin.firestore.Timestamp.fromDate(expiraEm),
-                    criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+                await (0, supabase_rest_1.supabaseInsert)('telegram_vinculos', {
+                    id: codigo,
+                    chat_id: chatId,
+                    first_name: firstName,
+                    expira_em: expiraEm.toISOString(),
+                    criado_em: new Date().toISOString(),
                     usado: false,
                 });
                 await sendMsg(`👋 Olá, <b>${firstName}</b>!\n\n`
@@ -143,11 +98,9 @@ exports.telegramWebhook = (0, https_1.onRequest)((req, res) => {
             }
             else if (text === '/status') {
                 // Verifica se o chatId já está vinculado a algum usuário
-                const q = await db.collection('usuarios')
-                    .where('telegramChatId', '==', chatId)
-                    .limit(1).get();
-                if (!q.empty) {
-                    const u = q.docs[0].data();
+                const qRows = await (0, supabase_rest_1.supabaseGet)('usuarios', `select=nome,role&telegram_chat_id=eq.${encodeURIComponent(chatId)}&limit=1`);
+                if (qRows && qRows.length > 0) {
+                    const u = qRows[0];
                     await sendMsg(`✅ Você está vinculado como <b>${u.nome}</b> (${u.role})`);
                 }
                 else {
@@ -155,14 +108,12 @@ exports.telegramWebhook = (0, https_1.onRequest)((req, res) => {
                 }
             }
             else if (text === '/desvincular') {
-                const q = await db.collection('usuarios')
-                    .where('telegramChatId', '==', chatId)
-                    .limit(1).get();
-                if (!q.empty) {
-                    await db.collection('usuarios').doc(q.docs[0].id).update({
-                        telegramChatId: null,
-                        telegramVinculadoEm: null,
-                    });
+                const qRows = await (0, supabase_rest_1.supabaseGet)('usuarios', `select=id,uid&telegram_chat_id=eq.${encodeURIComponent(chatId)}&limit=1`);
+                if (qRows && qRows.length > 0) {
+                    await (0, supabase_rest_1.supabaseUpdate)('usuarios', {
+                        telegram_chat_id: null,
+                        telegram_vinculado_em: null,
+                    }, `id=eq.${encodeURIComponent(qRows[0].id)}`);
                     await sendMsg(`✅ Conta desvinculada. Para vincular novamente, envie /start.`);
                 }
                 else {
@@ -192,54 +143,42 @@ exports.validarVinculoTelegram = (0, https_1.onCall)({ region: 'southamerica-eas
     if (!codigo || typeof codigo !== 'string' || !/^\d{6}$/.test(codigo)) {
         throw new https_1.HttpsError('invalid-argument', 'Código inválido');
     }
-    const vinculoRef = db.collection('telegram_vinculos').doc(codigo);
-    const vinculoSnap = await vinculoRef.get();
-    if (!vinculoSnap.exists) {
+    const vinculo = await (0, supabase_rest_1.supabaseGetOne)('telegram_vinculos', `select=*&id=eq.${encodeURIComponent(codigo)}`);
+    if (!vinculo) {
         throw new https_1.HttpsError('not-found', 'Código não encontrado');
     }
-    const vinculo = vinculoSnap.data();
     // Verifica se já foi usado
     if (vinculo.usado) {
         throw new https_1.HttpsError('already-exists', 'Código já utilizado');
     }
     // Verifica expiração
-    const expiraEm = vinculo.expiraEm;
-    if (expiraEm.toDate() < new Date()) {
-        await vinculoRef.delete();
+    if (new Date(vinculo.expira_em) < new Date()) {
+        await (0, supabase_rest_1.supabaseUpdate)('telegram_vinculos', { usado: true }, `id=eq.${encodeURIComponent(codigo)}`);
         throw new https_1.HttpsError('deadline-exceeded', 'Código expirado. Envie /start novamente.');
     }
-    const chatId = vinculo.chatId;
+    const chatId = vinculo.chat_id;
     const uid = request.auth.uid;
     // Verifica se esse chatId já está vinculado a OUTRO usuário
-    const q = await db.collection('usuarios')
-        .where('telegramChatId', '==', chatId)
-        .limit(1).get();
-    if (!q.empty && q.docs[0].id !== uid) {
+    const qRows = await (0, supabase_rest_1.supabaseGet)('usuarios', `select=id,uid&telegram_chat_id=eq.${encodeURIComponent(chatId)}&limit=1`);
+    if (qRows && qRows.length > 0 && qRows[0].uid !== uid) {
         throw new https_1.HttpsError('already-exists', 'Este Telegram já está vinculado a outra conta JET OS');
     }
     // Tudo ok — salva no usuário e marca código como usado
+    const now = new Date().toISOString();
     await Promise.all([
-        db.collection('usuarios').doc(uid).update({
-            telegramChatId: chatId,
-            telegramVinculadoEm: admin.firestore.FieldValue.serverTimestamp(),
-            telegramModo: 'codigo',
-            atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-        }),
-        vinculoRef.update({ usado: true }),
+        (0, supabase_rest_1.supabaseUpdate)('usuarios', {
+            telegram_chat_id: chatId,
+            telegram_vinculado_em: now,
+            telegram_modo: 'codigo',
+            atualizado_em: now,
+        }, `uid=eq.${encodeURIComponent(uid)}`),
+        (0, supabase_rest_1.supabaseUpdate)('telegram_vinculos', { usado: true }, `id=eq.${encodeURIComponent(codigo)}`),
     ]);
-    // Notifica no próprio Telegram que vinculou — Supabase-first (Onda G)
-    let botToken = '';
-    try {
-        const { getTelegramBotTokenSupa } = await Promise.resolve().then(() => __importStar(require('./telegram-supabase')));
-        botToken = await getTelegramBotTokenSupa();
-    }
-    catch { /* fallback */ }
-    if (!botToken) {
-        const cfgSnap = await db.collection('telegram_config').doc('global').get();
-        botToken = cfgSnap.data()?.botToken ?? '';
-    }
-    const userSnap = await db.collection('usuarios').doc(uid).get();
-    const userName = userSnap.data()?.nome ?? 'usuário';
+    // Notifica no próprio Telegram que vinculou
+    const botTokenRow = await (0, supabase_rest_1.supabaseGetOne)('telegram_config', 'select=bot_token&id=eq.global');
+    const botToken = botTokenRow?.bot_token ?? '';
+    const userRow = await (0, supabase_rest_1.supabaseGetOne)('usuarios', `select=nome&uid=eq.${encodeURIComponent(uid)}`);
+    const userName = userRow?.nome ?? 'usuário';
     if (botToken) {
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
             method: 'POST',
@@ -251,8 +190,6 @@ exports.validarVinculoTelegram = (0, https_1.onCall)({ region: 'southamerica-eas
             }),
         });
     }
-    // Deleta o código (já usado)
-    await vinculoRef.delete();
     return { sucesso: true, chatId };
 });
 // ─── FUNCTION: iniciarVinculoTelegram (onCall — deep-link 1-toque) ────────────
@@ -265,25 +202,17 @@ exports.iniciarVinculoTelegram = (0, https_1.onCall)({ region: 'southamerica-eas
     const uid = request.auth.uid;
     const token = (0, crypto_1.randomBytes)(16).toString('hex'); // 32 hex, não-adivinhável
     const expiraEm = new Date(Date.now() + 10 * 60 * 1000); // 10 min
-    await db.collection('telegram_vinculos').doc(token).set({
+    await (0, supabase_rest_1.supabaseInsert)('telegram_vinculos', {
+        id: token,
         uid,
         modo: 'deeplink',
-        expiraEm: admin.firestore.Timestamp.fromDate(expiraEm),
-        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+        expira_em: expiraEm.toISOString(),
+        criado_em: new Date().toISOString(),
         usado: false,
     });
-    // Supabase-first para botUsername (Onda G)
-    let botUsername = '';
-    try {
-        const { getTelegramConfigSupa } = await Promise.resolve().then(() => __importStar(require('./telegram-supabase')));
-        const supaCfg = await getTelegramConfigSupa('global');
-        botUsername = String(supaCfg?.bot_username || '').replace(/^@/, '');
-    }
-    catch { /* fallback */ }
-    if (!botUsername) {
-        const cfgSnap = await db.collection('telegram_config').doc('global').get();
-        botUsername = String(cfgSnap.data()?.botUsername ?? '').replace(/^@/, '');
-    }
+    // Busca botUsername do Supabase
+    const cfgRow = await (0, supabase_rest_1.supabaseGetOne)('telegram_config', 'select=bot_username&id=eq.global');
+    const botUsername = String(cfgRow?.bot_username || '').replace(/^@/, '');
     const deepLink = botUsername ? `https://t.me/${botUsername}?start=${token}` : '';
     return { token, deepLink, botUsername };
 });

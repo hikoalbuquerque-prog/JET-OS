@@ -1,20 +1,14 @@
 "use strict";
 // functions/src/notificacoes-prestador.ts
 // Notifica gestores via Telegram quando nova solicitação de prestador chega.
-// Fase 2: reads internos migrados p/ Supabase (usuarios + telegram_config).
-// O trigger continua sendo onDocumentCreated (Firestore) — será substituído
-// por webhook/pg_notify quando Firestore for desligado.
+// Convertido de trigger Firestore para função exportável chamada inline.
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.notificarGestorNovaSolicitacao = void 0;
-const firestore_1 = require("firebase-functions/v2/firestore");
+exports.notificarGestorNovaSolicitacao = notificarGestorNovaSolicitacao;
 const supabase_admin_1 = require("./lib/supabase-admin");
 const ROLES_GESTORES = ['admin', 'gestor', 'supergestor', 'gestor_log'];
-exports.notificarGestorNovaSolicitacao = (0, firestore_1.onDocumentCreated)({ document: 'solicitacoes_prestadores/{docId}', region: 'southamerica-east1', maxInstances: 10 }, async (event) => {
+async function notificarGestorNovaSolicitacao(solicitacao) {
     try {
-        const data = event.data?.data();
-        if (!data)
-            return;
-        const { nome = '—', cargo = '—', cidade = '—', email = '—' } = data;
+        const { nome = '—', cargo = '—', cidade = '—', email = '—' } = solicitacao;
         const supa = (0, supabase_admin_1.supaAdmin)();
         const { data: cfg } = await supa.from('telegram_config').select('bot_token').eq('id', 'global').maybeSingle();
         const botToken = cfg?.bot_token ?? '';
@@ -56,5 +50,5 @@ exports.notificarGestorNovaSolicitacao = (0, firestore_1.onDocumentCreated)({ do
     catch (e) {
         console.error('[notificarGestorNovaSolicitacao] Erro geral:', e);
     }
-});
+}
 //# sourceMappingURL=notificacoes-prestador.js.map

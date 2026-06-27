@@ -173,14 +173,7 @@ export async function tamanhoFila(): Promise<number> {
   return (await lerFila()).length;
 }
 
-// ─── Upload para Firestore ────────────────────────────────────────────────────
-//
-// addDoc(gps_logistica): Firestore offline persistence garante que este write
-// nunca é perdido mesmo com VPN ou sem rede — o SDK bufferiza no IndexedDB
-// e sincroniza ao reconectar. Não há necessidade de retry manual aqui.
-//
-// updateDoc(usuarios): atualização de posição para o mapa em tempo real.
-// É best-effort (UI only) — nunca afeta o registro do ponto GPS.
+// ─── Upload para Supabase (Edge Function ingest-gps) ─────────────────────────
 
 async function uploadPonto(ponto: PontoGPS): Promise<boolean> {
   try {

@@ -17,6 +17,7 @@ import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
 import { onRequest } from 'firebase-functions/v2/https';
 import { supabaseInsert, supabaseUpdate } from './lib/supabase-rest';
+import { verificarChegadaPontoFn } from './gps-alertas';
 
 const MAX_PONTOS = 200;
 
@@ -127,6 +128,13 @@ export const ingestGps = onRequest(
     } catch (e: any) {
       functions.logger.error('[ingestGps] falha ao gravar:', e?.message, { uid });
       res.status(500).json({ error: 'write_failed' }); return;
+    }
+
+    // Trigger verificação de chegada + teleporte + geofencing (antes era trigger Firestore)
+    if (ultima) {
+      verificarChegadaPontoFn(uid, ultima.lat, ultima.lng).catch(e =>
+        functions.logger.warn('[ingestGps] verificarChegadaPonto erro:', e)
+      );
     }
 
     res.status(200).json({ ok: true, written });

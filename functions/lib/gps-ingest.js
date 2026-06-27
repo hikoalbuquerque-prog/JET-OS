@@ -51,9 +51,8 @@ exports.ingestGps = void 0;
 const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions"));
 const https_1 = require("firebase-functions/v2/https");
-const db = admin.firestore();
-// Máx. de pontos por requisição. Cada ponto faz 2 escritas (gps_logistica + histórico);
-// um batch do Firestore aceita 500 operações → 200 pontos = 400 ops, com folga.
+const supabase_rest_1 = require("./lib/supabase-rest");
+const gps_alertas_1 = require("./gps-alertas");
 const MAX_PONTOS = 200;
 exports.ingestGps = (0, https_1.onRequest)({ region: 'southamerica-east1', cors: true, memory: '256MiB', maxInstances: 10 }, async (req, res) => {
     if (req.method === 'OPTIONS') {
@@ -90,8 +89,9 @@ exports.ingestGps = (0, https_1.onRequest)({ region: 'southamerica-east1', cors:
         res.status(413).json({ error: 'too_many_points', max: MAX_PONTOS });
         return;
     }
-    // 3. Grava em lote: gps_logistica (dispara trigger) + histórico permanente.
-    const batch = db.batch();
+    // 3. Collect points for Supabase bulk insert
+    const gpsPoints = [];
+    const histPoints = [];
     let written = 0;
     let ultima = null;
     for (const p of points) {
@@ -99,10 +99,9 @@ exports.ingestGps = (0, https_1.onRequest)({ region: 'southamerica-east1', cors:
             continue;
         const capturedAt = typeof p.capturedAt === 'string' ? p.capturedAt : new Date().toISOString();
         const isMock = p.isMock === true;
-        const ref = db.collection('gps_logistica').doc();
-        batch.set(ref, {
-            uid, // sempre do token — anti-spoofing
-            slotId: p.slotId ?? null,
+        gpsPoints.push({
+            uid,
+            slot_id: p.slotId ?? null,
             lat: p.lat,
             lng: p.lng,
             accuracy: p.accuracy ?? null,
@@ -110,15 +109,18 @@ exports.ingestGps = (0, https_1.onRequest)({ region: 'southamerica-east1', cors:
             heading: p.heading ?? null,
             altitude: p.altitude ?? null,
             bateria: p.bateria ?? null,
-            capturedAt,
+            captured_at: capturedAt,
             estrategia: p.estrategia ?? 'background_android_native',
-            isMock,
-            criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+            is_mock: isMock,
+            criado_em: new Date().toISOString(),
         });
-        const histRef = db.collection('gps_logistica_hist').doc(uid).collection('pontos').doc();
-        batch.set(histRef, {
-            uid, lat: p.lat, lng: p.lng, accuracy: p.accuracy ?? null,
-            capturedAt, criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+        histPoints.push({
+            uid,
+            lat: p.lat,
+            lng: p.lng,
+            accuracy: p.accuracy ?? null,
+            captured_at: capturedAt,
+            criado_em: new Date().toISOString(),
         });
         written++;
         ultima = p;
@@ -127,25 +129,37 @@ exports.ingestGps = (0, https_1.onRequest)({ region: 'southamerica-east1', cors:
         res.status(400).json({ error: 'no_valid_points' });
         return;
     }
-    // 4. Última posição no doc do usuário (mapa ao vivo) — no mesmo batch
-    if (ultima) {
-        batch.set(db.collection('usuarios').doc(uid), {
-            ultimaLat: ultima.lat,
-            ultimaLng: ultima.lng,
-            ultimaAccuracy: ultima.accuracy ?? null,
-            ultimaVelocidade: ultima.speed ?? null,
-            ultimaPosicaoEm: admin.firestore.FieldValue.serverTimestamp(),
-            slotAtualId: ultima.slotId ?? null,
-            ultimoIsMock: ultima.isMock === true,
-        }, { merge: true });
-    }
     try {
-        await batch.commit();
+        // Insert GPS points
+        const okGps = await (0, supabase_rest_1.supabaseInsert)('gps_logistica', gpsPoints);
+        if (!okGps) {
+            functions.logger.error('[ingestGps] falha ao gravar gps_logistica', { uid });
+            res.status(500).json({ error: 'write_failed' });
+            return;
+        }
+        // Insert history points
+        await (0, supabase_rest_1.supabaseInsert)('gps_logistica_hist', histPoints);
+        // Update user's last position
+        if (ultima) {
+            await (0, supabase_rest_1.supabaseUpdate)('usuarios', {
+                ultima_lat: ultima.lat,
+                ultima_lng: ultima.lng,
+                ultima_accuracy: ultima.accuracy ?? null,
+                ultima_velocidade: ultima.speed ?? null,
+                ultima_posicao_em: new Date().toISOString(),
+                slot_atual_id: ultima.slotId ?? null,
+                ultimo_is_mock: ultima.isMock === true,
+            }, `id=eq.${encodeURIComponent(uid)}`);
+        }
     }
     catch (e) {
         functions.logger.error('[ingestGps] falha ao gravar:', e?.message, { uid });
         res.status(500).json({ error: 'write_failed' });
         return;
+    }
+    // Trigger verificação de chegada + teleporte + geofencing (antes era trigger Firestore)
+    if (ultima) {
+        (0, gps_alertas_1.verificarChegadaPontoFn)(uid, ultima.lat, ultima.lng).catch(e => functions.logger.warn('[ingestGps] verificarChegadaPonto erro:', e));
     }
     res.status(200).json({ ok: true, written });
 });

@@ -8,7 +8,7 @@
 // Deploy: export * from './gps-alertas'; no index.ts
 
 import * as functions from 'firebase-functions';
-import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+// onDocumentCreated removido — trigger convertido para chamada direta via gps-ingest
 import { onSchedule }        from 'firebase-functions/v2/scheduler';
 import { onCall }            from 'firebase-functions/v2/https';
 import { supabaseGet, supabaseGetOne, supabaseInsert, supabaseUpdate } from './lib/supabase-rest';
@@ -117,13 +117,7 @@ async function getChatId(cidade: string): Promise<string | null> {
 
 // ─── TRIGGER: novo GPS → verifica chegada ────────────────────────────────────
 
-export const verificarChegadaPonto = onDocumentCreated(
-  { document: 'gps_logistica/{id}', region: 'southamerica-east1', maxInstances: 10 },
-  async (event) => {
-    const gps = event.data?.data();
-    if (!gps?.uid || !gps?.lat || !gps?.lng) return;
-
-    const { uid, lat, lng } = gps;
+export async function verificarChegadaPontoFn(uid: string, lat: number, lng: number): Promise<void> {
 
     // Busca tarefas ativas deste operador que ainda não fizeram check-in
     const tarefasRows = await supabaseGet<any>('tarefas_logistica', `select=*&assignee_uid=eq.${encodeURIComponent(uid)}&status=eq.em_execucao`);
@@ -191,10 +185,15 @@ export const verificarChegadaPonto = onDocumentCreated(
                 ts: new Date().toISOString(),
               }).catch((e) => { functions.logger.warn('[gps-alertas] Supabase insert monitor_alertas falhou:', e); });
 
-              // Marca o ponto GPS como teleporte
-              if (event.data?.ref) {
-                await event.data.ref.update({ isTeleporte: true });
-              }
+              // Marca o ponto GPS como teleporte no Supabase
+              // (o ponto mais recente deste uid)
+              try {
+                const pontoRecente = await supabaseGetOne<any>('gps_logistica', `select=id&uid=eq.${encodeURIComponent(uid)}&order=criado_em.desc&limit=1`);
+                if (pontoRecente?.id) {
+                  await supabaseUpdate('gps_logistica', { is_teleporte: true }, `id=eq.${pontoRecente.id}`);
+                }
+              } catch {}
+
 
               // Envia Telegram
               const tgCfg = await getTgConfig();
@@ -319,8 +318,7 @@ export const verificarChegadaPonto = onDocumentCreated(
     } catch (e) {
       functions.logger.error('[gps-alertas] Erro no geofencing:', e);
     }
-  }
-);
+}
 
 // ─── SCHEDULER: a cada 5min — verifica atrasos e GPS perdido ────────────────
 

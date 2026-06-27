@@ -100,9 +100,12 @@ function okResponse(data) {
 // ── LOG DE EVENTO ────────────────────────────────────────────────
 async function logEvento(params) {
     try {
-        await (0, exports.db)().collection('eventos').add({
-            ...params,
-            criadoEm: admin.firestore.FieldValue.serverTimestamp()
+        const { supabaseInsert } = await Promise.resolve().then(() => __importStar(require('../lib/supabase-rest')));
+        await supabaseInsert('eventos', {
+            tipo: 'audit',
+            titulo: params.descricao,
+            dados: { uid: params.uid, email: params.email, estacaoId: params.estacaoId, meta: params.meta },
+            criado_em: new Date().toISOString(),
         });
     }
     catch (e) {

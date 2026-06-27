@@ -43,6 +43,7 @@ const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const v2_1 = require("firebase-functions/v2");
+const supabase_rest_1 = require("./lib/supabase-rest");
 admin.initializeApp();
 // maxInstances global: limita a CPU reservada por função no Cloud Run. Sem isso
 // cada função pode escalar muito e o total estoura a cota regional de CPU em
@@ -50,7 +51,6 @@ admin.initializeApp();
 // que recriam muitas funções de uma vez. Também controla custo (ver migração Supabase).
 // Funções que precisarem de mais escala podem sobrescrever no próprio options.
 (0, v2_1.setGlobalOptions)({ region: 'southamerica-east1', maxInstances: 3 });
-const db = admin.firestore();
 // ─── CORS helper ──────────────────────────────────────────────────
 function addCORS(res) {
     res.set('Access-Control-Allow-Origin', '*');
@@ -78,12 +78,11 @@ exports.getUsuarioFn = (0, https_1.onRequest)(async (req, res) => {
             res.status(400).json({ erro: 'UID requerido' });
             return;
         }
-        const userDoc = await db.collection('usuarios').doc(uid).get();
-        if (!userDoc.exists) {
+        const d = await (0, supabase_rest_1.supabaseGetOne)('usuarios', `select=*&uid=eq.${encodeURIComponent(uid)}`);
+        if (!d) {
             res.status(404).json({ erro: 'Usuário não encontrado' });
             return;
         }
-        const d = userDoc.data();
         res.json({ uid, email: d.email, nome: d.nome, role: d.role,
             cargoPrestador: d.cargoPrestador, tipoCadastro: d.tipoCadastro,
             statusPrestador: d.statusPrestador });
@@ -103,12 +102,12 @@ exports.registrarLogAcesso = (0, https_1.onRequest)(async (req, res) => {
     }
     try {
         const { uid, email, acao, resultado, metadados } = req.body;
-        const docRef = await db.collection('logs_acesso').add({
+        const ok = await (0, supabase_rest_1.supabaseInsert)('logs_acesso', {
             uid, email, acao, resultado, metadados,
-            timestamp: admin.firestore.Timestamp.now(),
+            timestamp: new Date().toISOString(),
             ip: req.ip || 'desconhecido',
         });
-        res.json({ id: docRef.id });
+        res.json({ id: ok ? 'ok' : 'failed' });
     }
     catch (err) {
         res.status(500).json({ erro: 'Erro ao registrar log' });
@@ -216,8 +215,8 @@ exports.revogarAcesso = (0, https_1.onCall)({ region: 'southamerica-east1', maxI
     const callerUid = request.auth?.uid;
     if (!callerUid)
         throw new Error('Não autenticado');
-    const callerDoc = await db.collection('usuarios').doc(callerUid).get();
-    const callerRole = callerDoc.data()?.role;
+    const callerRow = await (0, supabase_rest_1.supabaseGetOne)('usuarios', `select=role&uid=eq.${encodeURIComponent(callerUid)}`);
+    const callerRole = callerRow?.role;
     if (!['admin', 'gestor', 'supergestor'].includes(callerRole)) {
         throw new Error('Sem permissão');
     }
@@ -227,12 +226,12 @@ exports.revogarAcesso = (0, https_1.onCall)({ region: 'southamerica-east1', maxI
     if (uid === callerUid)
         throw new Error('Não pode revogar o próprio acesso');
     await admin.auth().updateUser(uid, { disabled: true });
-    await db.collection('usuarios').doc(uid).update({
+    await (0, supabase_rest_1.supabaseUpdate)('usuarios', {
         ativo: false,
         role: 'desativado',
-        revogarEm: admin.firestore.FieldValue.serverTimestamp(),
-        revogarPor: callerUid,
-    });
+        revogar_em: new Date().toISOString(),
+        revogar_por: callerUid,
+    }, `uid=eq.${encodeURIComponent(uid)}`);
     return { ok: true };
 });
 //# sourceMappingURL=index.js.map

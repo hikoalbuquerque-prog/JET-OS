@@ -1,15 +1,11 @@
 ﻿// AppShell.tsx — UI shell components extracted from App.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  collection, getDocs, addDoc, setDoc, doc,
-  updateDoc, onSnapshot, deleteDoc, query, where
-} from 'firebase/firestore';
-import { Timestamp as FsTimestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
-import { guardProviderSupabase, carregarOcorrenciasSupabase, guardWriteSupabase, atualizarOcorrenciaSupabase, deletarOcorrenciaSupabase } from '../lib/ocorrencias-supabase';
-import { logisticaWriteSupabase, criarSolicitacaoSupabase } from '../lib/onda-b-supabase';
+import { carregarOcorrenciasSupabase, atualizarOcorrenciaSupabase, deletarOcorrenciaSupabase } from '../lib/ocorrencias-supabase';
+import { criarSolicitacaoSupabase } from '../lib/onda-b-supabase';
+import { escreverUsuarioSupabase } from '../lib/usuarios-supabase';
+import { carregarEstacoesSupabase } from '../lib/estacoes-supabase';
 import L from 'leaflet';
 import { uploadComRetry } from '../lib/uploadUtils';
 import { comprimirImagem, capturarFotoNativa } from '../lib/imageUtils';
@@ -48,10 +44,10 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
   useEffect(() => {
     (async () => {
       try {
-        const snap = await getDocs(collection(db, 'estacoes'));
+        const rows = await carregarEstacoesSupabase();
         const set = new Set<string>();
-        snap.docs.forEach(d => {
-          const c = d.data().cidade;
+        rows.forEach((r: any) => {
+          const c = r.cidade;
           if (c && typeof c === 'string') set.add(c.trim());
         });
         const lista = Array.from(set).sort();
@@ -134,17 +130,17 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
       if (!signUpData.user) throw new Error('Falha ao criar usuário');
       const uid = signUpData.user.id;
 
-      // 2. Criar documento em usuarios
-      await setDoc(doc(db, 'usuarios', uid), {
+      // 2. Criar documento em usuarios (Supabase)
+      await escreverUsuarioSupabase(uid, {
         uid,
         email,
         nome,
         role: isPrestador ? 'prestador_pendente' : roleDesejado,
         paises,
         pais: paises[0] || 'BR',
-        tipoCadastro: isPrestador ? 'prestador' : 'interno',
-        cargoPrestador: isPrestador ? roleDesejado : null,
-        statusPrestador: isPrestador ? 'pendente_aprovacao' : null,
+        tipo_cadastro: isPrestador ? 'prestador' : 'interno',
+        cargo_prestador: isPrestador ? roleDesejado : null,
+        status_prestador: isPrestador ? 'pendente_aprovacao' : null,
         ...(isPrestador ? {
           cpf_cnpj: cpfCnpj.trim(),
           pix_chave: chavePix.trim(),
@@ -152,7 +148,7 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
           tipo_contrato: tipoContrato,
           cidade: cidade,
         } : {}),
-        data_criacao: new Date()
+        data_criacao: new Date().toISOString(),
       });
 
       // 3. SE É PRESTADOR - SALVAR SOLICITAÇÃO
@@ -170,13 +166,16 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
           telegram: telegramNum.trim(),
           motivo_cadastro: motivo.trim() || '',
           status: 'pendente',
-          data_criacao: new Date(),
+          data_criacao: new Date().toISOString(),
           pais: paises[0] || 'BR'
         };
-        const solRef = await addDoc(collection(db, 'solicitacoes_prestadores'), novaSolic);
-        if (logisticaWriteSupabase()) {
-          criarSolicitacaoSupabase(solRef.id, novaSolic).catch(err => console.error('[log-write] solicitacao Supabase:', err));
-        }
+        const { data: solData } = await supabase
+          .from('solicitacoes_prestadores')
+          .insert(novaSolic)
+          .select('id')
+          .single();
+        const solId = solData?.id ?? crypto.randomUUID();
+        criarSolicitacaoSupabase(solId, novaSolic).catch(err => console.error('[supa] solicitacao:', err));
       }
 
       setOk(true);
@@ -784,9 +783,12 @@ export function DocPublicoModal({ estacaoId, cidade, docAtual, onFechar, onSalvo
       let finalAut = autUrl;
       if (tpuFile) finalTpu = await uploadFile(tpuFile, `docPublico/${estacaoId}/tpu_${Date.now()}.${tpuFile.name.split('.').pop()}`);
       if (autFile) finalAut = await uploadFile(autFile, `docPublico/${estacaoId}/aut_${Date.now()}.${autFile.name.split('.').pop()}`);
-      await updateDoc(doc(db, 'estacoes', estacaoId), {
-        docPublico: { tpu: finalTpu, autorizacao: finalAut, obs, atualizadoEm: new Date().toISOString() }
-      });
+      const docPublico = { tpu: finalTpu, autorizacao: finalAut, obs, atualizadoEm: new Date().toISOString() };
+      const { error: estErr } = await supabase
+        .from('estacoes')
+        .update({ doc_publico: docPublico, updated_at: new Date().toISOString() })
+        .eq('firebase_id', estacaoId);
+      if (estErr) throw estErr;
       onSalvo();
     } catch(e: any) { alert(t('appShell.errorSaving') + e.message); }
     setBusy(false);
@@ -912,17 +914,9 @@ export function TelaTrocarSenha({ onConcluido, onLogout }: {
       const { error: updErr } = await supabase.auth.updateUser({ password: novaSenha });
       if (updErr) throw new Error(updErr.message);
 
-      // Remover flag senhaTemporaria do Firestore
-      const { doc: fsDoc, updateDoc, collection: col } = await import('firebase/firestore');
+      // Remover flag senhaTemporaria no Supabase
       const uid = supaUser.user_metadata?.firebase_uid || supaUser.id;
-      await updateDoc(fsDoc(col(db, 'usuarios'), uid), { senhaTemporaria: false });
-
-      try {
-        const { usuariosWriteSupabase, escreverUsuarioSupabase } = await import('../lib/usuarios-supabase');
-        if (usuariosWriteSupabase()) {
-          await escreverUsuarioSupabase(uid, { senhaTemporaria: false });
-        }
-      } catch (e) { console.warn('[supa] senhaTemporaria dual-write falhou', e); }
+      await escreverUsuarioSupabase(uid, { senha_temporaria: false });
 
       onConcluido();
     } catch (err: any) {
@@ -1800,7 +1794,7 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
         estacaoId: estacaoId.trim(), observacao_fechamento: obs.trim(),
         bo_numero: boNum.trim(), bo_url: boUrl,
         ultimoEditor: usuario.uid,
-        updated_at: FsTimestamp.fromDate(new Date()),
+        updated_at: new Date().toISOString(),
         ...(dataOcorr ? { dataManual: dataOcorr } : {}),
         ...(tipo === 'Vandalismo' ? {
           danoPct:   danoPct.trim()   !== '' ? Number(danoPct)                     : null,
@@ -1819,8 +1813,7 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
       if (endereco)   patch.endereco_inicial = endereco.trim();
       if (bairro)     patch.bairro_inicial   = bairro.trim();
       if (cidade)     patch.cidade_inicial   = cidade.trim();
-      await updateDoc(doc(db,'ocorrencias',ocorrencia.id), patch);
-      if (guardWriteSupabase()) atualizarOcorrenciaSupabase(ocorrencia.id, patch).catch(err => console.error('[guard-write] update Supabase:', err));
+      await atualizarOcorrenciaSupabase(ocorrencia.id, patch);
       onSalvo();
     } catch(e:any) { setErro('Erro: '+(e?.message||'tente novamente')); }
     setBusy(false);
@@ -1833,10 +1826,8 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
     setErro('');
     setConfirmarExcluir(false);
     try {
-      const { deleteDoc: delFn } = await import('firebase/firestore');
-      await delFn(doc(db, 'ocorrencias', docId));
-      if (guardWriteSupabase()) deletarOcorrenciaSupabase(docId).catch(err => console.error('[guard-write] delete Supabase:', err));
-      console.log('[excluir ocorrencia] OK deletado do Firestore:', docId);
+      await deletarOcorrenciaSupabase(docId);
+      console.log('[excluir ocorrencia] OK deletado do Supabase:', docId);
       onFechar();
       onSalvo();
     } catch(e:any) {
@@ -2299,22 +2290,23 @@ export function GuardOverlay({ mapInstance, onOcorrenciasChange, onFechar, cidad
         setOcorrencias(lista);
         onOcorrenciasChange(lista);
     };
-    // Fase 2 / Onda B — leitura do Supabase atrás de flag (read-only).
-    if (guardProviderSupabase()) {
-      carregarOcorrenciasSupabase({ limit: 10000 })
-        .then(rows => { if (ativo) processar(rows.map((r: any) => ({ ...r, docId: r.id }))); })
-        .catch(err => console.error('[GuardOverlay] Supabase', err));
-      return () => { ativo = false; };
-    }
-    const q = query(collection(db, 'ocorrencias'));
-    const unsub = onSnapshot(q,
-      snap => {
+    // Supabase — leitura de ocorrências
+    carregarOcorrenciasSupabase({ limit: 10000 })
+      .then(rows => { if (ativo) processar(rows.map((r: any) => ({ ...r, docId: r.id }))); })
+      .catch(err => console.error('[GuardOverlay] Supabase', err));
+
+    // Realtime channel for live updates
+    const channel = supabase
+      .channel('guard-ocorrencias')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ocorrencias' }, () => {
         if (!ativo) return;
-        processar(snap.docs.map(d => ({ docId: d.id, ...d.data(), id: d.id })));
-      },
-      err => { console.error('[GuardOverlay] Firestore error:', err.code, err.message); }
-    );
-    return () => { ativo = false; unsub(); };
+        carregarOcorrenciasSupabase({ limit: 10000 })
+          .then(rows => { if (ativo) processar(rows.map((r: any) => ({ ...r, docId: r.id }))); })
+          .catch(err => console.error('[GuardOverlay] Supabase realtime reload', err));
+      })
+      .subscribe();
+
+    return () => { ativo = false; supabase.removeChannel(channel); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cidade, filtroDias, modoCustom, customDe, customAte]);
 

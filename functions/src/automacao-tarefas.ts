@@ -15,7 +15,7 @@ import * as admin from 'firebase-admin';
 import { logger } from 'firebase-functions/v2';
 import * as https from 'firebase-functions/v2/https';
 import * as scheduler from 'firebase-functions/v2/scheduler';
-import * as firestore from 'firebase-functions/v2/firestore';
+// firestore trigger removido — notificarTurnoFn agora é chamada diretamente
 import { getAppSetting } from './config-supabase';
 import { supabaseGet, supabaseGetOne, supabaseInsert, supabaseUpdate } from './lib/supabase-rest';
 import { randomUUID } from 'crypto';
@@ -1089,12 +1089,7 @@ export const escalarSlotsSLA = scheduler.onSchedule(
 // NOTIFICAÇÕES DE TURNO — dispara quando worker registra entrada/saída
 // ══════════════════════════════════════════════════════════════════════════════
 
-export const notificarTurnoFn = firestore.onDocumentCreated(
-  { document: 'turnos/{turnoId}', region: 'southamerica-east1', maxInstances: 10 },
-  async (event) => {
-    const turno = event.data?.data();
-    if (!turno) return;
-
+export async function notificarTurnoFn(turno: { nome: string; acao: string; funcao: string; turno: string; cidade: string }): Promise<void> {
     const { nome, acao, funcao, turno: turnoId, cidade } = turno;
     const emoji = acao === 'entrada' ? '▶' : '⏹';
     const hora  = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
@@ -1121,8 +1116,7 @@ export const notificarTurnoFn = firestore.onDocumentCreated(
     } catch (e) {
       logger.error('[notificarTurno] erro:', e);
     }
-  }
-);
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // HISTÓRICO DE PARKINGS — salva snapshot diário para análise histórica

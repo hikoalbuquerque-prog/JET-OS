@@ -2,6 +2,7 @@
 import * as admin from 'firebase-admin';
 import { erroResponse, okResponse, logEvento } from '../utils';
 import { supabaseGet, supabaseGetOne, supabaseInsert, supabaseUpdate, supabaseUpsert } from '../lib/supabase-rest';
+import { notificarGestorNovaSolicitacao } from '../notificacoes-prestador';
 
 // ── GET USUÁRIO ──────────────────────────────────────────────────
 export async function getUsuario(uid: string) {
@@ -53,6 +54,8 @@ export async function solicitarAcesso(payload: {
     status:        'PENDENTE',
     criado_em:     new Date().toISOString()
   });
+
+  notificarGestorNovaSolicitacao({ nome, cargo: roleValido, cidade: paises?.[0] ?? '', email }).catch(() => {});
 
   return okResponse({ mensagem: 'Solicitação enviada com sucesso.' });
 }

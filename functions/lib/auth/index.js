@@ -41,17 +41,18 @@ exports.listarUsuarios = listarUsuarios;
 // functions/src/auth/index.ts
 const admin = __importStar(require("firebase-admin"));
 const utils_1 = require("../utils");
+const supabase_rest_1 = require("../lib/supabase-rest");
+const notificacoes_prestador_1 = require("../notificacoes-prestador");
 // ── GET USUÁRIO ──────────────────────────────────────────────────
 async function getUsuario(uid) {
-    const docSnap = await (0, utils_1.db)().collection('usuarios').doc(uid).get();
-    if (!docSnap.exists)
+    const data = await (0, supabase_rest_1.supabaseGetOne)('usuarios', `select=*&uid=eq.${encodeURIComponent(uid)}`);
+    if (!data)
         return (0, utils_1.erroResponse)('Usuário não encontrado.');
-    const data = docSnap.data();
     if (!data.ativo)
         return (0, utils_1.erroResponse)('Usuário inativo.');
-    await (0, utils_1.db)().collection('usuarios').doc(uid).update({
-        ultimoAcesso: admin.firestore.FieldValue.serverTimestamp()
-    });
+    await (0, supabase_rest_1.supabaseUpdate)('usuarios', {
+        ultimo_acesso: new Date().toISOString()
+    }, `uid=eq.${encodeURIComponent(uid)}`);
     return (0, utils_1.okResponse)({
         usuario: {
             uid: data.uid,
@@ -69,24 +70,22 @@ async function solicitarAcesso(payload) {
     if (!email || !nome || !paises?.length) {
         return (0, utils_1.erroResponse)('Email, nome e países são obrigatórios.');
     }
-    const existente = await (0, utils_1.db)().collection('solicitacoes')
-        .where('email', '==', email)
-        .where('status', '==', 'PENDENTE')
-        .get();
-    if (!existente.empty) {
+    const existente = await (0, supabase_rest_1.supabaseGet)('solicitacoes_prestadores', `select=id&email=eq.${encodeURIComponent(email)}&status=eq.PENDENTE`);
+    if (existente && existente.length > 0) {
         return (0, utils_1.erroResponse)('Já existe uma solicitação pendente para este email.');
     }
     const rolesValidos = ['campo', 'guard'];
     const roleValido = rolesValidos.includes(roleDesejado || '') ? roleDesejado : 'campo';
-    await (0, utils_1.db)().collection('solicitacoes').add({
+    await (0, supabase_rest_1.supabaseInsert)('solicitacoes_prestadores', {
         email,
         nome,
         paises,
         motivo: motivo || '',
-        roleDesejado: roleValido,
+        role_desejado: roleValido,
         status: 'PENDENTE',
-        criadoEm: admin.firestore.FieldValue.serverTimestamp()
+        criado_em: new Date().toISOString()
     });
+    (0, notificacoes_prestador_1.notificarGestorNovaSolicitacao)({ nome, cargo: roleValido, cidade: paises?.[0] ?? '', email }).catch(() => { });
     return (0, utils_1.okResponse)({ mensagem: 'Solicitação enviada com sucesso.' });
 }
 // ── APROVAR SOLICITAÇÃO ──────────────────────────────────────────
@@ -94,19 +93,17 @@ async function solicitarAcesso(payload) {
 //   'campo' → acessa TelaMapa (estações)
 //   'guard' → acessa TelaGuard (ocorrências)
 async function aprovarSolicitacao(solicitacaoId, uid, email, roleOverride) {
-    const ref = (0, utils_1.db)().collection('solicitacoes').doc(solicitacaoId);
-    const docSnap = await ref.get();
-    if (!docSnap.exists)
+    const sol = await (0, supabase_rest_1.supabaseGetOne)('solicitacoes_prestadores', `select=*&id=eq.${encodeURIComponent(solicitacaoId)}`);
+    if (!sol)
         return (0, utils_1.erroResponse)('Solicitação não encontrada.');
-    const sol = docSnap.data();
     // Determina role final: override > roleDesejado da solicitação > fallback 'campo'
     const rolesPermitidos = ['campo', 'guard'];
     let roleFinal = 'campo';
     if (roleOverride && rolesPermitidos.includes(roleOverride)) {
         roleFinal = roleOverride;
     }
-    else if (sol.roleDesejado && rolesPermitidos.includes(sol.roleDesejado)) {
-        roleFinal = sol.roleDesejado;
+    else if (sol.role_desejado && rolesPermitidos.includes(sol.role_desejado)) {
+        roleFinal = sol.role_desejado;
     }
     // Cria ou busca usuário no Firebase Auth
     let userRecord;
@@ -120,16 +117,16 @@ async function aprovarSolicitacao(solicitacaoId, uid, email, roleOverride) {
             displayName: sol.nome
         });
     }
-    // Cria / sobrescreve perfil no Firestore com role correto
-    await (0, utils_1.db)().collection('usuarios').doc(userRecord.uid).set({
+    // Cria / sobrescreve perfil no Supabase com role correto
+    await (0, supabase_rest_1.supabaseUpsert)('usuarios', {
         uid: userRecord.uid,
         email: sol.email,
         nome: sol.nome,
         role: roleFinal,
         paises: sol.paises,
         ativo: true,
-        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-        ultimoAcesso: null
+        criado_em: new Date().toISOString(),
+        ultimo_acesso: null
     });
     // Envia email de reset de senha para o novo usuário definir a senha
     try {
@@ -155,12 +152,12 @@ async function aprovarSolicitacao(solicitacaoId, uid, email, roleOverride) {
         // Não falha a aprovação por causa do email
     }
     // Atualiza solicitação
-    await ref.update({
+    await (0, supabase_rest_1.supabaseUpdate)('solicitacoes_prestadores', {
         status: 'APROVADA',
-        resolvidoEm: admin.firestore.FieldValue.serverTimestamp(),
-        resolvidoPor: email,
-        roleAtribuido: roleFinal
-    });
+        resolvido_em: new Date().toISOString(),
+        resolvido_por: email,
+        role_atribuido: roleFinal
+    }, `id=eq.${encodeURIComponent(solicitacaoId)}`);
     await (0, utils_1.logEvento)({
         tipo: 'STATUS_CHANGED',
         uid,
@@ -175,21 +172,16 @@ async function aprovarSolicitacao(solicitacaoId, uid, email, roleOverride) {
 }
 // ── LISTAR SOLICITAÇÕES PENDENTES ────────────────────────────────
 async function listarSolicitacoesPendentes() {
-    const snap = await (0, utils_1.db)().collection('solicitacoes')
-        .where('status', '==', 'PENDENTE')
-        .orderBy('criadoEm', 'desc')
-        .get();
+    const rows = await (0, supabase_rest_1.supabaseGet)('solicitacoes_prestadores', 'select=*&status=eq.PENDENTE&order=criado_em.desc');
     return (0, utils_1.okResponse)({
-        solicitacoes: snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        solicitacoes: rows ?? []
     });
 }
 // ── LISTAR USUÁRIOS ──────────────────────────────────────────────
 async function listarUsuarios() {
-    const snap = await (0, utils_1.db)().collection('usuarios')
-        .orderBy('criadoEm', 'desc')
-        .get();
+    const rows = await (0, supabase_rest_1.supabaseGet)('usuarios', 'select=*&order=criado_em.desc');
     return (0, utils_1.okResponse)({
-        usuarios: snap.docs.map(d => d.data())
+        usuarios: rows ?? []
     });
 }
 //# sourceMappingURL=index.js.map

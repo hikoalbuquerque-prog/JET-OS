@@ -45,15 +45,16 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.exportarHistoricoParking = exports.salvarHistoricoParking = exports.notificarTurnoFn = exports.escalarSlotsSLA = exports.gerarSlotsManualFn = exports.gerarSlotsInteligenteFn = exports.notificarTarefaFn = exports.gerarTarefasAgendado = exports.gerarTarefasGoJetFn = void 0;
+exports.exportarHistoricoParking = exports.salvarHistoricoParking = exports.escalarSlotsSLA = exports.gerarSlotsManualFn = exports.gerarSlotsInteligenteFn = exports.notificarTarefaFn = exports.gerarTarefasAgendado = exports.gerarTarefasGoJetFn = void 0;
+exports.notificarTurnoFn = notificarTurnoFn;
 const admin = __importStar(require("firebase-admin"));
 const v2_1 = require("firebase-functions/v2");
 const https = __importStar(require("firebase-functions/v2/https"));
 const scheduler = __importStar(require("firebase-functions/v2/scheduler"));
-const firestore = __importStar(require("firebase-functions/v2/firestore"));
+// firestore trigger removido — notificarTurnoFn agora é chamada diretamente
 const config_supabase_1 = require("./config-supabase");
 const supabase_rest_1 = require("./lib/supabase-rest");
-const db = admin.firestore();
+const crypto_1 = require("crypto");
 function classificarPonto(p) {
     const avail = p.availableCount ?? 0;
     const target = p.target_bikes_count ?? 0;
@@ -155,19 +156,14 @@ async function gerarTarefasDeSnapshot(opts = {}) {
     // 3. Buscar tarefas pendentes já existentes para evitar duplicatas
     let tarefasExistentes = new Set();
     if (evitarDuplicatas) {
-        const existSnap = await db.collection('tarefas_logistica')
-            .where('cidade', '==', cidade)
-            .where('status', 'in', ['pendente', 'em_execucao'])
-            .where('geradoPorGoJet', '==', true)
-            .get();
-        tarefasExistentes = new Set(existSnap.docs.map(d => d.data().parkingId));
+        const existRows = await (0, supabase_rest_1.supabaseGet)('tarefas_logistica', `select=parking_id&cidade=eq.${encodeURIComponent(cidade)}&status=in.(pendente,em_execucao)&gerado_por_gojet=eq.true`);
+        tarefasExistentes = new Set((existRows ?? []).map((r) => r.parking_id));
     }
-    // 4. Criar tarefas em batch
+    // 4. Criar tarefas via Supabase
     let criadas = 0, puladas = 0, erros = 0;
     const detalhes = [];
-    const batch = db.batch();
+    const tarefasParaInserir = [];
     for (const p of criticos) {
-        // Pula se já tem tarefa para este ponto
         if (evitarDuplicatas && tarefasExistentes.has(p.id)) {
             puladas++;
             continue;
@@ -176,7 +172,7 @@ async function gerarTarefasDeSnapshot(opts = {}) {
         const zerado = p.availableCount === 0;
         const prioridade = zerado ? 5 :
             (p.availableCount / p.target_bikes_count < 0.25 ? 4 : 3);
-        const tarefa = {
+        tarefasParaInserir.push({
             kind: 'PONTO',
             titulo: `${zerado ? '🚨' : '⚠️'} ${p.name ?? p.id}`,
             descricao: zerado
@@ -184,35 +180,31 @@ async function gerarTarefasDeSnapshot(opts = {}) {
                 : `Abaixo do target — levar ${falta} patinete${falta !== 1 ? 's' : ''} (${p.availableCount}/${p.target_bikes_count})`,
             status: 'pendente',
             prioridade,
-            parkingId: p.id,
-            parkingNome: p.name,
-            parkingLat: p.latitude,
-            parkingLng: p.longitude,
-            targetCount: falta,
-            deliveredCount: 0,
-            assigneeUid: null,
-            assigneeNome: null,
+            parking_id: p.id,
+            parking_nome: p.name,
+            parking_lat: p.latitude,
+            parking_lng: p.longitude,
+            target_count: falta,
+            delivered_count: 0,
+            assignee_uid: null,
+            assignee_nome: null,
             cidade, pais,
-            criadoPor: 'system',
-            criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-            atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-            geradoPorGoJet: true,
-            geradoEm: admin.firestore.FieldValue.serverTimestamp(),
-            slotId: null,
-        };
-        try {
-            const ref = db.collection('tarefas_logistica').doc();
-            batch.set(ref, tarefa);
-            criadas++;
-            detalhes.push(`✅ ${p.name}: -${falta} (${p.availableCount}/${p.target_bikes_count})`);
-        }
-        catch (e) {
-            erros++;
-            detalhes.push(`❌ ${p.name}: ${e}`);
-        }
+            criado_por: 'system',
+            criado_em: new Date().toISOString(),
+            atualizado_em: new Date().toISOString(),
+            gerado_por_gojet: true,
+            gerado_em: new Date().toISOString(),
+            slot_id: null,
+        });
+        criadas++;
+        detalhes.push(`✅ ${p.name}: -${falta} (${p.availableCount}/${p.target_bikes_count})`);
     }
-    if (criadas > 0) {
-        await batch.commit();
+    if (tarefasParaInserir.length > 0) {
+        const ok = await (0, supabase_rest_1.supabaseInsert)('tarefas_logistica', tarefasParaInserir);
+        if (!ok) {
+            erros = tarefasParaInserir.length;
+            criadas = 0;
+        }
         // Notificar via Telegram
         const zerados = criticos.filter(p => p.availableCount === 0).length;
         const msg = [
@@ -297,8 +289,8 @@ exports.notificarTarefaFn = https.onCall({ region: 'southamerica-east1', maxInst
         return { ok: true };
     const resultados = [];
     try {
-        const userDoc = await db.collection('usuarios').doc(assigneeUid).get();
-        const userData = userDoc.data() ?? {};
+        const userRow = await (0, supabase_rest_1.supabaseGetOne)('usuarios', `select=*&id=eq.${encodeURIComponent(assigneeUid)}`);
+        const userData = userRow ?? {};
         // 1. FCM push nativo (Android/iOS)
         const tokenFCM = fcmToken ?? userData.fcmToken ?? null;
         if (tokenFCM) {
@@ -461,31 +453,31 @@ async function encontrarWorkersProximos(cidade, tipoSlot, lat, lng, qtd = 1) {
 // Busca histórico da mesma hora do dia anterior para ajuste de alvo
 async function getHistoricoHora(zona, cidade) {
     try {
-        const ontemInicio = new Date(Date.now() - 24 * 3600 * 1000 - 3600 * 1000);
-        const ontemFim = new Date(Date.now() - 24 * 3600 * 1000 + 3600 * 1000);
-        const snap = await db.collection('log_slots_auto')
-            .where('zona', '==', zona)
-            .where('cidade', '==', cidade)
-            .where('tipoSlot', '==', 'scout')
-            .get();
-        const relevantes = snap.docs
-            .map(d => d.data())
-            .filter(d => {
-            const t = d.registradoEm?.toMillis?.() ?? 0;
-            return t >= ontemInicio.getTime() && t <= ontemFim.getTime();
-        });
-        if (relevantes.length === 0)
+        const ontemInicio = new Date(Date.now() - 24 * 3600 * 1000 - 3600 * 1000).toISOString();
+        const ontemFim = new Date(Date.now() - 24 * 3600 * 1000 + 3600 * 1000).toISOString();
+        const rows = await (0, supabase_rest_1.supabaseGet)('log_slots_auto', `select=bikes_alvo&zona=eq.${encodeURIComponent(zona)}&cidade=eq.${encodeURIComponent(cidade)}&tipo_slot=eq.scout&registrado_em=gte.${encodeURIComponent(ontemInicio)}&registrado_em=lte.${encodeURIComponent(ontemFim)}`);
+        if (!rows || rows.length === 0)
             return 0;
-        return relevantes.reduce((s, d) => s + (d.bikesAlvo ?? 0), 0) / relevantes.length;
+        return rows.reduce((s, d) => s + (d.bikes_alvo ?? 0), 0) / rows.length;
     }
     catch {
         return 0;
     }
 }
-// Loga decisão no Firestore
+// Loga decisão — Supabase-only
 async function logDecisao(dados) {
     try {
-        await db.collection('log_slots_auto').add({ ...dados, registradoEm: admin.firestore.FieldValue.serverTimestamp() });
+        await (0, supabase_rest_1.supabaseInsert)('log_slots_auto', {
+            zona: dados.zona, cidade: dados.cidade, tipo_slot: dados.tipoSlot,
+            bikes_encontradas: dados.bikesEncontradas ?? null,
+            bikes_alvo: dados.bikesAlvo ?? null,
+            clima_status: dados.climaStatus ?? null,
+            regra_aplicada: dados.regraAplicada,
+            slot_criado: dados.slotCriado,
+            slot_id: dados.slotId ?? null,
+            motivo: dados.motivo ?? null,
+            registrado_em: new Date().toISOString(),
+        });
     }
     catch { /* silencioso */ }
 }
@@ -496,57 +488,57 @@ async function criarSlotAuto(dados) {
     const titulo = `${emoji} ${label} — ${dados.zona} (${dados.tarefas.length} ${dados.tarefas.length === 1 ? 'ponto' : 'pontos'})`;
     const agora = new Date();
     const turnoFim = new Date(agora.getTime() + 4 * 3600 * 1000);
-    const slotRef = db.collection('slots').doc();
-    const slotId = slotRef.id;
+    const slotId = (0, crypto_1.randomUUID)();
     const primeiroWorker = dados.workers?.[0] ?? null;
-    await slotRef.set({
-        titulo, tipoSlot: dados.tipoSlot, tipoGeracao: 'automatico',
+    await (0, supabase_rest_1.supabaseInsert)('slots', {
+        id: slotId,
+        titulo, tipo_slot: dados.tipoSlot, tipo_geracao: 'automatico',
         prioridade: dados.prioridade, zona: dados.zona, cargo: dados.tipoSlot,
         cidade: dados.cidade, pais: dados.pais,
-        turnoInicio: agora.toISOString(), turnoFim: turnoFim.toISOString(),
-        status: 'aberto', criadoPor: 'system',
-        aceitoPor: primeiroWorker?.uid ?? null,
-        aceitoPorNome: primeiroWorker?.nome ?? null,
-        aceitoEm: primeiroWorker ? admin.firestore.FieldValue.serverTimestamp() : null,
-        workersAtribuidos: (dados.workers ?? []).map(w => ({ uid: w.uid, nome: w.nome })),
-        tarefasIds: [], tarefasTotal: dados.tarefas.length, tarefasConcluidas: 0,
-        slaAceiteMin: dados.slaAceiteMin,
-        geradoPorClima: !!dados.climaStatus, climaStatus: dados.climaStatus ?? null,
-        n8nDistribuido: false,
-        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-        atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+        turno_inicio: agora.toISOString(), turno_fim: turnoFim.toISOString(),
+        status: 'aberto', criado_por: 'system',
+        aceito_por: primeiroWorker?.uid ?? null,
+        aceito_por_nome: primeiroWorker?.nome ?? null,
+        aceito_em: primeiroWorker ? new Date().toISOString() : null,
+        workers_atribuidos: (dados.workers ?? []).map(w => ({ uid: w.uid, nome: w.nome })),
+        tarefas_ids: [], tarefas_total: dados.tarefas.length, tarefas_concluidas: 0,
+        sla_aceite_min: dados.slaAceiteMin,
+        gerado_por_clima: !!dados.climaStatus, clima_status: dados.climaStatus ?? null,
+        n8n_distribuido: false,
+        criado_em: new Date().toISOString(),
+        atualizado_em: new Date().toISOString(),
     });
     const tarefaIds = [];
-    const batch = db.batch();
+    const tarefasData = [];
     for (let i = 0; i < dados.tarefas.length; i++) {
         const t = dados.tarefas[i];
-        const tRef = db.collection('tarefas').doc();
-        // Distribui tarefas entre workers em round-robin
+        const tId = (0, crypto_1.randomUUID)();
         const wIdx = dados.workers?.length ? i % dados.workers.length : -1;
         const w = dados.workers?.[wIdx] ?? null;
         const pNum = (t.prioridade ?? dados.prioridade) === 'urgente' ? 5
             : (t.prioridade ?? dados.prioridade) === 'alta' ? 4 : 3;
-        batch.set(tRef, {
+        tarefasData.push({
+            id: tId,
             tipo: dados.tipoSlot === 'scout' ? 'rebalanceamento' : 'troca_bateria',
-            tipoSlot: dados.tipoSlot, status: 'pendente',
+            tipo_slot: dados.tipoSlot, status: 'pendente',
             prioridade: pNum,
             titulo: t.titulo,
             descricao: t.subtitulo ?? null,
             cargo: dados.tipoSlot,
-            cidade: dados.cidade, pais: dados.pais, slotId,
-            assigneeUid: w?.uid ?? null,
-            assigneeNome: w?.nome ?? null,
-            qtdAlvo: t.qtdAlvo, qtdConcluida: 0, entregas: [],
-            patineteSugeridas: t.patineteSugeridas ?? [],
-            estacao: { id: t.parkingId ?? tRef.id, nome: t.parkingNome, lat: t.parkingLat, lng: t.parkingLng },
-            rotaOrdem: i,
-            criadoEm: admin.firestore.FieldValue.serverTimestamp(),
-            atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
+            cidade: dados.cidade, pais: dados.pais, slot_id: slotId,
+            assignee_uid: w?.uid ?? null,
+            assignee_nome: w?.nome ?? null,
+            qtd_alvo: t.qtdAlvo, qtd_concluida: 0, entregas: [],
+            patinete_sugeridas: t.patineteSugeridas ?? [],
+            estacao: { id: t.parkingId ?? tId, nome: t.parkingNome, lat: t.parkingLat, lng: t.parkingLng },
+            rota_ordem: i,
+            criado_em: new Date().toISOString(),
+            atualizado_em: new Date().toISOString(),
         });
-        tarefaIds.push(tRef.id);
+        tarefaIds.push(tId);
     }
-    await batch.commit();
-    await slotRef.update({ tarefasIds: tarefaIds, atualizadoEm: admin.firestore.FieldValue.serverTimestamp() });
+    await (0, supabase_rest_1.supabaseInsert)('tarefas', tarefasData);
+    await (0, supabase_rest_1.supabaseUpdate)('slots', { tarefas_ids: tarefaIds, atualizado_em: new Date().toISOString() }, `id=eq.${slotId}`);
     return slotId;
 }
 // Encontra a faixa de horário ativa para o momento atual
@@ -684,12 +676,8 @@ async function executarMotorSlots() {
                 const faixaAtiva = getFaixaAtiva(cfg.faixasHorario ?? []);
                 const prioridade = faixaAtiva?.prioridade ?? prioridadeHorario();
                 // Verificar se já existe slot aberto para esta zona (evitar duplicatas)
-                const slotExistente = await db.collection('slots')
-                    .where('zona', '==', cfg.zonaNome)
-                    .where('cidade', '==', cidade)
-                    .where('status', 'in', ['aberto', 'aceito', 'a_caminho', 'em_andamento'])
-                    .limit(1).get();
-                if (!slotExistente.empty)
+                const slotExistenteRows = await (0, supabase_rest_1.supabaseGet)('slots', `select=id&zona=eq.${encodeURIComponent(cfg.zonaNome)}&cidade=eq.${encodeURIComponent(cidade)}&status=in.(aberto,aceito,a_caminho,em_andamento)&limit=1`);
+                if (slotExistenteRows && slotExistenteRows.length > 0)
                     continue;
                 // ── SCOUT
                 if (cfg.scoutAtivo) {
@@ -879,21 +867,18 @@ async function executarMotorSlots() {
                         }).catch((e) => { v2_1.logger.warn('[monitor-alertas] Supabase insert failed:', e); });
                         // Push FCM para gestores logística da cidade
                         try {
-                            const gestoresSnap = await db.collection('usuarios')
-                                .where('role', 'in', ['admin', 'gestor', 'supergestor', 'gestor_log'])
-                                .get();
-                            const uidsGestores = gestoresSnap.docs
-                                .filter(d => {
-                                const data = d.data();
-                                const cidades = data.cidadesGerenciaLog || data.cidadesPermitidas || [];
+                            const gestoresRows = await (0, supabase_rest_1.supabaseGet)('usuarios', `select=id,cidades_gerencia_log,cidades_permitidas&role=in.(admin,gestor,supergestor,gestor_log)`);
+                            const uidsGestores = (gestoresRows ?? [])
+                                .filter((d) => {
+                                const cidades = d.cidades_gerencia_log || d.cidades_permitidas || [];
                                 return cidades.length === 0 || cidades.includes(cidade);
                             })
-                                .map(d => d.id);
+                                .map((d) => d.id);
                             if (uidsGestores.length > 0) {
-                                const tokenSnaps = await Promise.all(uidsGestores.map(uid => db.collection('fcm_tokens').doc(uid).get()));
-                                const tokens = tokenSnaps
-                                    .filter(s => s.exists && s.data()?.token)
-                                    .map(s => s.data().token);
+                                const tokenRows = await (0, supabase_rest_1.supabaseGet)('fcm_tokens', `select=uid,token&uid=in.(${uidsGestores.map((u) => encodeURIComponent(u)).join(',')})`);
+                                const tokens = (tokenRows ?? [])
+                                    .filter((s) => s.token)
+                                    .map((s) => s.token);
                                 if (tokens.length > 0) {
                                     const batMin = Math.round(Math.min(...criticas.map(b => b.battery_percent ?? 0)) * 100);
                                     await admin.messaging().sendEachForMulticast({
@@ -950,12 +935,10 @@ exports.gerarSlotsManualFn = https.onCall({ region: 'southamerica-east1', maxIns
 // ─── Escalamento SLA: roda a cada 5 minutos ──────────────────────────────────
 exports.escalarSlotsSLA = scheduler.onSchedule({ schedule: '*/5 * * * *', timeZone: 'America/Sao_Paulo', region: 'southamerica-east1', maxInstances: 10 }, async () => {
     try {
-        const agora = admin.firestore.Timestamp.now();
-        const snap = await db.collection('slots')
-            .where('status', '==', 'aberto')
-            .get();
+        const agora = new Date().toISOString();
+        const agoraMs = Date.now();
+        const slotsRows = await (0, supabase_rest_1.supabaseGet)('slots', 'select=*&status=eq.aberto');
         const botToken = await getBotTokenLocal();
-        // telegram_config — Supabase-only
         let diretoriaChatId = '';
         try {
             const sbTgCfg = await (0, supabase_rest_1.supabaseGetOne)('telegram_config', 'select=*&id=eq.global');
@@ -965,31 +948,27 @@ exports.escalarSlotsSLA = scheduler.onSchedule({ schedule: '*/5 * * * *', timeZo
             }
         }
         catch { /* ignore */ }
-        const batch = db.batch();
         let escalados = 0;
-        for (const slotDoc of snap.docs) {
-            const slot = slotDoc.data();
-            const slaMin = slot.slaAceiteMin ?? 10;
-            const criadoMs = slot.criadoEm?.toMillis() ?? 0;
-            const idadeMin = (agora.toMillis() - criadoMs) / 60000;
-            if (idadeMin >= slaMin && !slot.slaEscaladoEm) {
-                batch.update(slotDoc.ref, { slaEscaladoEm: agora });
+        for (const slot of (slotsRows ?? [])) {
+            const slaMin = slot.sla_aceite_min ?? 10;
+            const criadoMs = slot.criado_em ? new Date(slot.criado_em).getTime() : 0;
+            const idadeMin = (agoraMs - criadoMs) / 60000;
+            if (idadeMin >= slaMin && !slot.sla_escalado_em) {
+                await (0, supabase_rest_1.supabaseUpdate)('slots', { sla_escalado_em: agora }, `id=eq.${slot.id}`);
                 escalados++;
                 if (diretoriaChatId && botToken) {
                     await sendTelegramLocal(botToken, diretoriaChatId, `⚠️ <b>Slot não aceito em ${slaMin}min</b>\n📦 ${slot.titulo}\n📍 ${slot.cidade}\n⏰ ${Math.round(idadeMin)}min sem aceite`);
                 }
             }
-            // Segunda escalada: 3x o SLA → notifica de novo
-            if (idadeMin >= slaMin * 3 && slot.slaEscaladoEm && !slot.slaEscalado2Em) {
-                batch.update(slotDoc.ref, { slaEscalado2Em: agora });
+            if (idadeMin >= slaMin * 3 && slot.sla_escalado_em && !slot.sla_escalado2_em) {
+                await (0, supabase_rest_1.supabaseUpdate)('slots', { sla_escalado2_em: agora }, `id=eq.${slot.id}`);
                 if (diretoriaChatId && botToken) {
                     await sendTelegramLocal(botToken, diretoriaChatId, `🚨 <b>URGENTE — Slot sem aceite há ${Math.round(idadeMin)}min</b>\n📦 ${slot.titulo}\n📍 ${slot.cidade}`);
                 }
             }
         }
         if (escalados > 0)
-            await batch.commit();
-        v2_1.logger.info(`[escalamento-sla] ${escalados} slots escalados`);
+            v2_1.logger.info(`[escalamento-sla] ${escalados} slots escalados`);
     }
     catch (e) {
         v2_1.logger.error('[escalarSlotsSLA] erro:', e);
@@ -998,10 +977,7 @@ exports.escalarSlotsSLA = scheduler.onSchedule({ schedule: '*/5 * * * *', timeZo
 // ══════════════════════════════════════════════════════════════════════════════
 // NOTIFICAÇÕES DE TURNO — dispara quando worker registra entrada/saída
 // ══════════════════════════════════════════════════════════════════════════════
-exports.notificarTurnoFn = firestore.onDocumentCreated({ document: 'turnos/{turnoId}', region: 'southamerica-east1', maxInstances: 10 }, async (event) => {
-    const turno = event.data?.data();
-    if (!turno)
-        return;
+async function notificarTurnoFn(turno) {
     const { nome, acao, funcao, turno: turnoId, cidade } = turno;
     const emoji = acao === 'entrada' ? '▶' : '⏹';
     const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
@@ -1021,7 +997,7 @@ exports.notificarTurnoFn = firestore.onDocumentCreated({ document: 'turnos/{turn
     catch (e) {
         v2_1.logger.error('[notificarTurno] erro:', e);
     }
-});
+}
 // ══════════════════════════════════════════════════════════════════════════════
 // HISTÓRICO DE PARKINGS — salva snapshot diário para análise histórica
 // Roda às 23:55 todo dia — salva estado final do dia em parking_history
@@ -1029,44 +1005,38 @@ exports.notificarTurnoFn = firestore.onDocumentCreated({ document: 'turnos/{turn
 exports.salvarHistoricoParking = scheduler.onSchedule({ schedule: '55 23 * * *', timeZone: 'America/Sao_Paulo', region: 'southamerica-east1', maxInstances: 10 }, async () => {
     try {
         const hoje = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-        const agora = admin.firestore.Timestamp.now();
-        // Busca todas as cidades ativas
-        const configSnap = await db.collection('gojet_config').get();
-        const cidades = configSnap.docs.filter(d => d.data().ativo !== false).map(d => d.id);
+        const agora = new Date().toISOString();
+        // Busca todas as cidades ativas — Supabase-only
+        const cidadesRows = await (0, supabase_rest_1.supabaseGet)('gojet_config', 'select=cidade,city_id&ativo=eq.true');
+        if (!cidadesRows || cidadesRows.length === 0)
+            return;
         let totalSalvo = 0;
-        for (const cidade of cidades) {
+        for (const row of cidadesRows) {
+            const cidade = row.cidade ?? row.city_id;
             try {
-                const snapDoc = await db.collection('gojet_snapshots').doc(`latest_${cidade}`).get();
-                if (!snapDoc.exists)
+                // Lê snapshot do Supabase
+                const snap = await (0, supabase_rest_1.supabaseGetOne)('gojet_snapshots', `select=parkings,parkings_total,atualizado_em&id=eq.${encodeURIComponent(row.city_id)}`);
+                if (!snap?.parkings)
                     continue;
-                const snapData = snapDoc.data();
-                // Lê parkings (suporte a chunked)
-                let parkings = [];
-                if (snapData.chunked) {
-                    const chunks = await Promise.all(Array.from({ length: snapData.totalChunks }, (_, i) => db.collection('gojet_snapshots').doc(`latest_${cidade}_chunk${i}`).get()));
-                    parkings = chunks.flatMap(c => c.exists ? (c.data().parkings ?? []) : []);
-                }
-                else {
-                    parkings = snapData.parkings ?? [];
-                }
+                const parkings = snap.parkings;
                 if (parkings.length === 0)
                     continue;
-                // Agrega stats para o histórico (evita salvar lista completa todo dia)
+                // Agrega stats para o histórico
                 const monitores = parkings.filter((p) => p.monitor);
                 const zerados = monitores.filter((p) => (p.availableCount ?? 0) === 0);
                 const totalBikes = parkings.reduce((s, p) => s + (p.bikes_count ?? 0), 0);
                 const totalAvail = parkings.reduce((s, p) => s + (p.availableCount ?? 0), 0);
                 const eficiencia = monitores.length > 0
                     ? Math.round(((monitores.length - zerados.length) / monitores.length) * 100) : 0;
-                await db.collection('parking_history').add({
-                    cidade, data: hoje, savedAt: agora,
-                    pontosTotal: parkings.length,
-                    monitoresTotal: monitores.length,
-                    monitoresZerados: zerados.length,
-                    bikesTotal: totalBikes,
-                    bikesDisponiveis: totalAvail,
-                    eficienciaPct: eficiencia,
-                    snapshotSavedAt: snapData.savedAt ?? null,
+                await (0, supabase_rest_1.supabaseInsert)('parking_history', {
+                    cidade, data: hoje, saved_at: agora,
+                    pontos_total: parkings.length,
+                    monitores_total: monitores.length,
+                    monitores_zerados: zerados.length,
+                    bikes_total: totalBikes,
+                    bikes_disponiveis: totalAvail,
+                    eficiencia_pct: eficiencia,
+                    snapshot_saved_at: snap.atualizado_em ?? null,
                 });
                 totalSalvo++;
             }
@@ -1093,11 +1063,7 @@ exports.exportarHistoricoParking = https.onCall({ region: 'southamerica-east1', 
     const desde = new Date();
     desde.setDate(desde.getDate() - dias);
     const desdeStr = desde.toISOString().slice(0, 10);
-    const snap = await db.collection('parking_history')
-        .where('cidade', '==', cidade)
-        .where('data', '>=', desdeStr)
-        .orderBy('data', 'asc')
-        .get();
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const rows = await (0, supabase_rest_1.supabaseGet)('parking_history', `select=*&cidade=eq.${encodeURIComponent(cidade)}&data=gte.${encodeURIComponent(desdeStr)}&order=data.asc`);
+    return rows ?? [];
 });
 //# sourceMappingURL=automacao-tarefas.js.map

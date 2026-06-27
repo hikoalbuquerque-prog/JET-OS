@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.supabaseGet = supabaseGet;
 exports.supabaseGetOne = supabaseGetOne;
 exports.supabaseUpsert = supabaseUpsert;
+exports.supabaseUpdate = supabaseUpdate;
 exports.supabaseInsert = supabaseInsert;
 exports.supabaseConfigured = supabaseConfigured;
 const SB_URL = () => process.env.SUPABASE_URL ?? '';
@@ -58,6 +59,33 @@ async function supabaseUpsert(table, data, onConflict = '') {
                 ...headers(),
                 'Content-Type': 'application/json',
                 Prefer: 'resolution=merge-duplicates,return=minimal',
+            },
+            body: JSON.stringify(data),
+        });
+        return resp.ok;
+    }
+    catch {
+        return false;
+    }
+}
+/**
+ * PATCH update com filtro PostgREST. Retorna true se OK.
+ * @param table   Nome da tabela
+ * @param data    Campos a atualizar
+ * @param filter  Filtro PostgREST (ex: 'id=eq.abc123')
+ */
+async function supabaseUpdate(table, data, filter) {
+    const url = SB_URL();
+    const key = SB_KEY();
+    if (!url || !key)
+        return false;
+    try {
+        const resp = await fetch(`${url}/rest/v1/${table}?${filter}`, {
+            method: 'PATCH',
+            headers: {
+                ...headers(),
+                'Content-Type': 'application/json',
+                Prefer: 'return=minimal',
             },
             body: JSON.stringify(data),
         });

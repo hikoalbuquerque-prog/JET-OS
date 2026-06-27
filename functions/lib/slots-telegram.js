@@ -6,47 +6,11 @@
 //   resumoSlotsTelegram    — onSchedule 08:00 e 20:00 BRT, gera resumo por cidade
 //   confirmarSlotsCascata  — onSchedule a cada 15min, lembretes antes do slot
 //   enviarResumoManual     — onCall, dispara resumo manual para uma cidade
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.enviarResumoManual = exports.confirmarSlotsCascata = exports.resumoSlotsTelegram = void 0;
-const admin = __importStar(require("firebase-admin"));
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const https_1 = require("firebase-functions/v2/https");
-if (!admin.apps.length)
-    admin.initializeApp();
-const db = admin.firestore();
+const supabase_rest_1 = require("./lib/supabase-rest");
 // ─── Helpers gerais ───────────────────────────────────────────────────────────
 function escapeHtml(text) {
     return text
@@ -81,8 +45,8 @@ async function sendTelegram(botToken, chatId, text, threadId) {
     }
 }
 async function getBotToken() {
-    const snap = await db.doc('telegram_config/global').get();
-    return (snap.exists && snap.data()?.bot_token) || snap.data()?.botToken || '';
+    const row = await (0, supabase_rest_1.supabaseGetOne)('telegram_config', 'select=bot_token&id=eq.global');
+    return row?.bot_token ?? '';
 }
 function getBrtDate(offsetDays = 0) {
     const now = new Date();
@@ -261,11 +225,8 @@ async function getSlotsForDates(dates) {
     const sorted = [...dates].sort();
     const minDate = sorted[0] + 'T00:00:00';
     const maxDate = sorted[sorted.length - 1] + 'T23:59:59';
-    const snap = await db.collection('slots')
-        .where('turnoInicio', '>=', minDate)
-        .where('turnoInicio', '<=', maxDate)
-        .get();
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const rows = await (0, supabase_rest_1.supabaseGet)('slots', `select=*&turno_inicio=gte.${encodeURIComponent(minDate)}&turno_inicio=lte.${encodeURIComponent(maxDate)}`);
+    return (rows ?? []).map((r) => ({ ...r, turnoInicio: r.turno_inicio, turnoFim: r.turno_fim }));
 }
 // ─── 1. resumoSlotsTelegram ───────────────────────────────────────────────────
 exports.resumoSlotsTelegram = (0, scheduler_1.onSchedule)({
@@ -280,12 +241,14 @@ exports.resumoSlotsTelegram = (0, scheduler_1.onSchedule)({
         console.warn('[resumoSlotsTelegram] bot_token não configurado');
         return;
     }
-    const cidadesDoc = await db.doc('telegram_config/cidades').get();
-    if (!cidadesDoc.exists) {
-        console.warn('[resumoSlotsTelegram] telegram_config/cidades não existe');
+    const cidadesRows = await (0, supabase_rest_1.supabaseGet)('telegram_config', 'select=*&id=neq.global');
+    if (!cidadesRows || cidadesRows.length === 0) {
+        console.warn('[resumoSlotsTelegram] telegram_config sem cidades');
         return;
     }
-    const cidadesData = cidadesDoc.data() ?? {};
+    const cidadesData = {};
+    for (const r of cidadesRows)
+        cidadesData[r.id ?? r.cidade ?? ''] = r;
     const hoje = getBrtDate(0);
     const amanha = getBrtDate(1);
     const allSlots = await getSlotsForDates([hoje, amanha]);
@@ -321,10 +284,8 @@ function parseIsoBRT(turnoInicio) {
     return new Date(Date.UTC(y, m - 1, d, h + 3, min, 0, 0));
 }
 async function getWorkerTelegramChatId(uid) {
-    const snap = await db.collection('usuarios').doc(uid).get();
-    if (!snap.exists)
-        return null;
-    return snap.data()?.telegram_chat_id ?? snap.data()?.telegramChatId ?? null;
+    const row = await (0, supabase_rest_1.supabaseGetOne)('usuarios', `select=telegram_chat_id&id=eq.${encodeURIComponent(uid)}`);
+    return row?.telegram_chat_id ?? null;
 }
 async function processarCascata(slot, agora, botToken) {
     if (!slot.turnoInicio)
@@ -337,7 +298,7 @@ async function processarCascata(slot, agora, botToken) {
     if (minAteInicio > 125 || minAteInicio < -5)
         return;
     const confirmacoes = slot.confirmacoes ?? {};
-    const slotRef = db.collection('slots').doc(slot.id);
+    const slotFilter = `id=eq.${encodeURIComponent(slot.id)}`;
     const horaFmt = slotHoraInicio(slot);
     const titulo = escapeHtml(slot.titulo ?? `Slot ${horaFmt}`);
     // Buscar telegram_chat_id do worker
@@ -351,14 +312,14 @@ async function processarCascata(slot, agora, botToken) {
     // T-120min
     if (minAteInicio <= 122 && minAteInicio >= 118 && !confirmacoes.t120) {
         await sendDM(`⏰ Seu slot <b>${titulo}</b> começa em 2h (${horaFmt}). Confirme sua presença no app JET OS.`);
-        await slotRef.update({ 'confirmacoes.t120': admin.firestore.FieldValue.serverTimestamp() });
+        await (0, supabase_rest_1.supabaseUpdate)('slots', { 'confirmacoes': { ...confirmacoes, t120: new Date().toISOString() } }, slotFilter);
         console.log(`[cascata] T-120 enviado — slot ${slot.id}`);
         return;
     }
     // T-90min
     if (minAteInicio <= 92 && minAteInicio >= 88 && !confirmacoes.t90) {
         await sendDM(`⚠️ Faltam 90min para <b>${titulo}</b> (${horaFmt}). Confirme no app ou o slot será liberado.`);
-        await slotRef.update({ 'confirmacoes.t90': admin.firestore.FieldValue.serverTimestamp() });
+        await (0, supabase_rest_1.supabaseUpdate)('slots', { 'confirmacoes': { ...confirmacoes, t90: new Date().toISOString() } }, slotFilter);
         console.log(`[cascata] T-90 enviado — slot ${slot.id}`);
         return;
     }
@@ -368,18 +329,19 @@ async function processarCascata(slot, agora, botToken) {
         const semConfirmacao = !slot.checkInEm && slot.status === 'aceito';
         if (semConfirmacao) {
             // Libera o slot de volta para 'aberto'
-            await slotRef.update({
+            const now = new Date().toISOString();
+            await (0, supabase_rest_1.supabaseUpdate)('slots', {
                 status: 'aberto',
-                aceitoPor: admin.firestore.FieldValue.delete(),
-                'confirmacoes.t60': admin.firestore.FieldValue.serverTimestamp(),
-                liberadoPorFaltaConfirmacao: admin.firestore.FieldValue.serverTimestamp(),
-            });
+                aceito_por: null,
+                confirmacoes: { ...confirmacoes, t60: now },
+                liberado_por_falta_confirmacao: now,
+            }, slotFilter);
             await sendDM(`❌ Seu slot <b>${titulo}</b> foi liberado por falta de confirmação.`);
             console.log(`[cascata] T-60 slot liberado — slot ${slot.id}`);
         }
         else {
             await sendDM(`🔴 ÚLTIMO AVISO! Slot <b>${titulo}</b> começa em 1h (${horaFmt}). Sem confirmação, o slot será liberado para outro prestador.`);
-            await slotRef.update({ 'confirmacoes.t60': admin.firestore.FieldValue.serverTimestamp() });
+            await (0, supabase_rest_1.supabaseUpdate)('slots', { confirmacoes: { ...confirmacoes, t60: new Date().toISOString() } }, slotFilter);
             console.log(`[cascata] T-60 aviso enviado — slot ${slot.id}`);
         }
         return;
@@ -387,7 +349,7 @@ async function processarCascata(slot, agora, botToken) {
     // T-0 (slot começando agora)
     if (minAteInicio <= 2 && minAteInicio >= -2 && !confirmacoes.t0) {
         await sendDM(`🚀 Hora de iniciar! <b>${titulo}</b> está começando AGORA. Abra o JET OS e faça check-in.`);
-        await slotRef.update({ 'confirmacoes.t0': admin.firestore.FieldValue.serverTimestamp() });
+        await (0, supabase_rest_1.supabaseUpdate)('slots', { confirmacoes: { ...confirmacoes, t0: new Date().toISOString() } }, slotFilter);
         console.log(`[cascata] T-0 enviado — slot ${slot.id}`);
     }
 }
@@ -406,12 +368,8 @@ exports.confirmarSlotsCascata = (0, scheduler_1.onSchedule)({
     const agora = new Date();
     const hoje = getBrtDate(0);
     const amanha = getBrtDate(1);
-    const snap = await db.collection('slots')
-        .where('turnoInicio', '>=', hoje + 'T00:00:00')
-        .where('turnoInicio', '<=', amanha + 'T23:59:59')
-        .get();
-    // Filter status in-memory (Firestore can't do inequality + in on different fields)
-    const allDocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const slotsRows = await (0, supabase_rest_1.supabaseGet)('slots', `select=*&turno_inicio=gte.${encodeURIComponent(hoje + 'T00:00:00')}&turno_inicio=lte.${encodeURIComponent(amanha + 'T23:59:59')}`);
+    const allDocs = (slotsRows ?? []).map((r) => ({ ...r, id: r.id, turnoInicio: r.turno_inicio, turnoFim: r.turno_fim }));
     const filteredSlots = allDocs.filter(s => s.status === 'aceito' || s.status === 'a_caminho');
     if (filteredSlots.length === 0)
         return;
@@ -434,15 +392,17 @@ exports.enviarResumoManual = (0, https_1.onCall)({
     const { cidade } = request.data;
     if (!cidade)
         throw new Error('cidade é obrigatório');
-    const [botToken, cidadesDoc] = await Promise.all([
+    const [botToken, cidadesRows] = await Promise.all([
         getBotToken(),
-        db.doc('telegram_config/cidades').get(),
+        (0, supabase_rest_1.supabaseGet)('telegram_config', 'select=*&id=neq.global'),
     ]);
     if (!botToken)
         return { ok: false, erro: 'bot_token não configurado' };
-    if (!cidadesDoc.exists)
-        return { ok: false, erro: 'telegram_config/cidades não encontrado' };
-    const cidadesData = cidadesDoc.data() ?? {};
+    if (!cidadesRows || cidadesRows.length === 0)
+        return { ok: false, erro: 'telegram_config sem cidades' };
+    const cidadesData = {};
+    for (const r of cidadesRows)
+        cidadesData[r.id ?? r.cidade ?? ''] = r;
     const cidadeCfg = cidadesData[cidade];
     const chatId = cidadeCfg?.grupos?.logistica?.chatId;
     if (!chatId)

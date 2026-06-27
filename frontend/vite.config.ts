@@ -130,6 +130,9 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  server: {
+    hmr: { overlay: true },
+  },
   build: {
     outDir: 'dist',
     sourcemap: false,

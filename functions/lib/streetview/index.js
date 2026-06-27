@@ -41,7 +41,6 @@ exports.fetchFramesParaIA = fetchFramesParaIA;
 exports.svGetEstatisticas = svGetEstatisticas;
 // src/streetview/index.ts
 const axios_1 = __importDefault(require("axios"));
-const admin = __importStar(require("firebase-admin"));
 const utils_1 = require("../utils");
 const GMAPS_KEY = process.env.GMAPS_KEY || '';
 const MAPILLARY_TOKEN = process.env.MAPILLARY_TOKEN || '';
@@ -54,12 +53,16 @@ const CUSTOS = {
 };
 async function incrementarContador(fonte) {
     try {
-        const ref = admin.firestore().collection('config').doc('sv_stats');
-        await ref.set({
-            [`count_${fonte}`]: admin.firestore.FieldValue.increment(1),
-            [`custo_${fonte}`]: admin.firestore.FieldValue.increment(CUSTOS[fonte] || 0),
-            atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+        const { getAppSetting, setAppSetting } = await Promise.resolve().then(() => __importStar(require('../config-supabase')));
+        const current = await getAppSetting('config_sv_stats') ?? {};
+        const countKey = `count_${fonte}`;
+        const custoKey = `custo_${fonte}`;
+        await setAppSetting('config_sv_stats', {
+            ...current,
+            [countKey]: (current[countKey] || 0) + 1,
+            [custoKey]: (current[custoKey] || 0) + (CUSTOS[fonte] || 0),
+            atualizadoEm: new Date().toISOString(),
+        });
     }
     catch (e) { /* silencioso */ }
 }
@@ -295,8 +298,8 @@ async function fetchFramesParaIA(lat, lng) {
  * Retorna contadores e custo estimado do Firestore.
  */
 async function svGetEstatisticas() {
-    const doc = await admin.firestore().collection('config').doc('sv_stats').get();
-    const data = doc.data() || {};
+    const { getAppSetting } = await Promise.resolve().then(() => __importStar(require('../config-supabase')));
+    const data = await getAppSetting('config_sv_stats') ?? {};
     const fontes = Object.keys(CUSTOS);
     const stats = {};
     let custoTotal = 0;

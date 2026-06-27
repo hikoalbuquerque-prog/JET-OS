@@ -38,7 +38,7 @@ exports.relatorioGuardSemanal = exports.enviarRelatorioManual = void 0;
 // Relatórios automáticos Guard + Perdas via Telegram — Firebase Functions v2
 // Já importado no index.ts via: export * from './relatorios';
 const relatorio_1 = require("./relatorio");
-const admin = __importStar(require("firebase-admin"));
+const supabase_rest_1 = require("./lib/supabase-rest");
 const config_supabase_1 = require("./config-supabase");
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
@@ -76,19 +76,32 @@ function getRange(tipo) {
     return { ini, fim, label: `${fmtDate(ini)} a ${fmtDate(fim)}` };
 }
 async function buscarOcorrencias(ini, fim) {
-    const snap = await admin.firestore().collection('ocorrencias').get();
-    const docs = [];
-    snap.forEach(d => {
-        const o = { id: d.id, ...d.data() };
-        const dt = getDataOcorrencia(o);
-        if (dt && dt >= ini && dt <= fim)
-            docs.push(o);
-    });
-    return docs;
+    const rows = await (0, supabase_rest_1.supabaseGet)('ocorrencias', `select=*&created_at=gte.${encodeURIComponent(ini.toISOString())}&created_at=lte.${encodeURIComponent(fim.toISOString())}`);
+    if (!rows)
+        return [];
+    return rows.map((r) => ({
+        id: r.id,
+        tipo: r.tipo,
+        status: r.status,
+        prioridade: r.prioridade,
+        cidade_inicial: r.cidade_inicial,
+        bairro_inicial: r.bairro_inicial,
+        endereco_inicial: r.endereco_inicial,
+        responsavel: r.responsavel,
+        ativo_tipo: r.ativo_tipo,
+        asset_id: r.asset_id,
+        descricao: r.descricao,
+        lat_inicial: r.lat_inicial,
+        lng_inicial: r.lng_inicial,
+        foto1_url: r.foto1_url,
+        foto2_url: r.foto2_url,
+        created_at: r.created_at,
+        filial: r.filial,
+        procurando: r.procurando,
+    }));
 }
 async function getTelegramConfig() {
-    const db = admin.firestore();
-    // 0a. Supabase-first: telegram_config table (Onda G)
+    // 1. Supabase telegram_config table (Onda G)
     try {
         const { getTelegramConfigSupa } = await Promise.resolve().then(() => __importStar(require('./telegram-supabase')));
         const supaCfg = await getTelegramConfigSupa('global');
@@ -101,68 +114,25 @@ async function getTelegramConfig() {
         }
     }
     catch { /* fallback */ }
-    // 0b. Supabase app_settings/telegram
-    const supa = await (0, config_supabase_1.getAppSetting)('telegram');
+    // 2. Supabase app_settings/config_telegram (onde DashboardManager salva)
+    const supa = await (0, config_supabase_1.getAppSetting)('config_telegram');
     if (supa) {
         const token = String(supa.bot_token || supa.botToken || '').trim();
         const chatId = String(supa.chat_id || supa.chatId || supa.relatorios_chat_id || supa.relatoriosChatId || '').trim();
+        console.log('[telegram-config] Supabase app_settings/config_telegram → token:', token ? 'OK' : 'VAZIO', 'chatId:', chatId || 'VAZIO');
+        if (token && chatId)
+            return { token, chatId };
+    }
+    // 3. Supabase app_settings/telegram (legacy key)
+    const supaLegacy = await (0, config_supabase_1.getAppSetting)('telegram');
+    if (supaLegacy) {
+        const token = String(supaLegacy.bot_token || supaLegacy.botToken || '').trim();
+        const chatId = String(supaLegacy.chat_id || supaLegacy.chatId || supaLegacy.relatorios_chat_id || supaLegacy.relatoriosChatId || '').trim();
         console.log('[telegram-config] Supabase app_settings/telegram → token:', token ? 'OK' : 'VAZIO', 'chatId:', chatId || 'VAZIO');
         if (token && chatId)
             return { token, chatId };
     }
-    // 1. config/telegram — onde o DashboardManager salva (bot_token + chat_id)
-    const legadoSnap = await db.collection('config').doc('telegram').get();
-    if (legadoSnap.exists) {
-        const d = legadoSnap.data();
-        const token = String(d.bot_token || d.botToken || '').trim();
-        const chatId = String(d.chat_id || d.chatId || d.relatoriosChatId || '').trim();
-        console.log('[telegram-config] config/telegram → token:', token ? 'OK' : 'VAZIO', 'chatId:', chatId || 'VAZIO');
-        if (token && chatId)
-            return { token, chatId };
-    }
-    else {
-        console.log('[telegram-config] config/telegram NÃO EXISTE');
-    }
-    // 2. telegram_config/global — sistema hierárquico novo
-    const novoSnap = await db.collection('telegram_config').doc('global').get();
-    if (novoSnap.exists) {
-        const d = novoSnap.data();
-        const token = String(d.botToken || d.bot_token || '').trim();
-        let chatId = String(d.relatoriosChatId || d.chat_id || d.chatId || '').trim();
-        console.log('[telegram-config] telegram_config/global → token:', token ? 'OK' : 'VAZIO', 'chatId:', chatId || 'VAZIO');
-        // Se não tem chatId dedicado, pega o primeiro grupo configurado
-        if (token && !chatId) {
-            const cidadesSnap = await db.collection('telegram_config').doc('cidades').get();
-            if (cidadesSnap.exists) {
-                const cidades = cidadesSnap.data();
-                for (const cidadeData of Object.values(cidades)) {
-                    const grupos = cidadeData?.grupos || {};
-                    const grupo = grupos['seguranca'] || grupos['guard'] || grupos['logistica'] || Object.values(grupos)[0];
-                    if (grupo?.chatId) {
-                        chatId = String(grupo.chatId);
-                        break;
-                    }
-                }
-            }
-        }
-        if (token && chatId)
-            return { token, chatId };
-    }
-    else {
-        console.log('[telegram-config] telegram_config/global NÃO EXISTE');
-    }
-    // 3. Tenta telegram_config/{qualquer doc}
-    const allSnap = await db.collection('telegram_config').limit(5).get();
-    for (const d of allSnap.docs) {
-        const data = d.data();
-        const token = String(data.botToken || data.bot_token || '').trim();
-        const chatId = String(data.relatoriosChatId || data.chat_id || data.chatId || '').trim();
-        if (token && chatId) {
-            console.log('[telegram-config] encontrado em telegram_config/' + d.id);
-            return { token, chatId };
-        }
-    }
-    throw new Error('Config Telegram não encontrada. Valores encontrados em nenhum dos caminhos: config/telegram, telegram_config/global. ' +
+    throw new Error('Config Telegram não encontrada no Supabase (app_settings/config_telegram ou telegram_config). ' +
         'No Dashboard → Guard Config → Telegram, salve o Token do Bot e o Chat ID do grupo.');
 }
 // ─── geração de texto ─────────────────────────────────────────────────

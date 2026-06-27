@@ -1,5 +1,5 @@
 # Jet OS Firebase — Master Debrief
-**Atualizado em:** 27/06/2026 (§19.22 Ondas A-D purge Firestore total · §19.21 Migração 22 coleções · §19.20 Remoção mirrors · §19.19 Dual-write Fase 2 · §19.18 Audit pré-shutdown · §19.17 i18n + POI + deploy)  
+**Atualizado em:** 27/06/2026 (§19.23 Triggers→inline + AppShell migrado + deploy total · §19.22 Ondas A-D purge Firestore total · §19.21 Migração 22 coleções · §19.20 Remoção mirrors · §19.19 Dual-write Fase 2 · §19.18 Audit pré-shutdown · §19.17 i18n + POI + deploy)  
 **Projeto:** jet-os-1 | Firebase Hosting + Firestore + Storage + Cloud Functions  
 **Stack:** React + Vite + TypeScript + Leaflet + deck.gl | Node.js 22 Cloud Functions
 
@@ -3196,13 +3196,45 @@ Maioria para coleções: `slots`, `slots_escala`, `tarefas`, `tarefas_logistica`
 | geolocation.ts | slots, slot_prestadores |
 | index.ts | usuarios, logs_acesso |
 
-#### 📋 Firestore triggers mantidos (body migrado, trigger definition preservada)
-- `onDocumentCreated('turnos/{turnoId}')` em automacao-tarefas.ts
-- `onDocumentCreated('gps_logistica/{docId}')` em gps-alertas.ts
-- `onDocumentCreated('solicitacoes_prestadores/{docId}')` em notificacoes-prestador.ts
-- Estes triggers só podem ser removidos quando nenhum código mais escrever nessas coleções Firestore
+### §19.23 — Triggers Firestore→inline + AppShell migrado + deploy total
 
-#### 📊 Estado final — o que resta de Firestore
-**Frontend:** 2 arquivos (`AppShell.tsx` com lógica complexa de onboarding, `lib/firebase.ts` como módulo base)
-**Cloud Functions:** `firebase-admin/auth` mantido para verificação de tokens; `firebase-functions` mantido para triggers. Zero Firestore reads/writes diretos remanescentes fora dos triggers.
-**Próximo passo:** Migrar `AppShell.tsx` → remover `firebase.ts` do bundle → desabilitar Firebase Auth → remover triggers
+#### Firestore triggers convertidos a funções inline
+Os 3 triggers Firestore (`onDocumentCreated`) foram convertidos a funções async exportáveis, chamadas inline:
+
+| Trigger antigo | Função nova | Caller |
+|---|---|---|
+| `onDocumentCreated('gps_logistica/{docId}')` | `verificarChegadaPontoFn(uid, lat, lng)` em gps-alertas.ts | gps-ingest.ts (após insert GPS) |
+| `onDocumentCreated('solicitacoes_prestadores/{docId}')` | `notificarGestorNovaSolicitacao(solicitacao)` em notificacoes-prestador.ts | auth/index.ts (após insert solicitação) |
+| `onDocumentCreated('turnos/{turnoId}')` | `notificarTurnoFn(turno)` em automacao-tarefas.ts | ⚠ SEM CALLER — turno criado no frontend (TarefasLogisticaModule.tsx:717), precisa de Supabase DB trigger ou callable |
+
+- 3 Cloud Functions trigger deletadas do Cloud (`firebase functions:delete --force`)
+- Todas as ~43 Cloud Functions re-deployed com sucesso (em lotes de 2 para evitar cota CPU)
+
+#### AppShell.tsx migrado (último frontend com Firestore writes)
+- 7 operações Firestore migradas para Supabase (criação usuário, solicitação prestador, update estação, troca senha, guard edit/delete, realtime listener)
+- `onSnapshot` → Supabase realtime channel
+- Removidos todos imports firebase/firestore de AppShell
+
+#### Frontend + Hosting deployed
+- Build OK, hosting deployed em jet-os-1.web.app
+
+#### vite.config.ts — fix HMR
+- Adicionado `server: { hmr: { overlay: true } }` para resolver erro `ws://localhost:undefined`
+
+#### 📊 Estado final — o que resta de Firebase
+
+**Frontend (10 arquivos ainda importam `lib/firebase.ts`):**
+- `auth`: DashboardManager, EstacoesCampo, UsuariosManager, TelaMapa (Firebase Auth como fallback)
+- `db`: DashboardManager, EstacoesCampo (Firestore reads residuais)
+- `fn*` callables: GoJetAnalyticsPanel, GoJetOverlay, MapaHelpers, POIPanel, SlotsModule, TelaMapa (proxy fn→edge function via flag)
+
+**Cloud Functions:** `firebase-admin/auth` mantido para verificação de tokens (ingestGps, etc.); `firebase-functions/v2/https` para onCall/onRequest. Zero Firestore triggers. Zero Firestore reads/writes diretos.
+
+**Próximos passos:**
+1. Wiring `notificarTurnoFn` (Supabase DB trigger ou callable)
+2. Migrar 10 arquivos frontend que ainda usam firebase.ts (auth→Supabase auth, db→Supabase, fn*→edge direto)
+3. Remover `firebase.ts` do bundle
+4. Rotacionar service_role key (exposta em chat) — **SEGURANÇA**
+5. Rotacionar keystore password (mover de build.gradle para keystore.properties)
+6. Desabilitar Firebase Auth
+7. Features: NFS-e, Chat in-app, Guard v2, Slots convergência
