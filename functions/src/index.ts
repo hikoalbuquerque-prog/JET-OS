@@ -184,7 +184,7 @@ export const aprovarSolicitacaoFn = onCall(
 
 export * from './slots';
 export * from './telegram-vinculo';
-export * from './auth';           // getUsuario, criarSlotAuth, listarSlotsAuth, etc.
+export * from './auth/index';     // getUsuario, solicitarAcesso, aprovarSolicitacao, listarUsuarios
 export * from './automacao';      // limpezaSnapshots, notificarOcorrencia, notificarTarefa, etc.
 export * from './automacao-gojet-scraper'; // scraperGoJet (paginação completa, multi-cidade), scraperGoJetManual
 export * from './gps-alertas';    // verificarAtrasos, verificarChegadaPonto

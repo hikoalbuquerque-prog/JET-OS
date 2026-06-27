@@ -11,7 +11,6 @@
 //   3. Para cada ponto crítico: cria tarefa em tarefas_logistica (se não existir já)
 //   4. Notifica via Telegram (bot configurado em functions/.env.guard)
 
-import * as admin from 'firebase-admin';
 import { logger } from 'firebase-functions/v2';
 import * as https from 'firebase-functions/v2/https';
 import * as scheduler from 'firebase-functions/v2/scheduler';
@@ -959,35 +958,17 @@ async function executarMotorSlots(): Promise<void> {
               slot_id: slotId ?? null,
               ts: new Date().toISOString(),
             }).catch((e) => { logger.warn('[monitor-alertas] Supabase insert failed:', e); });
-            // Push FCM para gestores logística da cidade
+            // Web Push para gestores logística da cidade
             try {
-              const gestoresRows = await supabaseGet<any>('usuarios', `select=id,cidades_gerencia_log,cidades_permitidas&role=in.(admin,gestor,supergestor,gestor_log)`);
-              const uidsGestores = (gestoresRows ?? [])
-                .filter((d: any) => {
-                  const cidades: string[] = d.cidades_gerencia_log || d.cidades_permitidas || [];
-                  return cidades.length === 0 || cidades.includes(cidade);
-                })
-                .map((d: any) => d.id);
-              if (uidsGestores.length > 0) {
-                const tokenRows = await supabaseGet<any>('fcm_tokens', `select=uid,token&uid=in.(${uidsGestores.map((u: string) => encodeURIComponent(u)).join(',')})`);
-                const tokens = (tokenRows ?? [])
-                  .filter((s: any) => s.token)
-                  .map((s: any) => s.token as string);
-                if (tokens.length > 0) {
-                  const batMin = Math.round(Math.min(...criticas.map(b => b.battery_percent ?? 0)) * 100);
-                  await admin.messaging().sendEachForMulticast({
-                    tokens,
-                    notification: {
-                      title: `🔋 Bateria crítica — ${cfg.zonaNome}`,
-                      body: `${criticas.length} patinete(s) abaixo de 10% (mín ${batMin}%) em ${cidade}`,
-                    },
-                    data: { tipo: 'bateria_critica', cidade, zona: cfg.zonaNome },
-                    android: { priority: 'high' },
-                  });
-                }
-              }
-            } catch (fcmErr) {
-              logger.warn('[monitor-alertas] FCM push falhou:', fcmErr);
+              const batMin = Math.round(Math.min(...criticas.map(b => b.battery_percent ?? 0)) * 100);
+              await enviarPushParaRole(
+                ['admin', 'gestor', 'supergestor', 'gestor_log'],
+                `🔋 Bateria crítica — ${cfg.zonaNome}`,
+                `${criticas.length} patinete(s) abaixo de 10% (mín ${batMin}%) em ${cidade}`,
+                cidade
+              );
+            } catch (pushErr) {
+              logger.warn('[monitor-alertas] Web Push falhou:', pushErr);
             }
           }
 
@@ -1075,6 +1056,26 @@ export const escalarSlotsSLA = scheduler.onSchedule(
               `🚨 <b>URGENTE — Slot sem aceite há ${Math.round(idadeMin)}min</b>\n📦 ${slot.titulo}\n📍 ${slot.cidade}`
             );
           }
+        }
+      }
+
+      // Escala (SlotsTeamsModule): reabertura de slots_escala não preenchidos
+      const escalaRows = await supabaseGet<any>('slots_escala', 'select=*&status=eq.Aberto');
+      for (const slot of (escalaRows ?? [])) {
+        const slaMin = slot.sla_aceite_min ?? 120;
+        const criadoMs = slot.criado_em ? new Date(slot.criado_em).getTime() : 0;
+        const idadeMin = (agoraMs - criadoMs) / 60000;
+
+        if (idadeMin >= slaMin && !slot.sla_escalado_em) {
+          await supabaseUpdate('slots_escala', { sla_escalado_em: agora }, `id=eq.${slot.id}`);
+          escalados++;
+          if (diretoriaChatId && botToken) {
+            await sendTelegramLocal(botToken, diretoriaChatId,
+              `⚠️ <b>Escala: slot não preenchido em ${slaMin}min</b>\n📋 ${slot.turno} — ${slot.tipo}\n📍 ${slot.cidade}\n📅 ${slot.data_slot}`
+            );
+          }
+          enviarPushParaRole(['admin', 'gestor', 'supergestor', 'gestor_log'],
+            '⚠️ Slot escala pendente', `${slot.turno} — ${slot.tipo} (${slot.cidade})`, slot.cidade).catch(() => {});
         }
       }
 

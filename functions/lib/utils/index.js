@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.storage = exports.db = void 0;
+exports.storage = void 0;
 exports.validarLatLng = validarLatLng;
 exports.limparNulos = limparNulos;
 exports.normalizarLargura = normalizarLargura;
@@ -43,9 +43,6 @@ exports.okResponse = okResponse;
 exports.logEvento = logEvento;
 // src/utils/index.ts
 const admin = __importStar(require("firebase-admin"));
-// ── FIRESTORE ────────────────────────────────────────────────────
-const db = () => admin.firestore();
-exports.db = db;
 const storage = () => admin.storage();
 exports.storage = storage;
 // ── VALIDAÇÕES ───────────────────────────────────────────────────

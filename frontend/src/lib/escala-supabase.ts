@@ -185,6 +185,32 @@ export async function logEscalaAudit(evento: string, detalhe: any, por: string, 
   catch (e) { console.warn('[escala-audit]', (e as any)?.message); }
 }
 
+// Override do gestor: ajustar vagas de um slot.
+export async function overrideSlotEscala(slotId: string, patch: { qtdPessoas?: number; status?: string }, por: string, motivo: string) {
+  const upd: Record<string, any> = {
+    override_por: por,
+    override_em: new Date().toISOString(),
+    override_motivo: motivo,
+  };
+  if (patch.qtdPessoas !== undefined) upd.qtd_pessoas = patch.qtdPessoas;
+  if (patch.status) upd.status = patch.status;
+  const { error } = await supabase.from('slots_escala').update(upd).eq('id', slotId);
+  if (error) throw new Error('overrideSlotEscala: ' + error.message);
+  await logEscalaAudit('override', { slotId, patch, motivo }, por);
+}
+
+// Cancelar slot da escala.
+export async function cancelarSlotEscala(slotId: string, por: string, motivo: string) {
+  const { error } = await supabase.from('slots_escala').update({
+    status: 'Cancelado',
+    override_por: por,
+    override_em: new Date().toISOString(),
+    override_motivo: motivo,
+  }).eq('id', slotId);
+  if (error) throw new Error('cancelarSlotEscala: ' + error.message);
+  await logEscalaAudit('cancelamento', { slotId, motivo }, por);
+}
+
 const dispRow = (d: any) => ({
   uid: d.uid ?? null, nome: d.nome, cnpj: d.cnpj ?? null,
   dias_semana: d.diasSemana ?? [], turnos_disponiveis: d.turnosDisponiveis ?? [],

@@ -12,7 +12,7 @@ import {
   subscribeEscala, criarSlotsEscala, salvarDisponibilidade, fetchDisponibilidades,
   salvarDisponibilidadeForm, delDisponibilidade, salvarEscalaConfig, addFeriado, delFeriado, fetchEscala,
   fetchPrestadores, fetchPenalidadesList, salvarPenalidade, fetchDemandaGojet, logEscalaAudit,
-  aceitarEscala, fetchMetricasEscala,
+  aceitarEscala, fetchMetricasEscala, overrideSlotEscala, cancelarSlotEscala,
 } from '../lib/escala-supabase';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -628,6 +628,11 @@ function AbaEscala({usuario,cidade}:AbaProps){
         <div style={{...S.card(),padding:'8px 12px',marginBottom:8,display:'flex',gap:14,flexWrap:'wrap',fontSize:11,color:T.dim}}>
           <span>📊 <b style={{color:T.txt}}>{metricas.slots||0}</b> {pick(TX.slotsLabel)} · <b style={{color:T.txt}}>{metricas.vagas||0}</b> {pick(TX.kpiVagas).toLowerCase()} · <b style={{color:T.txt}}>{metricas.gerado_auto||0}</b> {pick(TX.metAuto)} (7d)</span>
           {metricas.por_funcao&&Object.entries(metricas.por_funcao).map(([f,n]:any)=><span key={f}>{f}: <b style={{color:T.bluel}}>{n}</b></span>)}
+          {metricas.pct_preenchimento!=null&&<span>Preenchi: <b style={{color:metricas.pct_preenchimento>=80?T.green:metricas.pct_preenchimento>=50?T.yellow:T.red}}>{metricas.pct_preenchimento}%</b></span>}
+          {metricas.antecedencia_media_min!=null&&<span>Antecedência: <b style={{color:T.txt}}>{metricas.antecedencia_media_min}min</b></span>}
+          {metricas.total_aceites!=null&&<span>Aceites: <b style={{color:T.txt}}>{metricas.total_aceites}</b></span>}
+          {metricas.total_reabertos>0&&<span>Reabertos: <b style={{color:T.orange}}>{metricas.total_reabertos}</b></span>}
+          {metricas.total_overrides>0&&<span>Overrides: <b style={{color:T.orange}}>{metricas.total_overrides}</b></span>}
         </div>
       )}
 
@@ -726,6 +731,24 @@ function AbaEscala({usuario,cidade}:AbaProps){
                               }catch(e:any){toast(e?.message||'Erro','erro');}
                             }} style={{...S.btn(T.red,true),padding:'2px 6px',fontSize:9}}>Remover</button>
                           )}
+                        </div>
+                      )}
+                      {isAdmin&&sl.status!=='Cancelado'&&(
+                        <div style={{display:'flex',gap:4,marginTop:4}}>
+                          <button onClick={async()=>{
+                            const motivo=window.prompt('Motivo do cancelamento:');
+                            if(!motivo) return;
+                            try{await cancelarSlotEscala(sl.id,usuario.uid,motivo);toast('Slot cancelado');}
+                            catch(e:any){toast(e?.message||'Erro','erro');}
+                          }} style={{...S.btn(T.red,true),padding:'2px 6px',fontSize:9}}>Cancelar</button>
+                          <button onClick={async()=>{
+                            const novaQtd=window.prompt('Nova qtd de vagas:',String(sl.qtdPessoas||1));
+                            if(!novaQtd) return;
+                            const motivo=window.prompt('Motivo do override:');
+                            if(!motivo) return;
+                            try{await overrideSlotEscala(sl.id,{qtdPessoas:Number(novaQtd)},usuario.uid,motivo);toast('Override aplicado');}
+                            catch(e:any){toast(e?.message||'Erro','erro');}
+                          }} style={{...S.btn(T.orange,true),padding:'2px 6px',fontSize:9}}>Override</button>
                         </div>
                       )}
                     </div>

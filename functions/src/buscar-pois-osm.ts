@@ -5,9 +5,6 @@
 // Patch frontend: ver comentário ao final do arquivo
 
 import * as functions from 'firebase-functions/v2';
-import * as admin from 'firebase-admin';
-
-if (!admin.apps.length) admin.initializeApp();
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 

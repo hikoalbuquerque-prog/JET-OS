@@ -3323,10 +3323,28 @@ Migrados **todos os 15 arquivos** que importavam de `lib/firebase.ts` ou diretam
 - Demanda GoJet como insumo (`fetchDemandaGojet`) já integrada na escala
 - Migrations 0069 (tarefas.motivo_rejeicao) + 0070 (slots/usuarios missing cols) aplicadas
 
+### §19.28 — firebase-admin cleanup + Guardrails de escala (§15.5)
+**Data:** 2026-06-27
+
+**firebase-admin cleanup:**
+- Deletado `auth.ts` (164 linhas de ghost CFs: criarOperacao, criarSlotAuth, etc.)
+- Deletado `tasks.ts` (dead code, nunca exportado)
+- `index.ts`: `export * from './auth'` → `export * from './auth/index'` (fix resolução Node.js)
+- `automacao-tarefas.ts`: removido admin import, FCM→Web Push (`enviarPushParaRole`)
+- `relatorio.ts`: removido admin import, `admin.firestore.Timestamp` → `any`
+- `buscar-pois-osm.ts`: removido admin import/guard
+- `utils/index.ts`: removido `db()` helper
+- **admin permanece** em: `index.ts` (initializeApp), `auth/index.ts` (createUser), `slots.ts` (verifyIdToken), `gps-ingest.ts` (verifyIdToken), `utils/index.ts` (storage)
+
+**Guardrails de escala (§15.5):**
+- Migration 0071: colunas `sla_aceite_min`, `sla_escalado_em`, `reaberto_em`, `override_por/em/motivo` em `slots_escala`
+- RPC `analytics_escala` expandida: `pct_preenchimento`, `antecedencia_media_min`, `total_aceites`, `total_reabertos`, `total_overrides`
+- `escalarSlotsSLA` extendida para `slots_escala` (reabertura + push)
+- `escala-supabase.ts`: funções `overrideSlotEscala()` e `cancelarSlotEscala()` com audit log
+- `SlotsTeamsModule.tsx`: métricas expandidas (% preenchimento, antecedência, reabertos, overrides) + botões Override/Cancelar para admins
+
 **Próximos passos:**
 1. Rotacionar service_role key (exposta em chat) — **SEGURANÇA**
 2. Rotacionar keystore password (mover de build.gradle para keystore.properties)
 3. Desabilitar Firebase Auth no console
-4. Remover `firebase-admin` das functions (avaliar dependências restantes: `admin.auth().verifyIdToken`)
-5. Guardrails de escala (§15.5): janela fixa, tetos/mínimos, override do gestor, SLA, métricas
-6. Features: NFS-e, Chat in-app, Guard v2
+4. Features: NFS-e, Chat in-app, Guard v2

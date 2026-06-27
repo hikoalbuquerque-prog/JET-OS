@@ -2,7 +2,6 @@
 // Relatório Guard executivo: texto Telegram + PDF premium
 // Seções: Guard (ocorrências) + Roubos 24h/7d/total + Perdas (planilha)
 
-import * as admin from 'firebase-admin';
 import { getAppSetting } from './config-supabase';
 import { supabaseGet } from './lib/supabase-rest';
 
@@ -123,7 +122,7 @@ interface OcorrenciaRaw {
   procurando?: string | boolean;
   foto1_url?: string;
   foto2_url?: string;
-  criadoEm: admin.firestore.Timestamp;
+  criadoEm: any;
   lat_inicial?: number;
   lng_inicial?: number;
 }

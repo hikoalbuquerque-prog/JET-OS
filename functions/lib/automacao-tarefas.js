@@ -47,7 +47,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.exportarHistoricoParking = exports.salvarHistoricoParking = exports.notificarTurnoCallable = exports.escalarSlotsSLA = exports.gerarSlotsManualFn = exports.gerarSlotsInteligenteFn = exports.notificarTarefaFn = exports.gerarTarefasAgendado = exports.gerarTarefasGoJetFn = void 0;
 exports.notificarTurnoFn = notificarTurnoFn;
-const admin = __importStar(require("firebase-admin"));
 const v2_1 = require("firebase-functions/v2");
 const https = __importStar(require("firebase-functions/v2/https"));
 const scheduler = __importStar(require("firebase-functions/v2/scheduler"));
@@ -866,36 +865,13 @@ async function executarMotorSlots() {
                             slot_id: slotId ?? null,
                             ts: new Date().toISOString(),
                         }).catch((e) => { v2_1.logger.warn('[monitor-alertas] Supabase insert failed:', e); });
-                        // Push FCM para gestores logística da cidade
+                        // Web Push para gestores logística da cidade
                         try {
-                            const gestoresRows = await (0, supabase_rest_1.supabaseGet)('usuarios', `select=id,cidades_gerencia_log,cidades_permitidas&role=in.(admin,gestor,supergestor,gestor_log)`);
-                            const uidsGestores = (gestoresRows ?? [])
-                                .filter((d) => {
-                                const cidades = d.cidades_gerencia_log || d.cidades_permitidas || [];
-                                return cidades.length === 0 || cidades.includes(cidade);
-                            })
-                                .map((d) => d.id);
-                            if (uidsGestores.length > 0) {
-                                const tokenRows = await (0, supabase_rest_1.supabaseGet)('fcm_tokens', `select=uid,token&uid=in.(${uidsGestores.map((u) => encodeURIComponent(u)).join(',')})`);
-                                const tokens = (tokenRows ?? [])
-                                    .filter((s) => s.token)
-                                    .map((s) => s.token);
-                                if (tokens.length > 0) {
-                                    const batMin = Math.round(Math.min(...criticas.map(b => b.battery_percent ?? 0)) * 100);
-                                    await admin.messaging().sendEachForMulticast({
-                                        tokens,
-                                        notification: {
-                                            title: `🔋 Bateria crítica — ${cfg.zonaNome}`,
-                                            body: `${criticas.length} patinete(s) abaixo de 10% (mín ${batMin}%) em ${cidade}`,
-                                        },
-                                        data: { tipo: 'bateria_critica', cidade, zona: cfg.zonaNome },
-                                        android: { priority: 'high' },
-                                    });
-                                }
-                            }
+                            const batMin = Math.round(Math.min(...criticas.map(b => b.battery_percent ?? 0)) * 100);
+                            await (0, web_push_1.enviarPushParaRole)(['admin', 'gestor', 'supergestor', 'gestor_log'], `🔋 Bateria crítica — ${cfg.zonaNome}`, `${criticas.length} patinete(s) abaixo de 10% (mín ${batMin}%) em ${cidade}`, cidade);
                         }
-                        catch (fcmErr) {
-                            v2_1.logger.warn('[monitor-alertas] FCM push falhou:', fcmErr);
+                        catch (pushErr) {
+                            v2_1.logger.warn('[monitor-alertas] Web Push falhou:', pushErr);
                         }
                     }
                     if (cfg.notificarGestor && diretoriaChatId) {
@@ -966,6 +942,21 @@ exports.escalarSlotsSLA = scheduler.onSchedule({ schedule: '*/5 * * * *', timeZo
                 if (diretoriaChatId && botToken) {
                     await sendTelegramLocal(botToken, diretoriaChatId, `🚨 <b>URGENTE — Slot sem aceite há ${Math.round(idadeMin)}min</b>\n📦 ${slot.titulo}\n📍 ${slot.cidade}`);
                 }
+            }
+        }
+        // Escala (SlotsTeamsModule): reabertura de slots_escala não preenchidos
+        const escalaRows = await (0, supabase_rest_1.supabaseGet)('slots_escala', 'select=*&status=eq.Aberto');
+        for (const slot of (escalaRows ?? [])) {
+            const slaMin = slot.sla_aceite_min ?? 120;
+            const criadoMs = slot.criado_em ? new Date(slot.criado_em).getTime() : 0;
+            const idadeMin = (agoraMs - criadoMs) / 60000;
+            if (idadeMin >= slaMin && !slot.sla_escalado_em) {
+                await (0, supabase_rest_1.supabaseUpdate)('slots_escala', { sla_escalado_em: agora }, `id=eq.${slot.id}`);
+                escalados++;
+                if (diretoriaChatId && botToken) {
+                    await sendTelegramLocal(botToken, diretoriaChatId, `⚠️ <b>Escala: slot não preenchido em ${slaMin}min</b>\n📋 ${slot.turno} — ${slot.tipo}\n📍 ${slot.cidade}\n📅 ${slot.data_slot}`);
+                }
+                (0, web_push_1.enviarPushParaRole)(['admin', 'gestor', 'supergestor', 'gestor_log'], '⚠️ Slot escala pendente', `${slot.turno} — ${slot.tipo} (${slot.cidade})`, slot.cidade).catch(() => { });
             }
         }
         if (escalados > 0)

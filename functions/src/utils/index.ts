@@ -1,8 +1,6 @@
 // src/utils/index.ts
 import * as admin from 'firebase-admin';
 
-// ── FIRESTORE ────────────────────────────────────────────────────
-export const db  = () => admin.firestore();
 export const storage = () => admin.storage();
 
 // ── VALIDAÇÕES ───────────────────────────────────────────────────

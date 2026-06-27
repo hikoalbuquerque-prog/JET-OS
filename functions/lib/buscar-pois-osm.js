@@ -40,9 +40,6 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buscarPOIsOSMFn = void 0;
 const functions = __importStar(require("firebase-functions/v2"));
-const admin = __importStar(require("firebase-admin"));
-if (!admin.apps.length)
-    admin.initializeApp();
 // ─── Query Overpass (mesma lógica do App.tsx buildOverpassQuery) ──────────────
 function buildOverpassQuery(lat, lng, raio) {
     const c = `${lat},${lng}`;

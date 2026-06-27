@@ -197,7 +197,7 @@ exports.aprovarSolicitacaoFn = (0, https_1.onCall)({ timeoutSeconds: 60, memory:
 // ══════════════════════════════════════════════════════════════════
 __exportStar(require("./slots"), exports);
 __exportStar(require("./telegram-vinculo"), exports);
-__exportStar(require("./auth"), exports); // getUsuario, criarSlotAuth, listarSlotsAuth, etc.
+__exportStar(require("./auth/index"), exports); // getUsuario, solicitarAcesso, aprovarSolicitacao, listarUsuarios
 __exportStar(require("./automacao"), exports); // limpezaSnapshots, notificarOcorrencia, notificarTarefa, etc.
 __exportStar(require("./automacao-gojet-scraper"), exports); // scraperGoJet (paginação completa, multi-cidade), scraperGoJetManual
 __exportStar(require("./gps-alertas"), exports); // verificarAtrasos, verificarChegadaPonto
