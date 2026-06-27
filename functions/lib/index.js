@@ -49,7 +49,7 @@ admin.initializeApp();
 // southamerica-east1 (erro "Quota exceeded for total allowable CPU") em deploys
 // que recriam muitas funções de uma vez. Também controla custo (ver migração Supabase).
 // Funções que precisarem de mais escala podem sobrescrever no próprio options.
-(0, v2_1.setGlobalOptions)({ region: 'southamerica-east1', maxInstances: 10 });
+(0, v2_1.setGlobalOptions)({ region: 'southamerica-east1', maxInstances: 3 });
 const db = admin.firestore();
 // ─── CORS helper ──────────────────────────────────────────────────
 function addCORS(res) {

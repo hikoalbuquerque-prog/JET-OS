@@ -1,5 +1,5 @@
 # Jet OS Firebase — Master Debrief
-**Atualizado em:** 27/06/2026 (§19.18 Audit pré-shutdown Firestore · §19.17 i18n final + POI server-side + Functions deploy · §19.16 APK distribution · §19.15 i18n resíduos + Guia · §19.13 code-split + LGPD + config)  
+**Atualizado em:** 27/06/2026 (§19.19 Dual-write Fase 2 + Functions Supabase-first · §19.18 Audit pré-shutdown Firestore · §19.17 i18n final + POI server-side + Functions deploy · §19.16 APK distribution · §19.15 i18n resíduos + Guia · §19.13 code-split + LGPD + config)  
 **Projeto:** jet-os-1 | Firebase Hosting + Firestore + Storage + Cloud Functions  
 **Stack:** React + Vite + TypeScript + Leaflet + deck.gl | Node.js 22 Cloud Functions
 
@@ -2997,4 +2997,34 @@ estacoes, poligonos, locais_operacionais, ocorrencias, gps, gojet_config, solici
 **Fase 1:** Criar ~12 tabelas faltantes + migrations
 **Fase 2:** Dual-write nos ~9 módulos frontend
 **Fase 3:** Migrar 6 Cloud Functions críticas → Supabase-first
+
+### 19.19 Sessão 27/06/2026 — Dual-write Fase 2 + Functions Supabase-first + i18n fix
+
+#### i18n popup fix
+- 4 JSONs (pt/en/es/ru) tinham chave `"popup"` duplicada — a segunda sobrescrevia a primeira silenciosamente
+- Keys perdidas: `tpuNotRegistered`, `authNotRegistered`, `monitor`, `createTask`
+- Merge das duas chaves + correção de trailing comma (syntax error) nos 4 arquivos
+
+#### Dual-write frontend (13 módulos, 12 arquivos com writes)
+- AdminBikeActions, TurnoRegistro, PagamentosAdminPanel, PagamentosModule, LocaisFinanceiro, CidadesExpansao, BugReportsPanel, bugReport.ts, PainelConfiguracoes, TelegramConfigPanel, slots-schema.ts, SlotsModule
+- ShiftNotifications ignorado (read-only)
+
+#### 6 Cloud Functions migradas para Supabase-first (Firestore fallback)
+- `automacao.ts`, `automacao-tarefas.ts`, `automacao-gojet-scraper.ts`, `gps-alertas.ts`, `slot-confirmacao.ts`, `relatorio.ts`
+
+#### Migration 0065
+- 7 tabelas novas + colunas adicionadas em 3 tabelas existentes + 4 seeds de config
+
+#### gojet-config-supabase.ts
+- `salvarGojetConfigSupabase()` e `removerGojetConfigSupabase()` com upsert + filtro `VALID_COLS`
+
+#### POIPanel → Cloud Function
+- POIPanel migrado para `buscarPOIsOSMFn` (server-side)
+
+#### Deploy
+- Hosting deployed em jet-os-1.web.app
+- Functions deploy bloqueado por Cloud Run CPU quota (maxInstances reduzido 10→3, aguardando recuperação de quota)
+
+#### Commit
+- `20e1cde` — 86 arquivos, +3577/−1186
 **Fase 4:** Migrar gojet_snapshots (scraper → Supabase, automação lê Supabase)
