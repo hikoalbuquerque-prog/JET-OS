@@ -70,24 +70,32 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
   const isGestorApp    = ['admin','gestor','gestor_seg'].includes(usuario.role);
   const isLogisticaApp = ['admin','gestor','supergestor','logistica','campo','gestor_log'].includes(usuario.role);
 
-  // FCM push notification token registration
+  // Web Push subscription registration (substitui FCM)
   useEffect(() => {
     if (!usuario?.uid) return;
     (async () => {
       try {
-        const { getMessaging, getToken } = await import('firebase/messaging');
-        const { getApp } = await import('firebase/app');
-        const messaging = getMessaging(getApp());
-        const token = await getToken(messaging, {
-          vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
+        const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string;
+        if (!vapidKey || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+        const reg = await navigator.serviceWorker.register('/push-sw.js');
+        await navigator.serviceWorker.ready;
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') return;
+        const sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: vapidKey,
         });
-        if (token) {
-          await supabase.from('fcm_tokens').upsert({
-            uid: usuario.uid, token, plataforma: 'web',
+        const json = sub.toJSON();
+        if (json.endpoint && json.keys?.p256dh && json.keys?.auth) {
+          await supabase.from('push_subscriptions').upsert({
+            uid: usuario.uid,
+            endpoint: json.endpoint,
+            p256dh: json.keys.p256dh,
+            auth: json.keys.auth,
             atualizado_em: new Date().toISOString(),
-          }, { onConflict: 'uid' });
+          }, { onConflict: 'uid,endpoint' });
         }
-      } catch { /* FCM não disponível no browser atual */ }
+      } catch { /* Push não disponível */ }
     })();
   }, [usuario?.uid]);
 

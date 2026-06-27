@@ -208,6 +208,7 @@ __exportStar(require("./notificacoes-prestador"), exports); // notificarGestorNo
 // ── Mirror functions removidos (Firestore→Supabase dual-write aposentado) ──
 __exportStar(require("./buscar-pois-osm"), exports); // buscarPOIsOSMFn — Overpass/OSM server-side (gratuito; resolve CORS/429)
 __exportStar(require("./slots-telegram"), exports); // resumoSlotsTelegram, confirmarSlotsCascata, enviarResumoManual
+__exportStar(require("./web-push"), exports); // registrarPushSubscription, enviarPushParaUsuario/Role
 // ══════════════════════════════════════════════════════════════════
 // REVOGAR ACESSO — desativa usuário no Auth + Firestore
 // ══════════════════════════════════════════════════════════════════

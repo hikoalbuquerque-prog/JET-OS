@@ -1,5 +1,5 @@
 # Jet OS Firebase — Master Debrief
-**Atualizado em:** 27/06/2026 (§19.25 Eliminar dynamic imports Firebase · §19.24 Purge firebase.ts zero imports estáticos · §19.23 Triggers→inline + AppShell migrado + deploy total · §19.22 Ondas A-D purge Firestore total · §19.21 Migração 22 coleções · §19.20 Remoção mirrors · §19.19 Dual-write Fase 2 · §19.18 Audit pré-shutdown · §19.17 i18n + POI + deploy)  
+**Atualizado em:** 27/06/2026 (§19.26 Web Push nativo + firebase.ts DELETADO · §19.25 Eliminar dynamic imports Firebase · §19.24 Purge firebase.ts zero imports estáticos · §19.23 Triggers→inline + AppShell migrado + deploy total · §19.22 Ondas A-D purge Firestore total · §19.21 Migração 22 coleções · §19.20 Remoção mirrors · §19.19 Dual-write Fase 2 · §19.18 Audit pré-shutdown · §19.17 i18n + POI + deploy)  
 **Projeto:** jet-os-1 | Firebase Hosting + Firestore + Storage + Cloud Functions  
 **Stack:** React + Vite + TypeScript + Leaflet + deck.gl | Node.js 22 Cloud Functions
 
@@ -3276,10 +3276,32 @@ Migrados **todos os 15 arquivos** que importavam de `lib/firebase.ts` ou diretam
 
 **firebase.ts:** existe mas sem nenhum consumer estático. Só carregado se FCM tentar registrar token (lazy, TelaMapa).
 
+### §19.26 — Web Push nativo + firebase.ts DELETADO
+
+**Firebase SDK completamente removido do frontend.**
+
+- **Web Push API nativo** substitui FCM:
+  - Frontend: `PushManager.subscribe()` com VAPID key próprio
+  - Service Worker: `push-sw.js` recebe push events e mostra notificação
+  - Backend: `web-push` library (npm) envia pushes via protocolo Web Push
+  - Tabela Supabase: `push_subscriptions` (uid, endpoint, p256dh, auth)
+  - CF: `registrarPushSubscription` (onCall) e `enviarPushParaUsuario/Role` (helpers)
+- **Telegram bot** mantido como canal paralelo (já funciona)
+- **firebase.ts DELETADO** — zero bytes de Firebase SDK no bundle
+- **vendor-firebase chunk: ELIMINADO** (85 KB → 0 KB)
+- **Precache: 6610 KB → 5862 KB** (−748 KB total desde início da migração)
+- **notificarTurnoCallable** wired (CF callable + frontend call após insert turno)
+
+**VAPID keys:**
+- Public: `BDOLCWvkr8A7Ase5rbCWHuKFtBTr3NQ3v1zBC6L8UQAgg2C-HyMo1Il7QEpxCys7dxu4QGVyuCvLmKL-it4q9QU`
+- Private: em `functions/.env` (VAPID_PRIVATE_KEY)
+
+#### 📊 Estado final — Firebase no frontend: ZERO
+
 **Próximos passos:**
-1. Wiring `notificarTurnoFn` (Supabase DB trigger ou callable)
-2. Avaliar se FCM pode ser substituído (Web Push API direto?) para deletar firebase.ts
-3. Rotacionar service_role key (exposta em chat) — **SEGURANÇA**
-4. Rotacionar keystore password (mover de build.gradle para keystore.properties)
-5. Desabilitar Firebase Auth
+1. Integrar `enviarPushParaUsuario` nas CFs que enviam notificações (push + Telegram dual)
+2. Rotacionar service_role key (exposta em chat) — **SEGURANÇA**
+3. Rotacionar keystore password (mover de build.gradle para keystore.properties)
+4. Desabilitar Firebase Auth no console
+5. Remover `firebase` do package.json do frontend
 6. Features: NFS-e, Chat in-app, Guard v2, Slots convergência
