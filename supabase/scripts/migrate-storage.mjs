@@ -23,7 +23,10 @@ const bucket = getStorage().bucket();
 
 // Supabase
 const supa = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-const BUCKET = 'uploads';
+function bucketFor(name) {
+  if (name.startsWith('ocorrencias/')) return 'ocorrencias';
+  return 'uploads';
+}
 
 async function main() {
   console.log(DRY ? '=== DRY RUN ===' : '=== MIGRATING ===');
@@ -38,7 +41,8 @@ async function main() {
     if (!name || name.endsWith('/')) { skip++; continue; }
 
     // Verifica se já existe no Supabase
-    const { data: existing } = await supa.storage.from(BUCKET).list(
+    const targetBucket = bucketFor(name);
+    const { data: existing } = await supa.storage.from(targetBucket).list(
       name.substring(0, name.lastIndexOf('/')),
       { search: name.substring(name.lastIndexOf('/') + 1), limit: 1 }
     );
@@ -56,7 +60,7 @@ async function main() {
     try {
       const [buf] = await file.download();
       const contentType = file.metadata?.contentType || 'application/octet-stream';
-      const { error } = await supa.storage.from(BUCKET).upload(name, buf, {
+      const { error } = await supa.storage.from(targetBucket).upload(name, buf, {
         contentType,
         upsert: false,
       });

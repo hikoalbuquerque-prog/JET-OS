@@ -1674,7 +1674,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
       try {
         const { doc, deleteDoc } = await import('firebase/firestore');
         await deleteDoc(doc(db, 'estacoes', id));
-        supabase.from('estacoes').delete().or(`id.eq.${id},firebase_id.eq.${id}`).then(() => {}).catch(() => {});
+        supabase.from('estacoes').delete().or(`id.eq.${id},firebase_id.eq.${id}`).then(() => {}, () => {});
         setEstacoes(prev => prev.filter((x: any) => x.id !== id));
         leafletRef.current?.closePopup();
         showToast(t('popup.deleted'), 'success');
