@@ -271,15 +271,12 @@ async function _gerarTarefasMonitor(parkings: GoJetParking[], turno: 'T0' | 'T1'
   if (criadas > 0) console.log(`[tarefasMonitor] ${criadas} tarefas criadas`);
 }
 
+// DESATIVADO — geração de slots portada para Edge Function Supabase (gerar-slots).
+// Mantém export para não quebrar deploy, mas é no-op.
 export const gerarSlotsAgendado = onSchedule(
   { schedule: '0 21 * * *', timeZone: 'America/Sao_Paulo', memory: '256MiB', timeoutSeconds: 120, region: 'southamerica-east1', maxInstances: 10 },
   async () => {
-    const cfgSnap = await db.collection('slot_config').doc('global').get();
-    if (!cfgSnap.exists) { console.warn('[gerarSlots] sem config'); return; }
-    const cfg = cfgSnap.data() as SlotConfigGlobal;
-    const dados = await fetchGoJet();
-    const statsZonas = dados ? calcularStatsZonas(dados.parkings) : {};
-    await _gerarSlots(cfg, statsZonas);
+    console.log('[gerarSlotsAgendado] no-op — portado para Edge Function Supabase');
   }
 );
 
