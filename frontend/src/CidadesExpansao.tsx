@@ -3,8 +3,6 @@
 
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { db } from './lib/firebase';
-import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp } from 'firebase/firestore';
 import { supabase } from './lib/supabase';
 
 const T = {
@@ -99,10 +97,16 @@ export const STATUS_META: Record<StatusExpansao, { label: { pt: string; en: stri
 export function useCidadesExpansao() {
   const [cidades, setCidades] = useState<CidadeExpansao[]>([]);
   useEffect(() => {
-    const q = query(collection(db, 'cidades_expansao'), orderBy('criadoEm', 'desc'));
-    return onSnapshot(q, snap => {
-      setCidades(snap.docs.map(d => ({ id: d.id, ...d.data() } as CidadeExpansao)));
-    });
+    supabase.from('cidades_expansao').select('*').order('criado_em', { ascending: false })
+      .then(({ data }) => {
+        setCidades((data ?? []).map((r: any) => ({
+          id: r.id, nome: r.nome, pais: r.pais, lat: r.lat, lng: r.lng,
+          populacao: r.populacao, mercadoEst: r.mercado_est,
+          investimentoEst: r.investimento_est, status: r.status,
+          dataPrevista: r.data_prevista, responsavel: r.responsavel,
+          obs: r.obs, criadoEm: r.criado_em, atualizadoEm: r.atualizado_em,
+        })));
+      });
   }, []);
   return cidades;
 }
@@ -231,17 +235,6 @@ export function CidadeExpansaoModal({
     if (!lat || !lng)  { showToast(pick(T.enterCoords), 'error'); return; }
     setBusy(true);
     try {
-      const raw: Record<string, any> = {
-        nome: nome.trim(), pais, lat, lng, status,
-        atualizadoEm: serverTimestamp(),
-      };
-      if (populacao)       raw.populacao       = Number(populacao);
-      if (mercadoEst)      raw.mercadoEst      = Number(mercadoEst);
-      if (investimentoEst) raw.investimentoEst = Number(investimentoEst);
-      if (dataPrevista)    raw.dataPrevista    = dataPrevista;
-      if (responsavel)     raw.responsavel     = responsavel;
-      if (obs)             raw.obs             = obs;
-
       const supaRow = {
         nome: nome.trim(), pais, lat, lng, status,
         populacao: populacao ? Number(populacao) : null,
@@ -252,14 +245,13 @@ export function CidadeExpansaoModal({
         atualizado_em: new Date().toISOString(),
       };
       if (editando) {
-        await updateDoc(doc(db, 'cidades_expansao', editando.id), raw);
-        // dual-write Supabase
-        supabase.from('cidades_expansao').upsert({ id: editando.id, ...supaRow }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[CidadesExp] upsert cidades_expansao:', error.message); });
+        const { error } = await supabase.from('cidades_expansao').update(supaRow).eq('id', editando.id);
+        if (error) throw error;
         showToast(pick(T.cityUpdated), 'success');
       } else {
-        const docRef = await addDoc(collection(db, 'cidades_expansao'), { ...raw, criadoEm: serverTimestamp() });
-        // dual-write Supabase
-        supabase.from('cidades_expansao').upsert({ id: docRef.id, ...supaRow, criado_em: new Date().toISOString() }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[CidadesExp] insert cidades_expansao:', error.message); });
+        const id = crypto.randomUUID();
+        const { error } = await supabase.from('cidades_expansao').insert({ id, ...supaRow, criado_em: new Date().toISOString() });
+        if (error) throw error;
         showToast(pick(T.cityAdded), 'success');
       }
       onFechar();
@@ -269,9 +261,8 @@ export function CidadeExpansaoModal({
 
   const excluir = async () => {
     if (!editando || !confirm(pick(T.confirmDelete).replace('{n}', editando.nome))) return;
-    await deleteDoc(doc(db, 'cidades_expansao', editando.id));
-    // dual-write Supabase
-    supabase.from('cidades_expansao').delete().eq('id', editando.id).then(({ error }) => { if (error) console.error('[CidadesExp] delete cidades_expansao:', error.message); });
+    const { error } = await supabase.from('cidades_expansao').delete().eq('id', editando.id);
+    if (error) throw error;
     showToast(pick(T.cityRemoved), 'success');
     onFechar();
   };

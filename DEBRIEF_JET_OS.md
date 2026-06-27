@@ -3028,3 +3028,37 @@ estacoes, poligonos, locais_operacionais, ocorrencias, gps, gojet_config, solici
 #### Commit
 - `20e1cde` — 86 arquivos, +3577/−1186
 **Fase 4:** Migrar gojet_snapshots (scraper → Supabase, automação lê Supabase)
+
+### 19.20 Sessão 27/06/2026 (cont.) — Remoção mirrors + Firestore-purge DashboardManager + Cloud Functions Supabase-only
+
+#### 🗑️ Mirrors Firestore→Supabase REMOVIDOS (7 Cloud Functions)
+- `mirror-estacoes`, `mirror-gojet-config`, `mirror-ocorrencias`, `mirror-onda-b-menores`, `mirror-solicitacoes`, `mirror-tarefas`, `mirror-lgpd` — arquivos .ts e .js deletados, exports removidos do `index.ts`.
+- **Motivo:** com todas as flags defaultando Supabase e dual-write ativo no frontend, o mirror (Firestore→Supabase via Cloud Function trigger) tornou-se desnecessário — as escritas vão direto ao Supabase.
+
+#### ⚡ Cloud Functions — fallback Firestore REMOVIDO
+- `automacao.ts`, `automacao-tarefas.ts`, `automacao-gojet-scraper.ts`, `gps-alertas.ts`, `relatorio.ts`, `slot-confirmacao.ts`, `croquis/index.ts` — try/catch com fallback Firestore substituído por Supabase-only. Se o Supabase falhar, a function falha (sem silent degradation).
+
+#### 🧹 DashboardManager.tsx — últimos resíduos Firestore migrados
+- **Importação de estações (XLSX/CSV):** `writeBatch`/`doc`/`getDoc` → `supabase.from('estacoes').upsert(batch, { onConflict: 'codigo' })`.
+- **Importação de zonas (KML/GeoJSON/CSV):** `addDoc(collection(db,'poligonos'))` → `supabase.from('zonas').insert(...)`.
+- **Config notif_guard:** `getDocs(query(collection(db,'config')))` + `writeBatch` → `supabase.from('app_settings')` upsert por chave.
+- **Histórico de ocorrências, solicitações, usuários, estações (cidades/status):** já migrados na passada anterior.
+- **Total:** 0 erros TypeScript (`tsc --noEmit` limpo).
+
+#### 🔧 PWA
+- `vite.config.ts`: `registerType: 'prompt'` (em vez de `autoUpdate` + `selfDestroying`) — prompt de atualização controlado pelo usuário.
+
+#### 📋 28+ arquivos frontend com remoção de reads/writes Firestore residuais
+AnalyticsManager, CidadesExpansao, MonitorPanel, SlotsModule, TelaGuard, TelegramConfigPanel, UsuariosManager, ZonasManager, AdminBikeActions, AppShell, BugReportButton, BugReportsPanel, GestorLogisticaPanel, GoJetCidadesPanel, LocaisFinanceiro, PagamentosAdminPanel, PagamentosModule, PainelConfiguracoes, TurnoRegistro, UpdateBanner, bugReport.ts, estacoes-supabase.ts, onda-b-supabase.ts, slots-schema.ts, slots-supabase.ts, CadastroTelegram, TelaMapa.
+
+#### 📊 Estado pós-limpeza
+- **Frontend:** 0 erros TypeScript, build OK.
+- **Functions:** `tsc` limpo, sem mirrors.
+- **Firestore imports residuais no frontend:** `db`/`auth` de `./lib/firebase` ainda importados (usado por `auth` lazy fallback e eventuais reads legados em componentes menores). Remoção completa = próximo passo (remover `firebase.ts` do bundle).
+
+#### ⏭️ PENDÊNCIAS
+1. **Deploy:** `firebase deploy --only hosting` + `firebase deploy --only functions` (cota CPU pode bloquear).
+2. **Deletar mirrors no Firebase:** `firebase functions:delete espelharEstacaoSupabase espelharZonaSupabase espelharLocalSupabase espelharOcorrenciaSupabase espelharSolicitacaoPrestadorSupabase espelharTurnoLogisticaSupabase espelharTarefaSupabase espelharTarefaLogisticaSupabase espelharGojetConfigSupabase espelharConsentimentoLgpdSupabase espelharSolicitacaoSupabase --region southamerica-east1`
+3. **Rebuild APK** com auth flip + code-split + sem mirrors.
+4. **Rotacionar secrets** (service_role key, keystore password).
+5. **Shutdown Firestore** — 22 coleções ainda sem tabela Supabase; 9 módulos com escrita só Firestore.

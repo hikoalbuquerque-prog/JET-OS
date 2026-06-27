@@ -5,15 +5,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { gpsBackground, capturarPosicaoUnica, TrackingStats } from './lib/gps-background';
-import {
-  collection, query, where, orderBy, getDocs, addDoc,
-  updateDoc, doc, onSnapshot, serverTimestamp, Timestamp, getDoc,
-} from 'firebase/firestore';
-import { db, fnNotificarTarefa, fnGerarSlotsManual, fnScraperGoJetManual } from './lib/firebase';
+import { fnNotificarTarefa, fnGerarSlotsManual, fnScraperGoJetManual } from './lib/firebase';
 import { supabase } from './lib/supabase';
-import { guardProviderSupabase, carregarOcorrenciasSupabase, guardWriteSupabase, criarOcorrenciaSupabase, atualizarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
-import { gpsProviderSupabase, fetchWorkerPos } from './lib/gps-supabase';
-import { usuariosReadSupabase, fetchUsuarios } from './lib/usuarios-supabase';
+import { carregarOcorrenciasSupabase, criarOcorrenciaSupabase, atualizarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
+import { fetchWorkerPos } from './lib/gps-supabase';
+import { fetchUsuarios } from './lib/usuarios-supabase';
 import { uploadComRetry } from './lib/uploadUtils';
 import { comprimirImagem, capturarFotoNativa } from './lib/imageUtils';
 import { isAndroidNative } from './lib/gps-native';
@@ -25,8 +21,10 @@ import type {
 } from './lib/slots-schema';
 import { salvarConfigZona, buscarConfigZonas } from './lib/slots-schema';
 import {
-  slotsProviderSupabase, subscribeSlots,
+  subscribeSlots, subscribeTarefas,
   aceitarSlotSupa, checkInSlotSupa, checkOutSlotSupa, cancelarSlotSupa, reatribuirSlotSupa,
+  criarSlotSupa, criarTarefaSupa, atualizarSlotSupa, atualizarTarefaSupa,
+  fetchLogSlotsAuto, fetchPoligonos, updateCheckInFoto,
 } from './lib/slots-supabase';
 
 // ─── Geo helpers ─────────────────────────────────────────────────────────────
@@ -53,33 +51,14 @@ function useWorkerGPS(uid: string | null): WorkerPos | null {
   useEffect(() => {
     if (!uid) return;
 
-    if (gpsProviderSupabase()) {
-      // Supabase: polling a cada 15s
-      let alive = true;
-      const poll = () => {
-        fetchWorkerPos(uid).then(r => { if (alive) setPos(r); });
-      };
-      poll();
-      const id = setInterval(poll, 15_000);
-      return () => { alive = false; clearInterval(id); };
-    }
-
-    // Firestore fallback
-    const since = Timestamp.fromMillis(Date.now() - 30 * 60_000);
-    const q = query(
-      collection(db, 'gps_logistica'),
-      where('uid', '==', uid),
-      where('criadoEm', '>=', since),
-      orderBy('criadoEm', 'desc'),
-    );
-    const unsub = onSnapshot(q, snap => {
-      const docs = snap.docs;
-      if (docs.length === 0) return;
-      const d = docs[0].data();
-      const ts = d.criadoEm?.toDate?.() ?? new Date(d.criadoEm);
-      setPos({ lat: d.lat, lng: d.lng, idadeS: Math.floor((Date.now() - ts.getTime()) / 1000), bateria: d.bateria ?? null });
-    });
-    return unsub;
+    // Supabase: polling a cada 15s
+    let alive = true;
+    const poll = () => {
+      fetchWorkerPos(uid).then(r => { if (alive) setPos(r); });
+    };
+    poll();
+    const id = setInterval(poll, 15_000);
+    return () => { alive = false; clearInterval(id); };
   }, [uid]);
   return pos;
 }
@@ -90,40 +69,20 @@ function useSlotsWorkersGPS(uids: string[]): Record<string, WorkerPos> {
   useEffect(() => {
     if (uids.length === 0) return;
 
-    if (gpsProviderSupabase()) {
-      // Supabase: polling a cada 15s para todos os uids
-      let alive = true;
-      const poll = () => {
-        Promise.all(uids.map(uid => fetchWorkerPos(uid).then(r => r ? [uid, r] as const : null)))
-          .then(results => {
-            if (!alive) return;
-            const next: Record<string, WorkerPos> = {};
-            for (const r of results) { if (r) next[r[0]] = r[1]; }
-            setMapa(next);
-          });
-      };
-      poll();
-      const id = setInterval(poll, 15_000);
-      return () => { alive = false; clearInterval(id); };
-    }
-
-    // Firestore fallback
-    const since = Timestamp.fromMillis(Date.now() - 30 * 60_000);
-    const unsubs = uids.map(uid => {
-      const q = query(
-        collection(db, 'gps_logistica'),
-        where('uid', '==', uid),
-        where('criadoEm', '>=', since),
-        orderBy('criadoEm', 'desc'),
-      );
-      return onSnapshot(q, snap => {
-        if (snap.empty) return;
-        const d = snap.docs[0].data();
-        const ts = d.criadoEm?.toDate?.() ?? new Date(d.criadoEm);
-        setMapa(prev => ({ ...prev, [uid]: { lat: d.lat, lng: d.lng, idadeS: Math.floor((Date.now() - ts.getTime()) / 1000), bateria: d.bateria ?? null } }));
-      });
-    });
-    return () => unsubs.forEach(u => u());
+    // Supabase: polling a cada 15s para todos os uids
+    let alive = true;
+    const poll = () => {
+      Promise.all(uids.map(uid => fetchWorkerPos(uid).then(r => r ? [uid, r] as const : null)))
+        .then(results => {
+          if (!alive) return;
+          const next: Record<string, WorkerPos> = {};
+          for (const r of results) { if (r) next[r[0]] = r[1]; }
+          setMapa(next);
+        });
+    };
+    poll();
+    const id = setInterval(poll, 15_000);
+    return () => { alive = false; clearInterval(id); };
   }, [uids.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
   return mapa;
 }
@@ -669,9 +628,10 @@ function fmtDt(iso: string): string {
   } catch { return iso; }
 }
 
-function fmtTs(ts: Timestamp | null | undefined): string {
+function fmtTs(ts: string | Date | null | undefined): string {
   if (!ts) return '—';
-  return ts.toDate().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const d = typeof ts === 'string' ? new Date(ts) : ts;
+  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
 // Compressão HEIC-safe (ver lib/imageUtils). Converte HEIC→JPEG antes de comprimir,
@@ -928,13 +888,13 @@ function TarefaDetalheView({ tarefa, slotTipoSlot, workerUid, onVoltar, onAtuali
 
   const marcarACaminho = async () => {
     setBusy(true);
-    try { await onAtualizar(tarefa.status === 'pendente' ? 'em_andamento' : tarefa.status, { aCaminhoEm: Timestamp.now() }); }
+    try { await onAtualizar(tarefa.status === 'pendente' ? 'em_andamento' : tarefa.status, { aCaminhoEm: new Date().toISOString() }); }
     finally { setBusy(false); }
   };
 
   const iniciar = async () => {
     setBusy(true);
-    try { await onAtualizar('em_andamento', { iniciadoEm: Timestamp.now() }); }
+    try { await onAtualizar('em_andamento', { iniciadoEm: new Date().toISOString() }); }
     finally { setBusy(false); }
   };
 
@@ -943,7 +903,7 @@ function TarefaDetalheView({ tarefa, slotTipoSlot, workerUid, onVoltar, onAtuali
     setBusy(true);
     try {
       const url = await uploadFoto(fotoChegadaFile, `tarefas/${tarefa.id}_chegada_${Date.now()}.jpg`);
-      await onAtualizar(tarefa.status, { fotoChegadaUrl: url, chegadaEm: Timestamp.now() });
+      await onAtualizar(tarefa.status, { fotoChegadaUrl: url, chegadaEm: new Date().toISOString() });
       setFotoChegadaFile(null);
       setFotoChegadaPreview('');
     } catch (e: any) { alert(pick(T.erro) + e.message); }
@@ -960,7 +920,7 @@ function TarefaDetalheView({ tarefa, slotTipoSlot, workerUid, onVoltar, onAtuali
         id: Date.now().toString(),
         qtd, fotoUrl: url, obs: obs || null,
         lat: pos?.lat ?? null, lng: pos?.lng ?? null, accuracy: pos?.accuracy ?? null,
-        registradoEm: Timestamp.now(),
+        registradoEm: new Date().toISOString(),
       };
       const entregasAtuais: Entrega[] = tarefa.entregas ?? [];
       const novasEntregas = [...entregasAtuais, novaEntrega];
@@ -971,7 +931,7 @@ function TarefaDetalheView({ tarefa, slotTipoSlot, workerUid, onVoltar, onAtuali
         {
           entregas: novasEntregas,
           qtdConcluida: novaQtdConcluida,
-          ...(concluida ? { concluidoEm: Timestamp.now(), fotoUrl: url } : {}),
+          ...(concluida ? { concluidoEm: new Date().toISOString(), fotoUrl: url } : {}),
         }
       );
     } catch (e: any) { alert(pick(T.erroRegEntrega) + e.message); }
@@ -988,7 +948,7 @@ function TarefaDetalheView({ tarefa, slotTipoSlot, workerUid, onVoltar, onAtuali
         motivoCancelamento: motivo,
         notasCancelamento: notas || null,
         fotoCancelamentoUrl: fotoUrl,
-        canceladoEm: Timestamp.now(),
+        canceladoEm: new Date().toISOString(),
       });
     } catch (e: any) { alert(pick(T.erro) + e.message); }
     finally { setBusy(false); }
@@ -1450,14 +1410,22 @@ function FormCriarSlot({ cidade, pais, adminUid, zonas, workers, onSalvo, onCanc
         criadoPor: adminUid,
         aceitoPor: workerUid || null,
         aceitoPorNome: worker?.nome || null,
-        aceitoEm: workerUid ? serverTimestamp() : null,
+        aceitoEm: workerUid ? new Date().toISOString() : null,
         tarefasIds: [], tarefasTotal: tarefas.length, tarefasConcluidas: 0,
         slaAceiteMin: slaMin,
         checkInFotoObrigatoria: checkInFotoObrig,
         n8nDistribuido: false,
       };
-      const slotRef = await addDoc(collection(db, 'slots'), { ...slotData, criadoEm: serverTimestamp(), atualizadoEm: serverTimestamp() });
-      supabase.from('slots').upsert({ id: slotRef.id, titulo: slotData.titulo, tipo_slot: tipoSlot, tipo_geracao: 'manual', prioridade, cidade, pais, turno_inicio: turnoInicio, turno_fim: turnoFim, status: slotData.status, criado_por: slotData.criadoPor, aceito_por: slotData.aceitoPor ?? null, aceito_por_nome: slotData.aceitoPorNome ?? null, tarefas_total: slotData.tarefasTotal, tarefas_concluidas: 0, sla_aceite_min: slaMin, criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[slots] upsert:', error.message); });
+      const now = new Date().toISOString();
+      const slotId = await criarSlotSupa({
+        titulo: slotData.titulo, tipo_slot: tipoSlot, tipo_geracao: 'manual', prioridade, cidade, pais,
+        turno_inicio: turnoInicio, turno_fim: turnoFim, status: slotData.status,
+        criado_por: slotData.criadoPor, aceito_por: slotData.aceitoPor ?? null,
+        aceito_por_nome: slotData.aceitoPorNome ?? null, aceito_em: slotData.aceitoEm,
+        tarefas_total: slotData.tarefasTotal, tarefas_concluidas: 0,
+        sla_aceite_min: slaMin, check_in_foto_obrigatoria: slotData.checkInFotoObrigatoria,
+        criado_em: now, atualizado_em: now,
+      });
 
       const tarefaIds: string[] = [];
       for (let i = 0; i < tarefas.length; i++) {
@@ -1471,7 +1439,7 @@ function FormCriarSlot({ cidade, pais, adminUid, zonas, workers, onSalvo, onCanc
           prioridade: prioridade === 'urgente' ? 5 : prioridade === 'alta' ? 4 : 3,
           titulo: t.titulo.trim() || `${meta.l} #${i + 1}`,
           cargo: tipoSlot as CargoTipo,
-          cidade, pais, slotId: slotRef.id,
+          cidade, pais, slotId: slotId,
           assigneeUid: workerUid || null,
           assigneeNome: worker?.nome || null,
           qtdAlvo: t.qtdAlvo, qtdConcluida: 0,
@@ -1479,15 +1447,20 @@ function FormCriarSlot({ cidade, pais, adminUid, zonas, workers, onSalvo, onCanc
           rotaOrdem: i,
           ...(t.estNome.trim() ? { estacao: { id: `est${i}`, nome: t.estNome.trim(), lat: parseFloat(t.estLat) || 0, lng: parseFloat(t.estLng) || 0 } } : {}),
           ...(tipoSlot === 'scout' && t.estOrigemNome.trim() ? { estacaoOrigem: { id: `orig${i}`, nome: t.estOrigemNome.trim(), lat: 0, lng: 0 } } : {}),
-          criadoEm: serverTimestamp(), atualizadoEm: serverTimestamp(),
         };
-        const tRef = await addDoc(collection(db, 'tarefas'), tarefaData);
-        tarefaIds.push(tRef.id);
-        supabase.from('tarefas').upsert({ id: tRef.id, tipo: tarefaData.tipo, tipo_slot: tipoSlot, status: 'pendente', prioridade: tarefaData.prioridade, titulo: tarefaData.titulo, cargo: tarefaData.cargo, cidade, pais, slot_id: slotRef.id, assignee_uid: tarefaData.assigneeUid, assignee_nome: tarefaData.assigneeNome, qtd_alvo: tarefaData.qtdAlvo, qtd_concluida: 0, rota_ordem: tarefaData.rotaOrdem, criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[tarefas] upsert:', error.message); });
+        const tNow = new Date().toISOString();
+        const tId = await criarTarefaSupa({
+          tipo: tarefaData.tipo, tipo_slot: tipoSlot, status: 'pendente',
+          prioridade: tarefaData.prioridade, titulo: tarefaData.titulo,
+          cargo: tarefaData.cargo, cidade, pais, slot_id: slotId,
+          assignee_uid: tarefaData.assigneeUid, assignee_nome: tarefaData.assigneeNome,
+          qtd_alvo: tarefaData.qtdAlvo, qtd_concluida: 0, rota_ordem: tarefaData.rotaOrdem,
+          criado_em: tNow, atualizado_em: tNow,
+        });
+        tarefaIds.push(tId);
       }
 
-      await updateDoc(slotRef, { tarefasIds: tarefaIds, atualizadoEm: serverTimestamp() });
-      supabase.from('slots').update({ tarefas_ids: tarefaIds, atualizado_em: new Date().toISOString() }).eq('id', slotRef.id).then(({ error }) => { if (error) console.error('[slots] update tarefas_ids:', error.message); });
+      await atualizarSlotSupa(slotId, { tarefas_ids: tarefaIds, atualizado_em: new Date().toISOString() });
       onSalvo();
     } catch (e: any) { setErro(e.message ?? pick(T.erroCriarSlot)); }
     finally { setBusy(false); }
@@ -1690,8 +1663,7 @@ function SlotCard({ slot, isAdmin, operadorUid, equipe, onAceitar, onCheckIn, on
       let fotoUrl: string | null = null;
       if (fotoFile && slot.id) {
         fotoUrl = await uploadFoto(fotoFile, `slots/${slot.id}/checkin_${Date.now()}.jpg`);
-        await updateDoc(doc(db, 'slots', slot.id!), { checkInFotoUrl: fotoUrl, atualizadoEm: serverTimestamp() });
-        supabase.from('slots').update({ check_in_foto_url: fotoUrl, atualizado_em: new Date().toISOString() }).eq('id', slot.id!).then(({ error }) => { if (error) console.error('[slots] update check-in foto:', error.message); });
+        await updateCheckInFoto(slot.id!, fotoUrl);
       }
       onCheckIn(slot);
       setCheckInFoto(false); setFotoFile(null);
@@ -1867,9 +1839,7 @@ function ConfigAutoSlotsPanel({ cidade, pais, adminUid, zonas }: {
 
   useEffect(() => {
     // Busca últimas 20 entradas do log_slots_auto para esta cidade
-    getDocs(
-      query(collection(db, 'log_slots_auto'), where('cidade', '==', cidade), orderBy('registradoEm', 'desc'))
-    ).then(snap => setLogEntradas(snap.docs.slice(0, 20).map(d => ({ id: d.id, ...d.data() }))));
+    fetchLogSlotsAuto(cidade).then(setLogEntradas).catch(() => {});
   }, [cidade]);
 
   const gerarAgora = async () => {
@@ -1878,9 +1848,7 @@ function ConfigAutoSlotsPanel({ cidade, pais, adminUid, zonas }: {
       const res: any = await fnGerarSlotsManual()({ cidade });
       setLogMsg(pick(T.slotsGerados));
       // Recarrega log
-      getDocs(
-        query(collection(db, 'log_slots_auto'), where('cidade', '==', cidade), orderBy('registradoEm', 'desc'))
-      ).then(snap => setLogEntradas(snap.docs.slice(0, 20).map(d => ({ id: d.id, ...d.data() }))));
+      fetchLogSlotsAuto(cidade).then(setLogEntradas).catch(() => {});
     } catch (e: any) { setLogMsg(pick(T.erro) + (e.message ?? pick(T.falhaGeracao))); }
     finally { setGerando(false); }
   };
@@ -2382,13 +2350,9 @@ function FormOcorrencia({ usuario, cidade, pais, onSalvo, onCancelar }: {
         cargo: usuario.cargoPrestador ?? usuario.role,
         cidade, pais, procurando: ehRoubo ? procurando : false,
         patineteId: patineteId.trim() || null, telegramEnviado: false,
-        criadoEm: serverTimestamp(), atualizadoEm: serverTimestamp(),
+        criadoEm: new Date().toISOString(), atualizadoEm: new Date().toISOString(),
       };
-      const ref = await addDoc(collection(db, 'ocorrencias'), novaOc);
-      if (guardWriteSupabase()) {
-        criarOcorrenciaSupabase(ref.id, { ...novaOc, asset_id: patineteId.trim() || null })
-          .catch(err => console.error('[guard-write] create Supabase:', err));
-      }
+      await criarOcorrenciaSupabase(crypto.randomUUID(), { ...novaOc, asset_id: patineteId.trim() || null });
       onSalvo();
     } catch (e: any) { setErro(e.message ?? pick(T.erroRegistrar)); }
     finally { setBusy(false); }
@@ -2589,109 +2553,57 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
 
   // Carregar zonas disponíveis
   useEffect(() => {
-    getDocs(query(collection(db, 'poligonos'), where('cidade', '==', cidade))).then(snap => {
-      setZonas(snap.docs.map(d => d.data().nome).filter(Boolean).sort());
-    }).catch(() => {});
+    fetchPoligonos(cidade).then(setZonas).catch(() => {});
   }, [cidade]);
 
   // ── Slots realtime ──
   useEffect(() => {
     if (aba !== 'slots') return;
     setLoading(true);
-    // Migração: lê slots do Supabase (polling) quando o flag está ligado.
-    if (slotsProviderSupabase()) {
-      return subscribeSlots(
-        { cidade, isAdmin, cargo: usuario.cargoPrestador },
-        s => { setSlots(s as Slot[]); setLoading(false); },
-      );
-    }
-    let q;
-    if (isAdmin) {
-      q = query(collection(db, 'slots'), where('cidade', '==', cidade), where('pais', '==', pais), orderBy('criadoEm', 'desc'));
-    } else {
-      q = query(collection(db, 'slots'), where('cidade', '==', cidade), where('cargo', 'in', [usuario.cargoPrestador ?? '', 'scout', 'scalt', 'charger']), orderBy('turnoInicio', 'asc'));
-    }
-    const unsub = onSnapshot(q, snap => {
-      setSlots(snap.docs.map(d => ({ id: d.id, ...d.data() } as Slot)));
-      setLoading(false);
-    });
-    return () => unsub();
+    return subscribeSlots(
+      { cidade, isAdmin, cargo: usuario.cargoPrestador },
+      s => { setSlots(s as Slot[]); setLoading(false); },
+    );
   }, [aba, cidade, pais, isAdmin, usuario.cargoPrestador]);
 
   // ── Tarefas realtime ──
   useEffect(() => {
     if (aba !== 'tarefas') return;
     setLoading(true);
-    let q;
-    if (isAdmin) {
-      q = query(collection(db, 'tarefas'), where('cidade', '==', cidade), where('pais', '==', pais), orderBy('criadoEm', 'desc'));
-    } else {
-      q = query(collection(db, 'tarefas'), where('assigneeUid', '==', usuario.uid), where('status', 'in', ['pendente', 'aceita', 'em_andamento']), orderBy('rotaOrdem', 'asc'));
-    }
-    const unsub = onSnapshot(q, snap => {
-      setTarefas(snap.docs.map(d => ({ id: d.id, ...d.data() } as Tarefa)));
-      setLoading(false);
-    });
-    return () => unsub();
+    return subscribeTarefas(
+      { cidade, pais, isAdmin, uid: usuario.uid },
+      t => { setTarefas(t as Tarefa[]); setLoading(false); },
+    );
   }, [aba, cidade, pais, isAdmin, usuario.uid]);
 
   // ── Ocorrências realtime ──
   useEffect(() => {
     if (aba !== 'ocorrencias') return;
     setLoading(true);
-    // Fase 2 / Onda B — leitura do Supabase atrás de flag (read-only).
-    if (guardProviderSupabase()) {
-      let vivo = true;
-      carregarOcorrenciasSupabase({ cidade, limit: 5000 })
-        .then(rows => { if (vivo) { setOcorrencias(rows as Ocorrencia[]); setLoading(false); } })
-        .catch(err => { console.error('[slots-ocor] Supabase', err); if (vivo) setLoading(false); });
-      return () => { vivo = false; };
-    }
-    const q = query(collection(db, 'ocorrencias'), where('cidade', '==', cidade), orderBy('criadoEm', 'desc'));
-    const unsub = onSnapshot(q, snap => {
-      setOcorrencias(snap.docs.map(d => ({ id: d.id, ...d.data() } as Ocorrencia)));
-      setLoading(false);
-    });
-    return () => unsub();
+    let vivo = true;
+    carregarOcorrenciasSupabase({ cidade, limit: 5000 })
+      .then(rows => { if (vivo) { setOcorrencias(rows as Ocorrencia[]); setLoading(false); } })
+      .catch(err => { console.error('[slots-ocor] Supabase', err); if (vivo) setLoading(false); });
+    return () => { vivo = false; };
   }, [aba, cidade]);
 
   // ── Equipe — carrega sempre que admin abre o módulo (necessário para dropdown de reatribuição) ──
   useEffect(() => {
     if (!isAdmin) return;
-    if (usuariosReadSupabase()) {
-      fetchUsuarios({ tipoCadastro: 'prestador', statusPrestador: 'ativo', cidade })
-        .then(users => { setEquipe(users.map(u => ({ ...u, id: u.uid }))); });
-    } else {
-      getDocs(query(collection(db, 'usuarios'), where('tipoCadastro', '==', 'prestador'), where('statusPrestador', '==', 'ativo'), where('cidade', '==', cidade)))
-        .then(snap => { setEquipe(snap.docs.map(d => ({ id: d.id, ...d.data() }))); });
-    }
+    fetchUsuarios({ tipoCadastro: 'prestador', statusPrestador: 'ativo', cidade })
+      .then(users => { setEquipe(users.map(u => ({ ...u, id: u.uid }))); });
   }, [isAdmin, cidade]);
 
   // ── Handlers ──
   const aceitarSlot = useCallback(async (slot: Slot) => {
     if (!slot.id) return;
-    if (slotsProviderSupabase()) { await aceitarSlotSupa(slot.id); return; }
-    await updateDoc(doc(db, 'slots', slot.id), {
-      status: 'aceito', aceitoPor: usuario.uid, aceitoPorNome: usuario.nome,
-      aceitoEm: serverTimestamp(), atualizadoEm: serverTimestamp(),
-    });
-    await updateDoc(doc(db, 'usuarios', usuario.uid), { slotAtualId: slot.id, ultimaAtividade: serverTimestamp() }).catch(() => {});
-    supabase.from('slots').update({ status: 'aceito', aceito_por: usuario.uid, aceito_por_nome: usuario.nome, aceito_em: new Date().toISOString(), atualizado_em: new Date().toISOString() }).eq('id', slot.id).then(({ error }) => { if (error) console.error('[slots] update aceitar:', error.message); });
-  }, [usuario]);
+    await aceitarSlotSupa(slot.id);
+  }, []);
 
   const checkIn = useCallback(async (slot: Slot) => {
     if (!slot.id) return;
     const pos = await capturarPosicaoUnica().catch(() => null);
-    if (slotsProviderSupabase()) {
-      await checkInSlotSupa(slot.id, pos?.lat, pos?.lng, pos?.accuracy);
-    } else {
-      await updateDoc(doc(db, 'slots', slot.id), {
-        status: 'em_andamento', checkInEm: serverTimestamp(),
-        checkInLat: pos?.lat ?? null, checkInLng: pos?.lng ?? null,
-        checkInAccuracy: pos?.accuracy ?? null, atualizadoEm: serverTimestamp(),
-      });
-      supabase.from('slots').update({ status: 'em_andamento', check_in_em: new Date().toISOString(), check_in_lat: pos?.lat ?? null, check_in_lng: pos?.lng ?? null, check_in_accuracy: pos?.accuracy ?? null, atualizado_em: new Date().toISOString() }).eq('id', slot.id).then(({ error }) => { if (error) console.error('[slots] update check-in:', error.message); });
-    }
+    await checkInSlotSupa(slot.id, pos?.lat, pos?.lng, pos?.accuracy);
     setSlotAtivo(slot);
     await gpsBackground.iniciar({
       uid: usuario.uid, slotId: slot.id,
@@ -2703,42 +2615,17 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
     if (!slot.id) return;
     await gpsBackground.parar();
     setSlotAtivo(null); setGpsStats(null);
-    if (slotsProviderSupabase()) { await checkOutSlotSupa(slot.id); return; }
-    await updateDoc(doc(db, 'slots', slot.id), { status: 'concluido', checkOutEm: serverTimestamp(), atualizadoEm: serverTimestamp() });
-    supabase.from('slots').update({ status: 'concluido', check_out_em: new Date().toISOString(), atualizado_em: new Date().toISOString() }).eq('id', slot.id).then(({ error }) => { if (error) console.error('[slots] update check-out:', error.message); });
-    await updateDoc(doc(db, 'usuarios', usuario.uid), { slotAtualId: null, ultimaAtividade: serverTimestamp() }).catch(() => {});
+    await checkOutSlotSupa(slot.id);
   }, [usuario.uid]);
 
   const cancelarSlot = useCallback(async (slot: Slot) => {
     if (!slot.id || !window.confirm(pick(T.confirmarCancelSlot))) return;
-    if (slotsProviderSupabase()) { await cancelarSlotSupa(slot.id); return; }
-    const isWorkerCancel = slot.aceitoPor === usuario.uid && !isAdmin;
-    if (isWorkerCancel) {
-      await updateDoc(doc(db, 'slots', slot.id), {
-        status: 'aberto', aceitoPor: null, aceitoPorNome: null, aceitoEm: null,
-        motivoCancelamento: 'desistência_prestador', canceladoPor: usuario.uid,
-        atualizadoEm: serverTimestamp(),
-      });
-      await updateDoc(doc(db, 'usuarios', usuario.uid), { slotAtualId: null, ultimaAtividade: serverTimestamp() }).catch(() => {});
-      supabase.from('slots').update({ status: 'aberto', aceito_por: null, aceito_por_nome: null, aceito_em: null, motivo_cancelamento: 'desistência_prestador', cancelado_por: usuario.uid, atualizado_em: new Date().toISOString() }).eq('id', slot.id).then(({ error }) => { if (error) console.error('[slots] update cancel-worker:', error.message); });
-    } else {
-      await updateDoc(doc(db, 'slots', slot.id), { status: 'cancelado', canceladoPor: usuario.uid, atualizadoEm: serverTimestamp() });
-      supabase.from('slots').update({ status: 'cancelado', cancelado_por: usuario.uid, atualizado_em: new Date().toISOString() }).eq('id', slot.id).then(({ error }) => { if (error) console.error('[slots] update cancel-admin:', error.message); });
-    }
-  }, [usuario.uid, isAdmin]);
+    await cancelarSlotSupa(slot.id);
+  }, []);
 
   const reatribuirSlot = useCallback(async (slot: Slot, novoUid: string, novoNome: string) => {
     if (!slot.id) return;
-    if (slotsProviderSupabase()) {
-      await reatribuirSlotSupa(slot.id, novoUid);
-    } else {
-      await updateDoc(doc(db, 'slots', slot.id), {
-        aceitoPor: novoUid, aceitoPorNome: novoNome,
-        status: slot.status === 'aberto' ? 'aceito' : slot.status,
-        aceitoEm: serverTimestamp(), atualizadoEm: serverTimestamp(),
-      });
-      supabase.from('slots').update({ aceito_por: novoUid, aceito_por_nome: novoNome, status: slot.status === 'aberto' ? 'aceito' : slot.status, aceito_em: new Date().toISOString(), atualizado_em: new Date().toISOString() }).eq('id', slot.id).then(({ error }) => { if (error) console.error('[slots] update reatribuir:', error.message); });
-    }
+    await reatribuirSlotSupa(slot.id, novoUid);
     // Notificar novo worker via push + Telegram
     try {
       await fnNotificarTarefa()({
@@ -2752,18 +2639,20 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
   }, []);
 
   const atualizarTarefa = useCallback(async (id: string, status: string, extra?: Partial<Tarefa>) => {
-    await updateDoc(doc(db, 'tarefas', id), { status, ...extra, atualizadoEm: serverTimestamp() });
-    supabase.from('tarefas').update({ status, ...Object.fromEntries(Object.entries(extra ?? {}).filter(([k]) => !['slotId','entregas','patineteSugeridas','estacao','estacaoOrigem'].includes(k)).map(([k, v]) => [k.replace(/([A-Z])/g, '_$1').toLowerCase(), v instanceof Timestamp ? v.toDate().toISOString() : v])), atualizado_em: new Date().toISOString() }).eq('id', id).then(({ error }) => { if (error) console.error('[tarefas] update:', error.message); });
-    // Se concluída, atualiza contagem no slot
+    // Convert camelCase keys to snake_case for Supabase, skip complex nested objects
+    const snakeExtra: Record<string, any> = {};
+    for (const [k, v] of Object.entries(extra ?? {})) {
+      if (['slotId','entregas','patineteSugeridas','estacao','estacaoOrigem'].includes(k)) continue;
+      const snakeKey = k.replace(/([A-Z])/g, '_$1').toLowerCase();
+      snakeExtra[snakeKey] = v;
+    }
+    await atualizarTarefaSupa(id, { status, ...snakeExtra, atualizado_em: new Date().toISOString() });
+    // Se concluída, atualiza contagem no slot via Supabase
     if (status === 'concluida' && extra?.slotId) {
-      const slotRef = doc(db, 'slots', extra.slotId as string);
-      const slotSnap = await getDoc(slotRef).catch(() => null);
-      if (slotSnap?.exists()) {
-        const d = slotSnap.data();
-        const novasConcluidas = (d.tarefasConcluidas ?? 0) + 1;
-        const total = d.tarefasTotal ?? 1;
-        await updateDoc(slotRef, { tarefasConcluidas: novasConcluidas, atualizadoEm: serverTimestamp() }).catch(() => {});
-        supabase.from('slots').update({ tarefas_concluidas: novasConcluidas, atualizado_em: new Date().toISOString() }).eq('id', extra.slotId as string).then(({ error }) => { if (error) console.error('[slots] update tarefas_concluidas:', error.message); });
+      const { data: slotRow } = await supabase.from('slots').select('tarefas_concluidas').eq('id', extra.slotId as string).single();
+      if (slotRow) {
+        const novasConcluidas = (slotRow.tarefas_concluidas ?? 0) + 1;
+        await atualizarSlotSupa(extra.slotId as string, { tarefas_concluidas: novasConcluidas, atualizado_em: new Date().toISOString() }).catch(() => {});
       }
     }
   }, []);
@@ -3024,8 +2913,7 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
                           {isAdmin && oc.status !== 'resolvida' && (
                             <select value={oc.status} style={{ ...S.inp, width: 'auto', fontSize: 10, padding: '3px 6px', colorScheme: 'dark' }}
                               onChange={async e => {
-                                if (oc.id) { await updateDoc(doc(db, 'ocorrencias', oc.id), { status: e.target.value, atualizadoEm: serverTimestamp() });
-                                  if (guardWriteSupabase()) atualizarOcorrenciaSupabase(oc.id, { status: e.target.value }).catch(err => console.error('[guard-write] update Supabase:', err)); }
+                                if (oc.id) { await atualizarOcorrenciaSupabase(oc.id, { status: e.target.value }); }
                               }}
                               onClick={e => e.stopPropagation()}>
                               {['aberta','em_tratamento','resolvida','arquivada'].map(s => (

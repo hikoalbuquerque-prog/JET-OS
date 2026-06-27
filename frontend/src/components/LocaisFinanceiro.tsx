@@ -3,12 +3,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { db } from '../lib/firebase';
-import { mapaProviderSupabase, carregarLocaisSupabase } from '../lib/estacoes-supabase';
-import {
-  collection, addDoc, updateDoc, deleteDoc, doc,
-  onSnapshot, query, where, serverTimestamp, orderBy,
-} from 'firebase/firestore';
+import { carregarLocaisSupabase } from '../lib/estacoes-supabase';
 import { uploadComRetry } from '../lib/uploadUtils';
 import { comprimirImagem } from '../lib/imageUtils';
 import { supabase } from '../lib/supabase';
@@ -223,22 +218,11 @@ export function useLocaisOperacionais(cidade: string, pais: string) {
   const [locais, setLocais] = useState<LocalOperacional[]>([]);
   useEffect(() => {
     if (!cidade) return;
-    if (mapaProviderSupabase()) {
-      // Fase 2: locais do Supabase (carga única; filtra cidade no cliente).
-      let vivo = true;
-      carregarLocaisSupabase().then(rows => {
-        if (vivo) setLocais(rows.filter((r: any) => r.cidade === cidade) as LocalOperacional[]);
-      }).catch(() => {});
-      return () => { vivo = false; };
-    }
-    const q = query(
-      collection(db, 'locais_operacionais'),
-      where('cidade', '==', cidade), where('pais', '==', pais)
-    );
-    const unsub = onSnapshot(q, snap => {
-      setLocais(snap.docs.map(d => ({ id: d.id, ...d.data() } as LocalOperacional)));
-    });
-    return () => unsub();
+    let vivo = true;
+    carregarLocaisSupabase().then(rows => {
+      if (vivo) setLocais(rows.filter((r: any) => r.cidade === cidade) as LocalOperacional[]);
+    }).catch(() => {});
+    return () => { vivo = false; };
   }, [cidade, pais]);
   return locais;
 }
@@ -247,8 +231,13 @@ function useContratos(localId: string | null) {
   const [data, setData] = useState<Contrato[]>([]);
   useEffect(() => {
     if (!localId) { setData([]); return; }
-    const q = query(collection(db, 'contratos_locais'), where('localId','==',localId));
-    return onSnapshot(q, snap => setData(snap.docs.map(d => ({ id:d.id, ...d.data() } as Contrato))));
+    supabase.from('contratos_locais').select('*').eq('local_id', localId)
+      .then(({ data: rows }) => setData((rows ?? []).map((r: any) => ({
+        id: r.id, localId: r.local_id, valor: r.valor, diaVencimento: r.dia_vencimento,
+        dataInicio: r.data_inicio, dataFim: r.data_fim, proprietario: r.proprietario,
+        contatoProprietario: r.contato_proprietario, indexador: r.indexador,
+        status: r.status, observacao: r.observacao, docUrl: r.doc_url, criadoEm: r.criado_em,
+      }))));
   }, [localId]);
   return data;
 }
@@ -257,12 +246,17 @@ function usePagamentos(localId: string | null) {
   const [data, setData] = useState<Pagamento[]>([]);
   useEffect(() => {
     if (!localId) { setData([]); return; }
-    const q = query(
-      collection(db, 'pagamentos_locais'),
-      where('localId','==',localId),
-      orderBy('dataVencimento','desc')
-    );
-    return onSnapshot(q, snap => setData(snap.docs.map(d => ({ id:d.id, ...d.data() } as Pagamento))));
+    supabase.from('pagamentos_locais').select('*').eq('local_id', localId)
+      .order('data_vencimento', { ascending: false })
+      .then(({ data: rows }) => setData((rows ?? []).map((r: any) => ({
+        id: r.id, localId: r.local_id, contratoId: r.contrato_id,
+        tipo: r.tipo, descricao: r.descricao, valor: r.valor,
+        competencia: r.competencia, dataPagamento: r.data_pagamento,
+        dataVencimento: r.data_vencimento, status: r.status,
+        comprovanteUrl: r.comprovante_url, leituraAnterior: r.leitura_anterior,
+        leituraAtual: r.leitura_atual, tarifaKwh: r.tarifa_kwh,
+        observacao: r.observacao, criadoEm: r.criado_em,
+      }))));
   }, [localId]);
   return data;
 }
@@ -323,38 +317,19 @@ export function LocalOperacionalModal({
     if (!nome.trim()) { showToast(pick(T.informeNome), 'error'); return; }
     setBusy(true);
     try {
-      const raw: Record<string,any> = {
-        tipo, nome: nome.trim(), endereco, lat: latLng.lat, lng: latLng.lng,
-        cidade, pais, ativo, atualizadoEm: serverTimestamp(),
+      const now = new Date().toISOString();
+      const id = editando ? editando.id : crypto.randomUUID();
+      const row: Record<string,any> = {
+        id, tipo, nome: nome.trim(), endereco, lat: latLng.lat, lng: latLng.lng,
+        cidade, pais, ativo, atualizado_em: now,
+        capacidade: capacidade ? Number(capacidade) : null,
+        responsavel: responsavel || null, telefone: telefone || null,
+        horario: horario || null, obs: obs || null, foto: foto || null,
       };
-      if (capacidade)  raw.capacidade  = Number(capacidade);
-      if (responsavel) raw.responsavel = responsavel;
-      if (telefone)    raw.telefone    = telefone;
-      if (horario)     raw.horario     = horario;
-      if (obs)         raw.obs         = obs;
-      if (foto)        raw.foto        = foto;
-      if (editando) {
-        await updateDoc(doc(db, 'locais_operacionais', editando.id), raw);
-        // dual-write Supabase
-        supabase.from('locais_operacionais').upsert({
-          id: editando.id, tipo, nome: nome.trim(), endereco, lat: latLng.lat, lng: latLng.lng,
-          cidade, pais, ativo, capacidade: capacidade ? Number(capacidade) : null,
-          responsavel: responsavel || null, telefone: telefone || null, horario: horario || null,
-          obs: obs || null, foto: foto || null, atualizado_em: new Date().toISOString(),
-        }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[LocaisFin] upsert locais_operacionais:', error.message); });
-        showToast(pick(T.localAtualizado), 'success');
-      } else {
-        const docRef = await addDoc(collection(db, 'locais_operacionais'), { ...raw, criadoEm: serverTimestamp() });
-        // dual-write Supabase
-        supabase.from('locais_operacionais').upsert({
-          id: docRef.id, tipo, nome: nome.trim(), endereco, lat: latLng.lat, lng: latLng.lng,
-          cidade, pais, ativo, capacidade: capacidade ? Number(capacidade) : null,
-          responsavel: responsavel || null, telefone: telefone || null, horario: horario || null,
-          obs: obs || null, foto: foto || null, criado_em: new Date().toISOString(),
-          atualizado_em: new Date().toISOString(),
-        }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[LocaisFin] insert locais_operacionais:', error.message); });
-        showToast(pick(T.localAdicionado), 'success');
-      }
+      if (!editando) row.criado_em = now;
+      const { error } = await supabase.from('locais_operacionais').upsert(row, { onConflict: 'id' });
+      if (error) throw error;
+      showToast(editando ? pick(T.localAtualizado) : pick(T.localAdicionado), 'success');
       onFechar();
     } catch(e:any) { showToast(pick(T.erro) + e.message, 'error'); }
     setBusy(false);
@@ -362,9 +337,8 @@ export function LocalOperacionalModal({
 
   const excluir = async () => {
     if (!editando || !confirm(`${pick(T.excluirConfirmA)}${editando.nome}${pick(T.excluirConfirmB)}`)) return;
-    await deleteDoc(doc(db, 'locais_operacionais', editando.id));
-    // dual-write Supabase
-    supabase.from('locais_operacionais').delete().eq('id', editando.id).then(({ error }) => { if (error) console.error('[LocaisFin] delete locais_operacionais:', error.message); });
+    const { error } = await supabase.from('locais_operacionais').delete().eq('id', editando.id);
+    if (error) { showToast(pick(T.erro) + error.message, 'error'); return; }
     showToast(pick(T.localRemovido), 'success');
     onFechar();
   };
@@ -896,17 +870,9 @@ function ModalPagamento({ localId, mesAtual, editando, onFechar }:{
     try {
       let comprovanteUrl = editando?.comprovanteUrl||'';
       if (compFile) comprovanteUrl = await uploadArquivo(compFile, `comprovantes/${localId}/${comp}_${tipo}_${Date.now()}.${compFile.name.split('.').pop()}`);
-      const dados: Partial<Pagamento> = {
-        localId, tipo, descricao: descricao||TIPO_PAG_META[tipo].label,
-        valor: vCalc!==null ? vCalc : Number(valor),
-        competencia:comp, dataVencimento:venc,
-        dataPagamento: pago||undefined, status, observacao:obs, comprovanteUrl,
-        leituraAnterior: leitAnt?Number(leitAnt):undefined,
-        leituraAtual:    leitAt ?Number(leitAt) :undefined,
-        tarifaKwh:       tarifa ?Number(tarifa) :undefined,
-        criadoEm: editando?.criadoEm||new Date().toISOString(),
-      };
+      const id = editando ? editando.id : crypto.randomUUID();
       const supaRow = {
+        id,
         local_id: localId, tipo, descricao: descricao || TIPO_PAG_META[tipo].label,
         valor: vCalc !== null ? vCalc : Number(valor),
         competencia: comp, data_vencimento: venc,
@@ -916,15 +882,8 @@ function ModalPagamento({ localId, mesAtual, editando, onFechar }:{
         tarifa_kwh: tarifa ? Number(tarifa) : null,
         criado_em: editando?.criadoEm || new Date().toISOString(),
       };
-      if (editando) {
-        await updateDoc(doc(collection(db,'pagamentos_locais'),editando.id), dados as any);
-        // dual-write Supabase
-        supabase.from('pagamentos_locais').upsert({ id: editando.id, ...supaRow }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[LocaisFin] upsert pagamentos_locais:', error.message); });
-      } else {
-        const docRef = await addDoc(collection(db,'pagamentos_locais'), dados);
-        // dual-write Supabase
-        supabase.from('pagamentos_locais').upsert({ id: docRef.id, ...supaRow }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[LocaisFin] insert pagamentos_locais:', error.message); });
-      }
+      const { error } = await supabase.from('pagamentos_locais').upsert(supaRow, { onConflict: 'id' });
+      if (error) throw error;
       onFechar();
     } catch(e:any) { alert(pick(T.erro)+e.message); }
     setBusy(false);
@@ -1073,19 +1032,14 @@ function ModalContrato({ localId, onFechar }:{ localId:string; onFechar:()=>void
     try {
       let docUrl = '';
       if (docFile) docUrl = await uploadArquivo(docFile, `contratos/${localId}/${Date.now()}_contrato.${docFile.name.split('.').pop()}`);
-      const docRef = await addDoc(collection(db,'contratos_locais'),{
-        localId, tipo:'ALUGUEL', valor:Number(valor), diaVencimento:Number(dia),
-        dataInicio, dataFim:dataFim||undefined, proprietario, contatoProprietario:contato,
-        indexador, status:'ATIVO', observacao:obs, docUrl, criadoEm:new Date().toISOString(),
-      });
-      // dual-write Supabase
-      supabase.from('contratos_locais').upsert({
-        id: docRef.id, local_id: localId, tipo: 'ALUGUEL', valor: Number(valor),
+      const { error } = await supabase.from('contratos_locais').upsert({
+        id: crypto.randomUUID(), local_id: localId, tipo: 'ALUGUEL', valor: Number(valor),
         dia_vencimento: Number(dia), data_inicio: dataInicio, data_fim: dataFim || null,
         proprietario: proprietario || null, contato_proprietario: contato || null,
         indexador, status: 'ATIVO', observacao: obs || null, doc_url: docUrl || null,
         criado_em: new Date().toISOString(),
-      }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[LocaisFin] insert contratos_locais:', error.message); });
+      }, { onConflict: 'id' });
+      if (error) throw error;
       onFechar();
     } catch(e:any) { alert(pick(T.erro)+e.message); }
     setBusy(false);

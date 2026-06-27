@@ -1,11 +1,11 @@
 // src/pages/CadastroTelegram.tsx
 import { useState } from 'react';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
-import { auth, db } from '@/lib/firebase';
+import { db } from '@/lib/firebase';
+import { supabase } from '@/lib/supabase';
 
 const T = {
   subtitle: { pt: 'Cadastro - Sistema de Estações', en: 'Sign Up - Stations System', es: 'Registro - Sistema de Estaciones', ru: 'Регистрация - Система станций' },
@@ -96,14 +96,15 @@ export default function CadastroTelegram() {
         return;
       }
 
-      // Criar usuário no Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        formData.email,
-        formData.password
-      );
+      // Criar usuário no Supabase Auth
+      const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+      });
+      if (signUpErr) throw signUpErr;
+      if (!signUpData.user) throw new Error('Falha ao criar usuário');
 
-      const uid = userCredential.user.uid;
+      const uid = signUpData.user.id;
 
       // Salvar dados no Firestore
       await setDoc(doc(db, 'usuarios', uid), {

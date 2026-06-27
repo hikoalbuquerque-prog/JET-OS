@@ -161,19 +161,7 @@ async function gerarTarefasDeSnapshot(
           idadeMin = (Date.now() - newest) / 60000;
         }
       }
-    } catch (e) { logger.warn('[gerarTarefas] Supabase parkings read failed, trying Firestore:', e); }
-  }
-
-  // Fallback: Firestore gojet_snapshots/latest
-  if (parkings.length === 0) {
-    const snapshotDoc = await db.collection('gojet_snapshots').doc('latest').get();
-    if (!snapshotDoc.exists) {
-      return { criadas: 0, puladas: 0, erros: 0, detalhes: ['Snapshot não encontrado'] };
-    }
-    const snap = snapshotDoc.data()!;
-    parkings = snap.parkings ?? [];
-    const atualizadoEm: admin.firestore.Timestamp = snap.atualizadoEm;
-    idadeMin = atualizadoEm ? (Date.now() - atualizadoEm.toMillis()) / 60000 : 999;
+    } catch (e) { logger.warn('[gerarTarefas] Supabase parkings read failed:', e); }
   }
 
   if (parkings.length === 0) {
@@ -294,15 +282,10 @@ export const gerarTarefasGoJetFn = https.onCall(
       throw new https.HttpsError('unauthenticated', 'Não autenticado');
     }
 
-    // Verificar role — Supabase-first com fallback Firestore
+    // Verificar role — Supabase-only
     let role = '';
     const sbUser = await supabaseGetOne<{ role?: string }>('usuarios', `select=role&id=eq.${encodeURIComponent(request.auth.uid)}`);
-    if (sbUser) {
-      role = sbUser.role ?? '';
-    } else {
-      const userDoc = await db.collection('usuarios').doc(request.auth.uid).get();
-      role = userDoc.data()?.role ?? '';
-    }
+    role = sbUser?.role ?? '';
     if (!['admin', 'gestor', 'gestor_log', 'supergestor'].includes(role)) {
       throw new https.HttpsError('permission-denied', 'Sem permissão');
     }
@@ -345,14 +328,9 @@ export const gerarTarefasAgendado = scheduler.onSchedule(
         } catch { /* fallback */ }
       }
 
-      // Fallback Firestore
+      // Default fallback if Supabase returns empty
       if (cidades.length === 0) {
-        const gojetConfig = await db.collection('gojet_config')
-          .where('ativo', '==', true)
-          .get();
-        cidades = gojetConfig.empty
-          ? [{ nome: 'São Paulo', pais: 'BR' }]
-          : gojetConfig.docs.map(d => ({ nome: d.data().nome, pais: d.data().pais ?? 'BR' }));
+        cidades = [{ nome: 'São Paulo', pais: 'BR' }];
       }
 
       for (const cidade of cidades) {
@@ -481,14 +459,8 @@ function isBikeOperacional(b: GoJetBike): boolean {
 
 async function getBotTokenLocal(): Promise<string> {
   try {
-    // Supabase-first
     const supa = await getAppSetting<Record<string, any>>('telegram');
-    const supaToken = String(supa?.bot_token || supa?.botToken || '').trim();
-    if (supaToken) return supaToken;
-
-    // Fallback Firestore
-    const snap = await db.collection('telegram_config').doc('global').get();
-    return snap.data()?.botToken ?? '';
+    return String(supa?.bot_token || supa?.botToken || '').trim();
   } catch { return ''; }
 }
 
@@ -523,13 +495,7 @@ async function getClimaStatus(cidade: string): Promise<string> {
   try {
     // Supabase-first
     const supa = await getAppSetting<Record<string, any>>('clima');
-    let apiKey = String(supa?.openweather_api_key || supa?.openweatherApiKey || '').trim();
-
-    // Fallback Firestore
-    if (!apiKey) {
-      const cfgSnap = await db.collection('app_config').doc('clima').get();
-      apiKey = cfgSnap.data()?.openweatherApiKey ?? '';
-    }
+    const apiKey = String(supa?.openweather_api_key || supa?.openweatherApiKey || '').trim();
     if (!apiKey) return 'ok';
     const resp = await fetch(
       `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(cidade)}&appid=${apiKey}`
@@ -570,19 +536,9 @@ async function encontrarWorkersProximos(
       'usuarios',
       `select=id,nome,lat,lng,slot_atual_id&tipo_cadastro=eq.prestador&status_prestador=eq.ativo&cidade=eq.${encodeURIComponent(cidade)}&cargo_prestador=in.(${cargos})`
     );
-    let disponiveis: any[] = [];
-    if (sbWorkers && sbWorkers.length > 0) {
-      disponiveis = sbWorkers.filter(u => !u.slot_atual_id).map(u => ({ uid: u.id, nome: u.nome, lat: u.lat, lng: u.lng }));
-    } else {
-      // Fallback Firestore
-      const snap = await db.collection('usuarios')
-        .where('tipoCadastro', '==', 'prestador')
-        .where('statusPrestador', '==', 'ativo')
-        .where('cidade', '==', cidade)
-        .where('cargoPrestador', 'in', tipoSlot === 'charger' ? ['charger'] : ['scalt', 'scout'])
-        .get();
-      disponiveis = snap.docs.map(d => ({ uid: d.id, ...d.data() })).filter((u: any) => !u.slotAtualId);
-    }
+    const disponiveis = (sbWorkers ?? [])
+      .filter(u => !u.slot_atual_id)
+      .map(u => ({ uid: u.id, nome: u.nome, lat: u.lat, lng: u.lng }));
 
     if (disponiveis.length === 0) return [];
 
@@ -747,10 +703,6 @@ async function executarMotorSlots(): Promise<void> {
       intervaloChecagemMin: r.intervalo_checagem_min, slaAceiteMin: r.sla_aceite_min,
       autoAssign: r.auto_assign, sensibilidadeClima: r.sensibilidade_clima, notificarGestor: r.notificar_gestor,
     })) as ConfigZona[];
-  } else {
-    const configSnap = await db.collection('config_auto_slots').where('ativo', '==', true).get();
-    if (configSnap.empty) { logger.info('[motor-slots] Nenhuma zona configurada'); return; }
-    configs = configSnap.docs.map(d => d.data() as ConfigZona);
   }
   if (configs.length === 0) { logger.info('[motor-slots] Nenhuma zona configurada'); return; }
 
@@ -807,22 +759,7 @@ async function executarMotorSlots(): Promise<void> {
             battery_percent: r.bateria != null ? r.bateria / 100 : r.dados?.battery_percent ?? null,
           }));
         }
-      } catch (e) { logger.warn('[motor-slots] Supabase parkings/bikes failed, trying Firestore:', e); }
-    }
-
-    // Fallback: Firestore gojet_snapshots
-    if (parkings.length === 0) {
-      const [snapDoc, bikesDoc] = await Promise.all([
-        db.collection('gojet_snapshots').doc('latest').get(),
-        db.collection('gojet_snapshots').doc('bikes_latest').get(),
-      ]);
-      if (!snapDoc.exists) continue;
-      const snapData  = snapDoc.data()!;
-      const bikesData = bikesDoc.exists ? bikesDoc.data()! : snapData;
-      parkings = snapData.parkings ?? [];
-      bikes = bikesData.bikes ?? snapData.bikes ?? [];
-      const tsSnap = snapData.savedAt ?? snapData.atualizadoEm;
-      idadeMin = tsSnap ? (Date.now() - tsSnap.toMillis()) / 60000 : 999;
+      } catch (e) { logger.warn('[motor-slots] Supabase parkings/bikes failed:', e); }
     }
 
     if (parkings.length === 0) continue;
@@ -841,11 +778,7 @@ async function executarMotorSlots(): Promise<void> {
         const dir = Array.isArray(supaTgCfg.diretoria) ? supaTgCfg.diretoria : [];
         diretoriaChatId = dir[0]?.chatId ?? '';
       }
-    } catch { /* fallback */ }
-    if (!diretoriaChatId) {
-      const telegramCfgSnap = await db.collection('telegram_config').doc('global').get();
-      diretoriaChatId = telegramCfgSnap.data()?.diretoria?.[0]?.chatId ?? '';
-    }
+    } catch { /* ignore */ }
 
     // 5. Processar cada zona configurada
     for (const cfg of cfgs) {
@@ -1050,23 +983,14 @@ async function executarMotorSlots(): Promise<void> {
           // Gravar alerta de bateria crítica no histórico + push FCM para gestores da cidade
           const criticas = patinetesAlvo.filter(b => (b.battery_percent ?? 1) < 0.10);
           if (criticas.length > 0) {
-            await db.collection('monitor_alertas').add({
-              tipo: 'bateria_critica',
-              cidade,
-              zona: cfg.zonaNome,
-              qtdBikes: criticas.length,
-              batMinPct: Math.round(Math.min(...criticas.map(b => b.battery_percent ?? 0)) * 100),
-              slotId: slotId ?? null,
-              ts: admin.firestore.FieldValue.serverTimestamp(),
-            });
-            // Dual-write: Supabase
+            // Write to Supabase
             supabaseInsert('monitor_alertas', {
               tipo: 'bateria_critica', cidade, zona: cfg.zonaNome,
               qtd_bikes: criticas.length,
               bat_min_pct: Math.round(Math.min(...criticas.map(b => b.battery_percent ?? 0)) * 100),
               slot_id: slotId ?? null,
               ts: new Date().toISOString(),
-            }).catch(() => {});
+            }).catch((e) => { logger.warn('[monitor-alertas] Supabase insert failed:', e); });
             // Push FCM para gestores logística da cidade
             try {
               const gestoresSnap = await db.collection('usuarios')
@@ -1134,15 +1058,10 @@ export const gerarSlotsManualFn = https.onCall(
   { region: 'southamerica-east1', maxInstances: 10 },
   async (request) => {
     if (!request.auth) throw new https.HttpsError('unauthenticated', 'Não autenticado');
-    // Role check — Supabase-first com fallback Firestore
+    // Role check — Supabase-only
     let roleManual = '';
     const sbUserManual = await supabaseGetOne<{ role?: string }>('usuarios', `select=role&id=eq.${encodeURIComponent(request.auth.uid)}`);
-    if (sbUserManual) {
-      roleManual = sbUserManual.role ?? '';
-    } else {
-      const userDoc = await db.collection('usuarios').doc(request.auth.uid).get();
-      roleManual = userDoc.data()?.role ?? '';
-    }
+    roleManual = sbUserManual?.role ?? '';
     if (!['admin', 'gestor', 'gestor_log', 'supergestor'].includes(roleManual))
       throw new https.HttpsError('permission-denied', 'Sem permissão');
     await executarMotorSlots();
@@ -1162,7 +1081,7 @@ export const escalarSlotsSLA = scheduler.onSchedule(
         .get();
 
       const botToken = await getBotTokenLocal();
-      // telegram_config — Supabase-first com fallback Firestore
+      // telegram_config — Supabase-only
       let diretoriaChatId = '';
       try {
         const sbTgCfg = await supabaseGetOne<any>('telegram_config', 'select=*&id=eq.global');
@@ -1171,10 +1090,6 @@ export const escalarSlotsSLA = scheduler.onSchedule(
           diretoriaChatId = dir[0]?.chatId ?? '';
         }
       } catch { /* ignore */ }
-      if (!diretoriaChatId) {
-        const telegramCfgSnap = await db.collection('telegram_config').doc('global').get();
-        diretoriaChatId = telegramCfgSnap.data()?.diretoria?.[0]?.chatId ?? '';
-      }
       const batch = db.batch();
       let escalados = 0;
 
@@ -1238,16 +1153,9 @@ export const notificarTurnoFn = firestore.onDocumentCreated(
         'usuarios',
         `select=id,telegram_chat_id&cidade=eq.${encodeURIComponent(cidade)}&role=in.(admin,gestor,gestor_log,supergestor)`
       );
-      let chatIds: string[] = [];
-      if (sbGestores && sbGestores.length > 0) {
-        chatIds = sbGestores.map(u => u.telegram_chat_id).filter(Boolean) as string[];
-      } else {
-        const gestoresSnap = await db.collection('usuarios')
-          .where('cidade', '==', cidade)
-          .where('role', 'in', ['admin', 'gestor', 'gestor_log', 'supergestor'])
-          .get();
-        chatIds = gestoresSnap.docs.map(d => d.data().telegramChatId).filter(Boolean);
-      }
+      const chatIds: string[] = (sbGestores ?? [])
+        .map(u => u.telegram_chat_id)
+        .filter(Boolean) as string[];
 
       await Promise.allSettled(chatIds.map(chatId =>
         sendTelegramLocal(botToken, chatId, msg)

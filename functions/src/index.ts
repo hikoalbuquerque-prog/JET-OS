@@ -194,13 +194,7 @@ export * from './gps-alertas';    // verificarAtrasos, verificarChegadaPonto
 export * from './automacao-tarefas'; // gerarTarefasGoJetFn, gerarTarefasAgendado, etc.
 export * from './relatorios';     // enviarRelatorioManual, relatorioGuardSemanal, relatorioPerdasDiario, relatorioPerdasSemanal
 export * from './notificacoes-prestador'; // notificarGestorNovaSolicitacao
-export * from './mirror-ocorrencias'; // espelharOcorrenciaSupabase — dual-write Guard -> Supabase (DEBRIEF §16)
-export * from './mirror-estacoes';    // espelharEstacaoSupabase — dual-write estações -> Supabase (Fase 2 Onda A)
-export * from './mirror-onda-b-menores'; // espelhar Solicitacao/TurnoLogistica -> Supabase (Fase 2 Onda B menores)
-export * from './mirror-tarefas';        // espelharTarefaSupabase, espelharTarefaLogisticaSupabase (Onda H)
-export * from './mirror-solicitacoes';   // espelharSolicitacaoSupabase — user access requests (Onda H)
-export * from './mirror-gojet-config';  // espelharGojetConfigSupabase — gojet_config dual-write (Onda H)
-export * from './mirror-lgpd';          // espelharConsentimentoLgpdSupabase — consentimentos_lgpd dual-write
+// ── Mirror functions removidos (Firestore→Supabase dual-write aposentado) ──
 export * from './buscar-pois-osm';    // buscarPOIsOSMFn — Overpass/OSM server-side (gratuito; resolve CORS/429)
 export * from './slots-telegram';     // resumoSlotsTelegram, confirmarSlotsCascata, enviarResumoManual
 

@@ -1,13 +1,9 @@
 ﻿// AdminBikeActions.tsx — Ações admin de patinetes no mapa GoJet
 // Portado do V2: AdminBringToParkingModal + AdminMoveBikeModal + AdminOrganizeParkingModal
-// Cria tarefas diretamente no Firestore (coleção "tarefas")
+// Cria tarefas no Supabase (tabela "tarefas")
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  collection, addDoc, query, where, getDocs, serverTimestamp, orderBy, limit,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
 import { usuariosReadSupabase, fetchUsuarios } from '../lib/usuarios-supabase';
 import { colorForParking, PARKING_COLOR_HEX } from '../lib/parking-colors';
@@ -98,19 +94,9 @@ export default function AdminBikeActions({
 
   // Carrega workers disponíveis
   useEffect(() => {
-    if (usuariosReadSupabase()) {
-      fetchUsuarios({ cidade, role_in: ['campo', 'logistica', 'motorista'] })
-        .then(users => { setWorkers(users.map(u => ({ uid: u.uid, nome: u.nome ?? u.email ?? u.uid }))); })
-        .catch(() => {});
-    } else {
-      getDocs(query(
-        collection(db, 'usuarios'),
-        where('cidade', '==', cidade),
-        where('role', 'in', ['campo', 'logistica', 'motorista']),
-      )).then(snap => {
-        setWorkers(snap.docs.map(d => ({ uid: d.id, nome: d.data().nome ?? d.data().email ?? d.id })));
-      }).catch(() => {});
-    }
+    fetchUsuarios({ cidade, role_in: ['campo', 'logistica', 'motorista'] })
+      .then(users => { setWorkers(users.map(u => ({ uid: u.uid, nome: u.nome ?? u.email ?? u.uid }))); })
+      .catch(() => {});
   }, [cidade]);
 
   // Bikes disponíveis próximas ao parking alvo, ordenadas por distância
@@ -152,71 +138,46 @@ export default function AdminBikeActions({
     if (!parkingSel && modo !== 'mover_bike') { setMsg(pick(T.selecione_destino)); return; }
     setCriando(true); setMsg('');
     try {
-      const base = {
-        cidade, criadoPor: gestorUid, criadoEm: serverTimestamp(),
-        atualizadoEm: serverTimestamp(), status: 'pendente',
-        assigneeUid: workerSel || null, assigneeNome: workers.find(w => w.uid === workerSel)?.nome ?? null,
-        prioridade: 3, geradoPorGoJet: true,
-      };
-      let docRef;
+      const agora = new Date().toISOString();
+      const newId = crypto.randomUUID();
       if (modo === 'trazer_bike' || modo === 'mover_bike') {
-        const payload = {
-          ...base,
-          kind: 'PATINETE',
-          titulo: `Levar ${bikeSel!.identifier ?? bikeSel!.id.slice(-6)} → ${parkingSel!.name}`,
-          descricao: `Trazer patinete até o ponto ${parkingSel!.name}`,
-          bikeIdentifier: bikeSel!.identifier ?? bikeSel!.id,
-          bikeLat: bikeSel!.location_lat, bikeLng: bikeSel!.location_lng,
-          parkingId: parkingSel!.id, parkingNome: parkingSel!.name,
-          parkingLat: parkingSel!.latitude, parkingLng: parkingSel!.longitude,
-          targetCount: (parkingSel!.target_bikes_count ?? 0) - (parkingSel!.availableCount ?? 0),
-        };
-        docRef = await addDoc(collection(db, 'tarefas'), payload);
-        // dual-write Supabase
-        supabase.from('tarefas').upsert({
-          id: docRef.id,
-          cidade, criado_por: gestorUid, status: 'pendente',
+        const { error } = await supabase.from('tarefas').upsert({
+          id: newId,
+          cidade, criado_por: gestorUid, criado_em: agora, atualizado_em: agora,
+          status: 'pendente',
           assignee_uid: workerSel || null,
           assignee_nome: workers.find(w => w.uid === workerSel)?.nome ?? null,
           prioridade: 3, gerado_por_gojet: true,
           kind: 'PATINETE',
-          titulo: payload.titulo,
-          descricao: payload.descricao,
+          titulo: `Levar ${bikeSel!.identifier ?? bikeSel!.id.slice(-6)} → ${parkingSel!.name}`,
+          descricao: `Trazer patinete até o ponto ${parkingSel!.name}`,
           bike_identifier: bikeSel!.identifier ?? bikeSel!.id,
           bike_lat: bikeSel!.location_lat, bike_lng: bikeSel!.location_lng,
           parking_id: parkingSel!.id, parking_nome: parkingSel!.name,
           parking_lat: parkingSel!.latitude, parking_lng: parkingSel!.longitude,
           target_count: (parkingSel!.target_bikes_count ?? 0) - (parkingSel!.availableCount ?? 0),
-        }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[AdminBikeActions] upsert tarefas:', error.message); });
+        }, { onConflict: 'id' });
+        if (error) throw new Error(error.message);
       } else {
         // ORGANIZACAO — cria tarefa para o ponto inteiro
-        const payload = {
-          ...base,
-          kind: 'ORGANIZACAO',
-          titulo: `Organizar ${parkingSel!.name}`,
-          descricao: `Preencher pontos zerados/baixos na área de ${parkingSel!.name}`,
-          parkingId: parkingSel!.id, parkingNome: parkingSel!.name,
-          parkingLat: parkingSel!.latitude, parkingLng: parkingSel!.longitude,
-          targetCount: (parkingSel!.target_bikes_count ?? 0) - (parkingSel!.availableCount ?? 0),
-        };
-        docRef = await addDoc(collection(db, 'tarefas'), payload);
-        // dual-write Supabase
-        supabase.from('tarefas').upsert({
-          id: docRef.id,
-          cidade, criado_por: gestorUid, status: 'pendente',
+        const { error } = await supabase.from('tarefas').upsert({
+          id: newId,
+          cidade, criado_por: gestorUid, criado_em: agora, atualizado_em: agora,
+          status: 'pendente',
           assignee_uid: workerSel || null,
           assignee_nome: workers.find(w => w.uid === workerSel)?.nome ?? null,
           prioridade: 3, gerado_por_gojet: true,
           kind: 'ORGANIZACAO',
-          titulo: payload.titulo,
-          descricao: payload.descricao,
+          titulo: `Organizar ${parkingSel!.name}`,
+          descricao: `Preencher pontos zerados/baixos na área de ${parkingSel!.name}`,
           parking_id: parkingSel!.id, parking_nome: parkingSel!.name,
           parking_lat: parkingSel!.latitude, parking_lng: parkingSel!.longitude,
           target_count: (parkingSel!.target_bikes_count ?? 0) - (parkingSel!.availableCount ?? 0),
-        }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[AdminBikeActions] upsert tarefas:', error.message); });
+        }, { onConflict: 'id' });
+        if (error) throw new Error(error.message);
       }
       setMsg(pick(T.tarefa_criada));
-      onCriado?.(docRef.id);
+      onCriado?.(newId);
       setTimeout(() => onFechar(), 1200);
     } catch (e: any) {
       setMsg(pick(T.erro) + e.message);

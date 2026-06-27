@@ -1,9 +1,8 @@
 // ZonasManager.tsx — Módulo completo de gerenciamento de zonas
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { collection, onSnapshot, query, where, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
-import { mapaProviderSupabase, carregarZonasSupabase } from './lib/estacoes-supabase';
-import { db } from './lib/firebase';
+import { carregarZonasSupabase } from './lib/estacoes-supabase';
+import { supabase } from './lib/supabase';
 import L from 'leaflet';
 import JSZip from 'jszip';
 
@@ -430,19 +429,12 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
   const [importLog,    setImportLog]    = useState<string[]>([]);
   const kmzInputRef = useRef<HTMLInputElement>(null);
 
-  // Firestore listener
+  // Supabase read (carga única; sem realtime no piloto)
   useEffect(() => {
     if (!cidade) return;
-    if (mapaProviderSupabase()) {
-      // Fase 2: zonas do Supabase (carga única; sem realtime no piloto).
-      let vivo = true;
-      carregarZonasSupabase([cidade]).then(rows => { if (vivo) setZonas(rows as Zona[]); }).catch(() => {});
-      return () => { vivo = false; };
-    }
-    const q = query(collection(db, 'poligonos'), where('cidade', '==', cidade));
-    return onSnapshot(q, snap => {
-      setZonas(snap.docs.map(d => ({ id: d.id, ...d.data() } as Zona)));
-    });
+    let vivo = true;
+    carregarZonasSupabase([cidade]).then(rows => { if (vivo) setZonas(rows as Zona[]); }).catch(() => {});
+    return () => { vivo = false; };
   }, [cidade]);
 
   // ── Importar KMZ/KML ─────────────────────────────────────────────────────
@@ -502,9 +494,7 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
 
         if (pontos.length < 3) continue;
 
-        const { addDoc, collection: col } = await import('firebase/firestore');
-        const { serverTimestamp } = await import('firebase/firestore');
-        await addDoc(col(db, 'poligonos'), {
+        const { error } = await supabase.from('poligonos').insert({
           nome,
           cidade,
           pais,
@@ -514,9 +504,10 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
           prioridade: 1,
           ativo: true,
           poligono: pontos,
-          criadoEm: serverTimestamp(),
+          criadoEm: new Date().toISOString(),
           importadoDe: file.name,
         });
+        if (error) throw error;
         criadas++;
         log(`  ✅ ${nome} (${pontos.length}${pick(T.pontos)}`);
       }
@@ -584,13 +575,13 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
 
   const salvarZona = async (dados: Partial<Zona>) => {
     if (zonaAtiva?.id) {
-      await updateDoc(doc(db, 'poligonos', zonaAtiva.id), { ...dados, atualizadoEm: new Date() });
+      await supabase.from('poligonos').update({ ...dados, atualizadoEm: new Date().toISOString() }).eq('id', zonaAtiva.id);
     } else {
       const id = 'ZONA-' + Date.now();
-      await setDoc(doc(db, 'poligonos', id), {
+      await supabase.from('poligonos').insert({
         id, cidade, pais, ...dados,
         poligono: novosPontos,
-        criadoEm: new Date(), atualizadoEm: new Date()
+        criadoEm: new Date().toISOString(), atualizadoEm: new Date().toISOString()
       });
       if (drawLayerRef.current) drawLayerRef.current.clearLayers();
       setNovosPontos([]);
@@ -601,21 +592,21 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
 
   const excluirZona = async (id: string) => {
     if (!confirm(pick(T.excluirConfirm))) return;
-    await deleteDoc(doc(db, 'poligonos', id));
+    await supabase.from('poligonos').delete().eq('id', id);
     setVista('lista');
     setZonaAtiva(null);
   };
 
   const salvarVertices = async (pontos: {lat:number;lng:number}[]) => {
     if (!editVertices?.id) return;
-    await updateDoc(doc(db, 'poligonos', editVertices.id), {
-      poligono: pontos, atualizadoEm: new Date()
-    });
+    await supabase.from('poligonos').update({
+      poligono: pontos, atualizadoEm: new Date().toISOString()
+    }).eq('id', editVertices.id);
     setEditVertices(null);
   };
 
   const toggleAtivo = async (zona: Zona) => {
-    await updateDoc(doc(db, 'poligonos', zona.id), { ativo: !zona.ativo, atualizadoEm: new Date() });
+    await supabase.from('poligonos').update({ ativo: !zona.ativo, atualizadoEm: new Date().toISOString() }).eq('id', zona.id);
     onMapRefresh?.();
   };
 

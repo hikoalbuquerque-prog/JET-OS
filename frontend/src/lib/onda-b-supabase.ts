@@ -114,9 +114,11 @@ export async function criarSolicitacaoSupabase(firebaseId: string, d: any): Prom
 // Solicitação — UPDATE (aprovar/rejeitar) por firebase_id.
 export async function atualizarSolicitacaoSupabase(firebaseId: string, patch: any): Promise<void> {
   const row: Record<string, unknown> = {};
-  if (patch.status != null)         row.status = String(patch.status);
-  if (patch.respondido_por != null) row.respondido_por = String(patch.respondido_por);
-  if (patch.data_resposta != null)  row.data_resposta = patch.data_resposta;
+  if (patch.status != null)           row.status = String(patch.status);
+  if (patch.respondido_por != null)   row.respondido_por = String(patch.respondido_por);
+  if (patch.data_resposta != null)    row.data_resposta = patch.data_resposta;
+  if (patch.roleAtribuido != null)    row.role_atribuido = String(patch.roleAtribuido);
+  if (patch.motivo_rejeicao != null)  row.motivo_rejeicao = String(patch.motivo_rejeicao);
   if (!Object.keys(row).length) return;
   const { error } = await supabase.from('solicitacoes_prestadores').update(row).eq('firebase_id', firebaseId);
   if (error) throw error;

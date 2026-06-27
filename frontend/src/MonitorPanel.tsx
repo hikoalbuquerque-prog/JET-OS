@@ -13,8 +13,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from './lib/firebase';
+import { supabase } from './lib/supabase';
 
 // ─── i18n ──────────────────────────────────────────────────────────────────────
 
@@ -255,11 +254,15 @@ export default function MonitorPanel({ estacao, posicao, onFechar, onSalvo }: Pr
     setErro('');
     try {
       const configFinal = tipo ? { [tipo]: config[tipo as keyof MonitorConfig] } : {};
-      await updateDoc(doc(db, 'estacoes', estacao.id), {
-        tipoMonitor:    tipo,
-        monitorConfig:  configFinal,
-        atualizadoEm:   serverTimestamp(),
-      });
+      const { error } = await supabase
+        .from('estacoes')
+        .update({
+          tipo_monitor:    tipo,
+          monitor_config:  configFinal,
+          atualizado_em:   new Date().toISOString(),
+        })
+        .eq('id', estacao.id);
+      if (error) throw error;
       onSalvo(estacao.id, tipo, configFinal);
       onFechar();
     } catch (e: any) {

@@ -6,8 +6,8 @@ import {
   updateDoc, onSnapshot, deleteDoc, query, where
 } from 'firebase/firestore';
 import { Timestamp as FsTimestamp } from 'firebase/firestore';
-import { sendPasswordResetEmail, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
-import { auth, db } from '../lib/firebase';
+import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { guardProviderSupabase, carregarOcorrenciasSupabase, guardWriteSupabase, atualizarOcorrenciaSupabase, deletarOcorrenciaSupabase } from '../lib/ocorrencias-supabase';
 import { logisticaWriteSupabase, criarSolicitacaoSupabase } from '../lib/onda-b-supabase';
 import L from 'leaflet';
@@ -21,7 +21,6 @@ import { sanitizarFotoUrl } from '../lib/app-utils';
 import { capturarPosicaoUnica } from '../lib/gps-background';
 import type { Usuario } from '../lib/app-utils';
 import { CIDADES } from '../lib/app-utils';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
 
 // Compressão HEIC-safe (ver lib/imageUtils). Converte HEIC→JPEG antes de comprimir,
 // evitando o bug de foto "quebrada" (HEIC enviado como .jpg que o WebView não renderiza).
@@ -129,9 +128,11 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
     setErro('');
     
     try {
-      // 1. Criar usuário em Auth
-      const userCred = await createUserWithEmailAndPassword(auth, email, senha);
-      const uid = userCred.user.uid;
+      // 1. Criar usuário em Supabase Auth
+      const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({ email, password: senha });
+      if (signUpErr) throw new Error(signUpErr.message);
+      if (!signUpData.user) throw new Error('Falha ao criar usuário');
+      const uid = signUpData.user.id;
 
       // 2. Criar documento em usuarios
       await setDoc(doc(db, 'usuarios', uid), {
@@ -539,7 +540,8 @@ export function TelaLogin({ onLogin }: { onLogin: (e: string, s: string) => Prom
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault(); setBusy(true);
     try {
-      await sendPasswordResetEmail(auth, resetEmail);
+      const { error: resetErr } = await supabase.auth.resetPasswordForEmail(resetEmail);
+      if (resetErr) throw resetErr;
       setResetOk(true);
     } catch {
       setErro(t('appShell.emailNotFound'));
@@ -896,24 +898,29 @@ export function TelaTrocarSenha({ onConcluido, onLogout }: {
     if (!senhaValida) { setErro(t('appShell.reqFixErrors')); return; }
     setBusy(true); setErro('');
     try {
-      const user = auth.currentUser;
-      if (!user || !user.email) throw new Error(t('appShell.invalidSession'));
+      // Verificar senha atual via Supabase signInWithPassword
+      const { data: { user: supaUser } } = await supabase.auth.getUser();
+      if (!supaUser || !supaUser.email) throw new Error(t('appShell.invalidSession'));
 
-      // Re-autenticar com senha atual antes de trocar
-      const cred = EmailAuthProvider.credential(user.email, senhaAtual);
-      await reauthenticateWithCredential(user, cred);
+      const { error: reAuthErr } = await supabase.auth.signInWithPassword({
+        email: supaUser.email,
+        password: senhaAtual,
+      });
+      if (reAuthErr) throw { code: 'auth/wrong-password', message: reAuthErr.message };
 
       // Trocar senha
-      await updatePassword(user, novaSenha);
+      const { error: updErr } = await supabase.auth.updateUser({ password: novaSenha });
+      if (updErr) throw new Error(updErr.message);
 
       // Remover flag senhaTemporaria do Firestore
       const { doc: fsDoc, updateDoc, collection: col } = await import('firebase/firestore');
-      await updateDoc(fsDoc(col(db, 'usuarios'), user.uid), { senhaTemporaria: false });
+      const uid = supaUser.user_metadata?.firebase_uid || supaUser.id;
+      await updateDoc(fsDoc(col(db, 'usuarios'), uid), { senhaTemporaria: false });
 
       try {
         const { usuariosWriteSupabase, escreverUsuarioSupabase } = await import('../lib/usuarios-supabase');
         if (usuariosWriteSupabase()) {
-          await escreverUsuarioSupabase(user.uid, { senhaTemporaria: false });
+          await escreverUsuarioSupabase(uid, { senhaTemporaria: false });
         }
       } catch (e) { console.warn('[supa] senhaTemporaria dual-write falhou', e); }
 

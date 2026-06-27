@@ -102,7 +102,7 @@ export default function BugReportButton({ usuario }: { usuario: Usuario }) {
     <>
       {/* Botão flutuante discreto (canto inferior esquerdo, longe dos FABs da direita) */}
       <button onClick={() => setAberto(true)} title={pick(T.tituloBotao)}
-        style={{ position: 'fixed', left: 12, bottom: 12, zIndex: 1500, width: 40, height: 40,
+        style={{ position: 'fixed', left: 12, bottom: 100, zIndex: 1500, width: 40, height: 40,
           borderRadius: 20, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(15,25,41,.85)',
           color: '#fbbf24', fontSize: 18, cursor: 'pointer', backdropFilter: 'blur(4px)',
           boxShadow: '0 4px 12px rgba(0,0,0,.4)' }}>

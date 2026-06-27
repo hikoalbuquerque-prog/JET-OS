@@ -1,12 +1,12 @@
 // DashboardManager.tsx — Dashboard + Custos API + Exportação/Importação
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { collection, getDocs, query, where, doc, writeBatch, getDoc, updateDoc, orderBy, limit, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useState as useLocalState } from 'react';
 import { db, auth } from './lib/firebase';
-import { guardProviderSupabase, carregarOcorrenciasSupabase, buscarOcorrenciaSupabase, guardWriteSupabase, atualizarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
-import { mapaProviderSupabase, carregarEstacoesSupabase } from './lib/estacoes-supabase';
-import { usuariosReadSupabase, fetchUsuarios } from './lib/usuarios-supabase';
+import { carregarOcorrenciasSupabase, buscarOcorrenciaSupabase, atualizarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
+import { carregarEstacoesSupabase, carregarCidadesSupabase } from './lib/estacoes-supabase';
+import { fetchUsuarios, escreverUsuarioSupabase } from './lib/usuarios-supabase';
+import { supabase } from './lib/supabase';
 import JSZip from 'jszip';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
@@ -340,8 +340,7 @@ async function importarEstacoes(
   };
 
   const BATCH_SIZE = 400;
-  let batch = writeBatch(db);
-  let ops = 0;
+  let batchRows: any[] = [];
 
   for (let i = 0; i < dados.length; i++) {
     const row = dados[i];
@@ -399,56 +398,46 @@ async function importarEstacoes(
       continue;
     }
 
-    const docRef = doc(db, 'estacoes', codigo);
-    const existente = await getDoc(docRef);
-
     const tipo   = String(getNome(row, 'tipo', 'TipoEstacao') || 'PUBLICA').toUpperCase();
     let status = String(getNome(row, 'status', 'StatusEstacao', 'Status') || 'SOLICITADO').toUpperCase();
     const cidade = String(getNome(row, 'cidade', 'Cidade') || '');
     const bairro = String(getNome(row, 'bairro', 'Bairro') || '');
-    
-    // Se estação está inativa, importar como CANCELADO
+
     if (estaInativa && status !== 'CANCELADO') {
-      console.log(`[IMPORT] Linha ${i + 2}: ${codigo} está INATIVA → convertendo para CANCELADO`);
       status = 'CANCELADO';
     }
 
     const docData: any = {
-      id: codigo, codigo, lat, lng,
+      codigo, lat, lng,
       tipo:    ['PUBLICA','PRIVADA','CONCORRENTE'].includes(tipo) ? tipo : 'PUBLICA',
       status:  ['SOLICITADO','APROVADO','REPROVADO','INSTALADO','CANCELADO'].includes(status) ? status : 'SOLICITADO',
       cidade, bairro, pais,
       endereco:      String(getNome(row, 'endereco', 'Endereco', 'endereço') || ''),
-      larguraFaixa:  parseFloat(getNome(row, 'largurafaixa', 'largura_faixa', 'Largura')) || null,
-      croquiStatus:  String(getNome(row, 'croquistatus', 'CroquiStatus') || 'PENDENTE'),
+      largura_faixa: parseFloat(getNome(row, 'largurafaixa', 'largura_faixa', 'Largura')) || null,
+      croqui_status: String(getNome(row, 'croquistatus', 'CroquiStatus') || 'PENDENTE'),
       origem:        'IMPORTACAO',
-      atualizadoEm:  new Date()
     };
 
-    // Remove nulos
     Object.keys(docData).forEach(k => {
       if (docData[k] === null || docData[k] === '') delete docData[k];
     });
 
-    if (existente.exists()) {
-      // Atualiza coordenadas e status, preserva dados existentes
-      batch.update(docRef, docData);
-      result.atualizados++;
-    } else {
-      batch.set(docRef, { ...docData, criadoEm: new Date() });
-      result.novos++;
-    }
+    batchRows.push(docData);
 
-    ops++;
-    if (ops >= BATCH_SIZE) {
-      await batch.commit();
-      batch = writeBatch(db);
-      ops = 0;
+    if (batchRows.length >= BATCH_SIZE) {
+      const { error } = await supabase.from('estacoes').upsert(batchRows, { onConflict: 'codigo' });
+      if (error) result.erros.push(`Batch erro: ${error.message}`);
+      else result.novos += batchRows.length;
+      batchRows = [];
       onProgress(`Salvando... ${i + 1}/${dados.length}`);
     }
   }
 
-  if (ops > 0) await batch.commit();
+  if (batchRows.length > 0) {
+    const { error } = await supabase.from('estacoes').upsert(batchRows, { onConflict: 'codigo' });
+    if (error) result.erros.push(`Batch erro: ${error.message}`);
+    else result.novos += batchRows.length;
+  }
   return result;
 }
 
@@ -2558,10 +2547,10 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
             return { lat, lng };
           }).filter(p => isFinite(p.lat) && isFinite(p.lng));
           if (pontos.length < 3) continue;
-          await addDoc(collection(db, 'poligonos'), {
+          await supabase.from('zonas').insert({
             nome, cidade, pais, cor,
             grupo: 'importado', fase: 'operacao', prioridade: 1, ativo: true,
-            poligono: pontos, criadoEm: serverTimestamp(), importadoDe: file.name,
+            pontos, importado_de: file.name,
           });
           criadas++;
           log(`  ✅ ${nome} (${pontos.length} ${pick(T.pts)})`);
@@ -2583,12 +2572,12 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
           const pontos = ring.map(([lng, lat]) => ({ lat, lng }))
             .filter(pt => isFinite(pt.lat) && isFinite(pt.lng));
           if (pontos.length < 3) continue;
-          await addDoc(collection(db, 'poligonos'), {
+          await supabase.from('zonas').insert({
             nome: p.nome || p.name || 'Zona importada', cidade, pais,
             cor: p.cor || p.color || '#7c3aed',
             grupo: p.grupo || 'importado', fase: p.fase || 'operacao',
             prioridade: p.prioridade || 1, ativo: p.ativo !== false,
-            poligono: pontos, criadoEm: serverTimestamp(), importadoDe: file.name,
+            pontos, importado_de: file.name,
           });
           criadas++;
           log(`  ✅ ${p.nome || p.name || pick(T.zona)}`);
@@ -2615,10 +2604,10 @@ ${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||'
         let criadas = 0;
         for (const z of Object.values(grupos)) {
           if (z.pontos.length < 3) continue;
-          await addDoc(collection(db, 'poligonos'), {
+          await supabase.from('zonas').insert({
             nome: z.nome, cidade, pais, cor: '#7c3aed',
             grupo: z.grupo, fase: z.fase, prioridade: 1, ativo: z.ativo,
-            poligono: z.pontos, criadoEm: serverTimestamp(), importadoDe: file.name,
+            pontos: z.pontos, importado_de: file.name,
           });
           criadas++;
           log(`  ✅ ${z.nome} (${z.pontos.length} ${pick(T.pts)})`);
@@ -3121,14 +3110,7 @@ function GuardExportCSV() {
         periodo === '30d' ? new Date(Date.now() - 30 * 86400000) :
                             new Date(Date.now() - 90 * 86400000);
 
-      // Fase 2 / Onda B — leitura do Supabase atrás de flag (read-only).
-      const baseDocs: any[] = guardProviderSupabase()
-        ? await carregarOcorrenciasSupabase({ limit: 2000 })
-        : (await getDocs(query(
-            collection(db, 'ocorrencias'),
-            orderBy('criadoEm', 'desc'),
-            limit(2000),
-          ))).docs.map(d => ({ id: d.id, ...d.data() } as any));
+      const baseDocs: any[] = await carregarOcorrenciasSupabase({ limit: 2000 });
 
       const docs = baseDocs
         .filter(o => {
@@ -3235,18 +3217,21 @@ function GuardNotifConfig() {
   };
 
   useEffect(() => {
-    getDocs(query(collection(db,'config'), where('tipo','==','notif_guard'))).then(snap => {
-      if (!snap.empty) setCfg(c => ({ ...c, ...snap.docs[0].data() }));
-    }).catch(() => {});
+    (async () => {
+      try {
+        const { data } = await supabase.from('app_settings').select('valor').eq('chave', 'notif_guard').maybeSingle();
+        if (data?.valor) setCfg(c => ({ ...c, ...data.valor }));
+      } catch {}
+    })();
   }, []);
 
   const salvar = async () => {
     setSalvando(true); setMsg('');
     try {
-      const batch = writeBatch(db);
-      const ref = doc(collection(db,'config'),'notif_guard');
-      batch.set(ref, { tipo:'notif_guard', ...cfg, updatedAt: new Date().toISOString() }, { merge:true });
-      await batch.commit();
+      await supabase.from('app_settings').upsert(
+        { chave: 'notif_guard', valor: { ...cfg, updatedAt: new Date().toISOString() } },
+        { onConflict: 'chave' }
+      );
       setMsg(pick(T.cfgSalva));
     } catch(e:any) { setMsg(pick(T.erro) + ' ' + e.message); }
     setSalvando(false);
@@ -3359,14 +3344,13 @@ function GuardHistorico() {
     if (!busca.trim()) return;
     setLoading(true); setItens([]);
     try {
-      // Buscar no histórico (coleção ocorrencias_historico)
-      const q = query(
-        collection(db, 'ocorrencias_historico'),
-        where('incidenteId', '==', busca.trim())
-      );
-      const snap = await getDocs(q);
-      const lista = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
+      const { data: rows, error } = await supabase
+        .from('ocorrencias')
+        .select('*')
+        .eq('incidenteId', busca.trim());
+      if (error) throw error;
+      const lista = (rows || [])
+        .map((d: any) => ({ id: d.id, ...d }))
         .sort((a: any, b: any) => {
           const da = a.alteradoEm ? new Date(a.alteradoEm).getTime() : 0;
           const db_ = b.alteradoEm ? new Date(b.alteradoEm).getTime() : 0;
@@ -3504,10 +3488,7 @@ function GuardExportExcel() {
         });
       }
 
-      // Buscar ocorrências com filtros — Fase 2 / Onda B: Supabase atrás de flag (read-only).
-      let docs: any[] = guardProviderSupabase()
-        ? await carregarOcorrenciasSupabase({ limit: 10000 })
-        : (await getDocs(collection(db, 'ocorrencias'))).docs.map(d => ({ id: d.id, ...(d.data() as any) }));
+      let docs: any[] = await carregarOcorrenciasSupabase({ limit: 10000 });
 
       // Filtrar client-side
       if (filtros.tipo)   docs = docs.filter(d => d.tipo   === filtros.tipo);
@@ -3672,23 +3653,8 @@ function GuardAuditoriaPanel() {
     if (!busca.trim()) return;
     setOcorr(null); setMsg('');
     try {
-      // Busca por ID exato ou asset_id — Fase 2 / Onda B: Supabase atrás de flag (read-only).
-      if (guardProviderSupabase()) {
-        const d = await buscarOcorrenciaSupabase(busca.trim());
-        if (d) { setOcorr(d); setForm(d); return; }
-        setMsg(pick(T.naoEnc) + ' ' + busca);
-        return;
-      }
-      const snapId = await getDocs(query(collection(db,'ocorrencias'), where('id','==',busca.trim())));
-      if (!snapId.empty) {
-        const d = { id: snapId.docs[0].id, ...snapId.docs[0].data() };
-        setOcorr(d); setForm(d); return;
-      }
-      const snapAsset = await getDocs(query(collection(db,'ocorrencias'), where('asset_id','==',busca.trim())));
-      if (!snapAsset.empty) {
-        const d = { id: snapAsset.docs[0].id, ...snapAsset.docs[0].data() };
-        setOcorr(d); setForm(d); return;
-      }
+      const d = await buscarOcorrenciaSupabase(busca.trim());
+      if (d) { setOcorr(d); setForm(d); return; }
       setMsg(pick(T.naoEnc) + ' ' + busca);
     } catch(e:any) { setMsg(pick(T.erro) + ' ' + e.message); }
   };
@@ -3697,29 +3663,17 @@ function GuardAuditoriaPanel() {
     if (!ocorr) return;
     setSalvando(true); setMsg('');
     try {
-      const ref = doc(collection(db,'ocorrencias'), ocorr.id);
-      await updateDoc(ref, {
-        tipo:          form.tipo,
-        status:        form.status,
-        prioridade:    form.prioridade,
-        asset_id:      form.asset_id,
-        descricao:     form.descricao,
-        responsavel:   form.responsavel,
-        cidade_inicial: form.cidade_inicial,
-        bairro_inicial: form.bairro_inicial,
-        // Data auditada — salva como string ISO para manter padrão
-        created_at:    form.created_at_edit
+      await atualizarOcorrenciaSupabase(ocorr.id, {
+        tipo: form.tipo, status: form.status, prioridade: form.prioridade, asset_id: form.asset_id,
+        descricao: form.descricao, responsavel: form.responsavel,
+        cidade_inicial: form.cidade_inicial, bairro_inicial: form.bairro_inicial,
+        created_at: form.created_at_edit
           ? new Date(form.created_at_edit).toISOString()
           : (ocorr.created_at || null),
-        auditado:      true,
-        auditadoEm:    new Date().toISOString(),
+        auditado: true,
+        auditadoEm: new Date().toISOString(),
         observacao_fechamento: form.observacao_fechamento,
       });
-      if (guardWriteSupabase()) atualizarOcorrenciaSupabase(ocorr.id, {
-        tipo: form.tipo, status: form.status, prioridade: form.prioridade, asset_id: form.asset_id,
-        descricao: form.descricao, cidade_inicial: form.cidade_inicial, bairro_inicial: form.bairro_inicial,
-        observacao_fechamento: form.observacao_fechamento,
-      }).catch(err => console.error('[guard-write] update Supabase:', err));
       setMsg(pick(T.salvoOk));
     } catch(e:any) { setMsg(pick(T.erroSalvar) + ' ' + e.message); }
     setSalvando(false);
@@ -3889,19 +3843,12 @@ function UsuariosPanel() {
     const carregarDados = async () => {
       setLoading(true);
       try {
-        // Solicitações pendentes
-        const snapSol = await getDocs(query(
-          collection(db,'solicitacoes'), where('status','==','pendente')
-        ));
-        setSolicitacoes(snapSol.docs.map(d => ({ id: d.id, ...d.data() })));
+        const { data: solRows } = await supabase
+          .from('solicitacoes_prestadores').select('*').eq('status','pendente');
+        setSolicitacoes((solRows || []).map((d: any) => ({ ...d, id: d.id })));
         // Usuários ativos
-        if (usuariosReadSupabase()) {
-          const users = await fetchUsuarios();
-          setUsuarios(users.map(u => ({ ...u, id: u.uid })));
-        } else {
-          const snapUs = await getDocs(collection(db,'usuarios'));
-          setUsuarios(snapUs.docs.map(d => ({ id: d.id, ...d.data() })));
-        }
+        const users = await fetchUsuarios();
+        setUsuarios(users.map(u => ({ ...u, id: u.uid })));
       } catch(e) { console.error(e); }
       setLoading(false);
     };
@@ -3941,7 +3888,7 @@ function UsuariosPanel() {
 
   const alterarRole = async (uid: string, novoRole: string) => {
     try {
-      await updateDoc(doc(collection(db,'usuarios'), uid), { role: novoRole });
+      await escreverUsuarioSupabase(uid, { role: novoRole });
       setUsuarios(u => u.map(x => x.id === uid ? { ...x, role: novoRole } : x));
     } catch(e:any) { alert(pick(T.erro) + ' ' + e.message); }
   };
@@ -4064,7 +4011,7 @@ cidadesDisponiveis={[...new Set<string>(
                   </button>
                 ))}
                 <button onClick={async () => {
-                  await updateDoc(doc(collection(db,'solicitacoes'),sol.id),{status:'rejeitada'});
+                  await supabase.from('solicitacoes_prestadores').update({status:'rejeitada'}).eq('id',sol.id);
                   setSolicitacoes(s => s.filter(x => x.id !== sol.id));
                 }} style={{ padding:'6px 14px', borderRadius:8, cursor:'pointer', fontSize:11,
                   background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.2)', color:'#f87171' }}>
@@ -4454,15 +4401,8 @@ function CidadeViewerModal({ usuario, cidadesDisponiveis, onFechar, onSalvo }: {
   const [salvando, setSalvando] = useState(false);
   const [cidadesReais, setCidadesReais] = useState<string[]>(cidadesDisponiveis);
 
-  // Busca cidades reais do Firestore
   useEffect(() => {
-    getDocs(collection(db, 'estacoes')).then(snap => {
-      const set = new Set<string>();
-      snap.docs.forEach(d => {
-        const c = d.data().cidade;
-        if (c) set.add(c.trim());
-      });
-      const lista = Array.from(set).sort();
+    carregarCidadesSupabase().then(lista => {
       if (lista.length > 0) setCidadesReais(lista);
     }).catch(() => {});
   }, []);
@@ -4476,9 +4416,7 @@ function CidadeViewerModal({ usuario, cidadesDisponiveis, onFechar, onSalvo }: {
   const salvar = async () => {
     setSalvando(true);
     try {
-      await updateDoc(doc(collection(db, 'usuarios'), usuario.id), {
-        cidadesPermitidas: selecionadas
-      });
+      await escreverUsuarioSupabase(usuario.id, { cidadesPermitidas: selecionadas });
       onSalvo(selecionadas);
     } catch(e: any) {
       alert(pick(T.erro) + ' ' + e.message);
@@ -4645,23 +4583,14 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
   const isGestor    = ['admin','gestor'].includes(roleAtual);
   const isGestorSeg = ['admin','gestor','gestor_seg'].includes(roleAtual);
 
-  // Carrega estações da cidade (Firestore + Supabase quando ativo)
+  // Carrega estações da cidade via Supabase
   useEffect(() => {
     setCarregando(true);
-    const q = cidades.length === 1
-      ? query(collection(db, 'estacoes'), where('cidade','==',cidades[0]))
-      : cidades.length > 1
-        ? query(collection(db, 'estacoes'), where('cidade','in',cidades.slice(0,10)))
-        : query(collection(db, 'estacoes'));
-    const pFirestore = getDocs(q).then(snap =>
-      snap.docs.map(d => ({ id: d.id, ...d.data() } as Estacao))
-    ).catch(() => [] as Estacao[]);
-    const pSupabase = mapaProviderSupabase() && cidades.length
+    (cidades.length
       ? Promise.all(cidades.map(c => carregarEstacoesSupabase(c).catch(() => []))).then(arrs => arrs.flat() as Estacao[])
-      : Promise.resolve([] as Estacao[]);
-    Promise.all([pFirestore, pSupabase]).then(([fs, sb]) => {
-      const ids = new Set(fs.map(e => e.id));
-      setEstacoes([...fs, ...sb.filter(e => !ids.has(e.id))]);
+      : carregarEstacoesSupabase().catch(() => [] as Estacao[])
+    ).then(estacoes => {
+      setEstacoes(estacoes);
       setCarregando(false);
     });
   }, [cidades, pais]);
@@ -4855,13 +4784,12 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
       setResultado(null);
 
       try {
-        const batch = writeBatch(db);
         for (const est of paraProcesar) {
-          const docRef = doc(db, 'estacoes', est.codigo);
-          batch.update(docRef, { status: statusDestino, atualizadoEm: new Date() });
+          const { error } = await supabase.from('estacoes')
+            .update({ status: statusDestino, atualizado_em: new Date().toISOString() })
+            .eq('codigo', est.codigo);
+          if (error) throw error;
         }
-        
-        await batch.commit();
         setResultado({
           sucesso: true,
           total: paraProcesar.length,
@@ -5065,8 +4993,8 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
                 <NormalizarBtn cidade={cidade} pais={pais} onDone={() => {
                   // Recarrega estações
                   setCarregando(true);
-                  getDocs(query(collection(db, 'estacoes'), ...(cidade ? [where('cidade','==',cidade)] : [])))
-                    .then(snap => { setEstacoes(snap.docs.map(d => ({id:d.id,...d.data()} as Estacao))); setCarregando(false); })
+                  carregarEstacoesSupabase(cidade || undefined)
+                    .then(rows => { setEstacoes(rows as Estacao[]); setCarregando(false); })
                     .catch(() => setCarregando(false));
                 }} />
               )}

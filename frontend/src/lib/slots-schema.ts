@@ -1,13 +1,11 @@
-// slots-schema.ts — JET OS — tipos e helpers Firestore para Slots / Tarefas / Logística
+// slots-schema.ts — JET OS — tipos e helpers Supabase para Slots / Tarefas / Logística
 
-import {
-  collection, doc, addDoc, updateDoc, getDocs, query,
-  where, orderBy, onSnapshot, serverTimestamp, Timestamp,
-  type QuerySnapshot, type DocumentData,
-} from 'firebase/firestore';
-import { db } from './firebase';
 import { supabase } from './supabase';
 import { guardWriteSupabase, criarOcorrenciaSupabase } from './ocorrencias-supabase';
+
+// Timestamp genérico — aceita Firebase Timestamp, Date, ISO string, etc.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type TimestampLike = any;
 
 // ─────────────────────────────────────────────────────────────────
 // CARGOS (legado — mantido para ocorrências / equipe / compatib.)
@@ -27,13 +25,13 @@ export interface UsuarioPrestador {
   tipoContrato: TipoContrato; statusPrestador: StatusPrestador;
   cidade: string; pais: string; cpfCnpj: string;
   pixChave: string; pixTipo: string; telegram: string;
-  slotAtualId?: string | null; ultimaAtividade?: Timestamp | null;
+  slotAtualId?: string | null; ultimaAtividade?: TimestampLike | null;
   telegramChatId?: string | null; fcmToken?: string | null;
   lat?: number | null; lng?: number | null;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// SLOTS  (coleção: slots/)
+// SLOTS  (tabela: slots)
 // ─────────────────────────────────────────────────────────────────
 
 export type TipoSlot      = 'scout' | 'charger';
@@ -62,20 +60,20 @@ export interface Slot {
   criadoPor: string;
   aceitoPor?: string | null;
   aceitoPorNome?: string | null;
-  aceitoEm?: Timestamp | null;
-  aCaminhoEm?: Timestamp | null;
-  checkInEm?: Timestamp | null;
+  aceitoEm?: TimestampLike | null;
+  aCaminhoEm?: TimestampLike | null;
+  checkInEm?: TimestampLike | null;
   checkInLat?: number | null;
   checkInLng?: number | null;
   checkInAccuracy?: number | null;
-  checkOutEm?: Timestamp | null;
+  checkOutEm?: TimestampLike | null;
   // Progresso
   tarefasIds?: string[];
   tarefasTotal?: number;
   tarefasConcluidas?: number;
   // SLA
   slaAceiteMin?: number;
-  slaEscaladoEm?: Timestamp | null;
+  slaEscaladoEm?: TimestampLike | null;
   // Auto-geração
   geradoPorClima?: boolean;
   climaStatus?: string | null;
@@ -85,21 +83,21 @@ export interface Slot {
   canceladoPor?: string | null;
   // Confirmação cascata (Telegram reminders)
   confirmacoes?: {
-    t120?: Timestamp | null;
-    t90?: Timestamp | null;
-    t60?: Timestamp | null;
-    t0?: Timestamp | null;
+    t120?: TimestampLike | null;
+    t90?: TimestampLike | null;
+    t60?: TimestampLike | null;
+    t0?: TimestampLike | null;
   } | null;
-  confirmadoEm?: Timestamp | null;
+  confirmadoEm?: TimestampLike | null;
   // Timestamps
-  criadoEm?: Timestamp;
-  atualizadoEm?: Timestamp;
+  criadoEm?: TimestampLike;
+  atualizadoEm?: TimestampLike;
   // Legado n8n
   n8nDistribuido?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// TAREFAS  (coleção: tarefas/)
+// TAREFAS  (tabela: tarefas)
 // ─────────────────────────────────────────────────────────────────
 
 export type TarefaTipo =
@@ -131,7 +129,7 @@ export interface Entrega {
   lat?: number | null; lng?: number | null; accuracy?: number | null;
   gpsIndisponivel?: boolean;
   obs?: string | null;
-  registradoEm: Timestamp;
+  registradoEm: TimestampLike;
 }
 
 export interface Tarefa {
@@ -158,15 +156,15 @@ export interface Tarefa {
   entregas?: Entrega[];
   // Foto chegada
   fotoChegadaUrl?: string | null;
-  chegadaEm?: Timestamp | null;
-  aCaminhoEm?: Timestamp | null;
+  chegadaEm?: TimestampLike | null;
+  aCaminhoEm?: TimestampLike | null;
   // Conclusão
-  concluidoEm?: Timestamp | null;
+  concluidoEm?: TimestampLike | null;
   fotoUrl?: string | null;
   lat?: number | null; lng?: number | null;
   obsConclsao?: string | null;
   // Cancelamento
-  rejeitadoEm?: Timestamp | null;
+  rejeitadoEm?: TimestampLike | null;
   motivoCancelamento?: string | null;
   notasCancelamento?: string | null;
   fotoCancelamentoUrl?: string | null;
@@ -175,11 +173,11 @@ export interface Tarefa {
   distanciaKm?: number | null;
   quantidade?: number;
   // Timestamps
-  criadoEm?: Timestamp; atualizadoEm?: Timestamp;
+  criadoEm?: TimestampLike; atualizadoEm?: TimestampLike;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// CONFIG AUTO-SLOTS  (coleção: config_auto_slots/)
+// CONFIG AUTO-SLOTS  (tabela: config_auto_slots)
 // ─────────────────────────────────────────────────────────────────
 
 export type SensibilidadeClima = 'ignorar' | 'moderada' | 'alta';
@@ -235,11 +233,11 @@ export interface ConfigZonaAuto {
   sensibilidadeClima: SensibilidadeClima;
   notificarGestor: boolean;
   // Meta
-  atualizadoPor?: string; atualizadoEm?: Timestamp;
+  atualizadoPor?: string; atualizadoEm?: TimestampLike;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// LOG DECISÕES AUTO  (coleção: log_slots_auto/)
+// LOG DECISÕES AUTO  (tabela: log_slots_auto)
 // ─────────────────────────────────────────────────────────────────
 
 export interface LogDecisaoAuto {
@@ -253,11 +251,11 @@ export interface LogDecisaoAuto {
   slotCriado: boolean;
   slotId?: string | null;
   motivo?: string;
-  registradoEm: Timestamp;
+  registradoEm: TimestampLike;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// OCORRÊNCIAS  (coleção: ocorrencias/)
+// OCORRÊNCIAS  (tabela: ocorrencias)
 // ─────────────────────────────────────────────────────────────────
 
 export type OcorrenciaTipo =
@@ -272,94 +270,227 @@ export interface Ocorrencia {
   cargo: CargoTipo; cidade: string; pais?: string;
   lat?: number | null; lng?: number | null; fotoUrl?: string | null;
   procurando?: boolean; patineteId?: string | null;
-  telegramEnviado?: boolean; criadoEm?: Timestamp; atualizadoEm?: Timestamp;
+  telegramEnviado?: boolean; criadoEm?: TimestampLike; atualizadoEm?: TimestampLike;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// HELPERS — CRUD
+// HELPERS — CRUD (Supabase)
 // ─────────────────────────────────────────────────────────────────
 
+/** Helper: converte camelCase → snake_case */
+function toSnake(s: string): string {
+  return s.replace(/([A-Z])/g, '_$1').toLowerCase();
+}
+
+/** Helper: converte objeto camelCase → snake_case keys */
+function keysToSnake(obj: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(obj).map(([k, v]) => [toSnake(k), v])
+  );
+}
+
+/** Helper: converte snake_case row → camelCase keys */
+function keysToCamel(obj: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(obj).map(([k, v]) => [
+      k.replace(/_([a-z])/g, (_, c) => c.toUpperCase()),
+      v,
+    ])
+  );
+}
+
 export async function criarSlot(dados: Omit<Slot, 'id' | 'criadoEm' | 'atualizadoEm'>): Promise<string> {
-  const ref = await addDoc(collection(db, 'slots'), {
-    ...dados, criadoEm: serverTimestamp(), atualizadoEm: serverTimestamp(),
-  });
-  return ref.id;
+  const now = new Date().toISOString();
+  const row = {
+    ...keysToSnake(dados as Record<string, unknown>),
+    criado_em: now,
+    atualizado_em: now,
+  };
+  const { data, error } = await supabase.from('slots').insert(row).select('id').single();
+  if (error) throw new Error(`[slots] insert: ${error.message}`);
+  return data.id;
 }
 
 export async function atualizarSlot(id: string, dados: Partial<Slot>): Promise<void> {
-  await updateDoc(doc(db, 'slots', id), { ...dados, atualizadoEm: serverTimestamp() });
+  const row = {
+    ...keysToSnake(dados as Record<string, unknown>),
+    atualizado_em: new Date().toISOString(),
+  };
+  const { error } = await supabase.from('slots').update(row).eq('id', id);
+  if (error) throw new Error(`[slots] update: ${error.message}`);
 }
 
 export async function criarTarefa(dados: Omit<Tarefa, 'id' | 'criadoEm' | 'atualizadoEm'>): Promise<string> {
-  const ref = await addDoc(collection(db, 'tarefas'), {
-    ...dados, criadoEm: serverTimestamp(), atualizadoEm: serverTimestamp(),
-  });
-  supabase.from('tarefas').upsert({ id: ref.id, tipo: dados.tipo, tipo_slot: dados.tipoSlot ?? null, status: dados.status, prioridade: dados.prioridade, titulo: dados.titulo, cargo: dados.cargo, cidade: dados.cidade, pais: dados.pais, slot_id: dados.slotId ?? null, assignee_uid: dados.assigneeUid ?? null, assignee_nome: dados.assigneeNome ?? null, qtd_alvo: dados.qtdAlvo ?? null, qtd_concluida: dados.qtdConcluida ?? 0, rota_ordem: dados.rotaOrdem ?? null, criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[tarefas] upsert:', error.message); });
-  return ref.id;
+  const now = new Date().toISOString();
+  const row = {
+    tipo: dados.tipo,
+    tipo_slot: dados.tipoSlot ?? null,
+    status: dados.status,
+    prioridade: dados.prioridade,
+    titulo: dados.titulo,
+    cargo: dados.cargo,
+    cidade: dados.cidade,
+    pais: dados.pais,
+    slot_id: dados.slotId ?? null,
+    assignee_uid: dados.assigneeUid ?? null,
+    assignee_nome: dados.assigneeNome ?? null,
+    qtd_alvo: dados.qtdAlvo ?? null,
+    qtd_concluida: dados.qtdConcluida ?? 0,
+    rota_ordem: dados.rotaOrdem ?? null,
+    criado_em: now,
+    atualizado_em: now,
+  };
+  const { data, error } = await supabase.from('tarefas').insert(row).select('id').single();
+  if (error) throw new Error(`[tarefas] insert: ${error.message}`);
+  return data.id;
 }
 
 export async function atualizarTarefa(id: string, dados: Partial<Tarefa>): Promise<void> {
-  await updateDoc(doc(db, 'tarefas', id), { ...dados, atualizadoEm: serverTimestamp() });
-  supabase.from('tarefas').update({ ...Object.fromEntries(Object.entries(dados).map(([k, v]) => [k.replace(/([A-Z])/g, '_$1').toLowerCase(), v])), atualizado_em: new Date().toISOString() }).eq('id', id).then(({ error }) => { if (error) console.error('[tarefas] update:', error.message); });
+  const row = {
+    ...keysToSnake(dados as Record<string, unknown>),
+    atualizado_em: new Date().toISOString(),
+  };
+  const { error } = await supabase.from('tarefas').update(row).eq('id', id);
+  if (error) throw new Error(`[tarefas] update: ${error.message}`);
 }
 
 export async function buscarTarefasDoSlot(slotId: string): Promise<Tarefa[]> {
-  const q = query(collection(db, 'tarefas'), where('slotId', '==', slotId), orderBy('rotaOrdem', 'asc'));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() } as Tarefa));
+  const { data, error } = await supabase
+    .from('tarefas')
+    .select('*')
+    .eq('slot_id', slotId)
+    .order('rota_ordem', { ascending: true });
+  if (error) { console.error('[tarefas] select:', error.message); return []; }
+  return (data ?? []).map(r => ({ ...keysToCamel(r), id: r.id }) as unknown as Tarefa);
 }
 
 export function ouvirTarefasDoOperador(uid: string, cb: (t: Tarefa[]) => void): () => void {
-  const q = query(
-    collection(db, 'tarefas'),
-    where('assigneeUid', '==', uid),
-    where('status', 'in', ['pendente', 'aceita', 'em_andamento']),
-    orderBy('rotaOrdem', 'asc')
-  );
-  return onSnapshot(q, (snap: QuerySnapshot<DocumentData>) =>
-    cb(snap.docs.map(d => ({ id: d.id, ...d.data() } as Tarefa)))
-  );
+  // Initial fetch
+  supabase
+    .from('tarefas')
+    .select('*')
+    .eq('assignee_uid', uid)
+    .in('status', ['pendente', 'aceita', 'em_andamento'])
+    .order('rota_ordem', { ascending: true })
+    .then(({ data, error }) => {
+      if (!error && data) cb(data.map(r => ({ ...keysToCamel(r), id: r.id }) as unknown as Tarefa));
+    });
+
+  // Realtime subscription
+  const channel = supabase
+    .channel(`tarefas-operador-${uid}`)
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'tarefas',
+      filter: `assignee_uid=eq.${uid}`,
+    }, () => {
+      // Re-fetch on any change
+      supabase
+        .from('tarefas')
+        .select('*')
+        .eq('assignee_uid', uid)
+        .in('status', ['pendente', 'aceita', 'em_andamento'])
+        .order('rota_ordem', { ascending: true })
+        .then(({ data, error }) => {
+          if (!error && data) cb(data.map(r => ({ ...keysToCamel(r), id: r.id }) as unknown as Tarefa));
+        });
+    })
+    .subscribe();
+
+  return () => { supabase.removeChannel(channel); };
 }
 
 export async function buscarConfigZonas(cidade: string): Promise<ConfigZonaAuto[]> {
-  const q = query(collection(db, 'config_auto_slots'), where('cidade', '==', cidade));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() } as ConfigZonaAuto));
+  const { data, error } = await supabase
+    .from('config_auto_slots')
+    .select('*')
+    .eq('cidade', cidade);
+  if (error) { console.error('[config_auto_slots] select:', error.message); return []; }
+  return (data ?? []).map(r => ({ ...keysToCamel(r), id: r.id }) as unknown as ConfigZonaAuto);
 }
 
 export async function salvarConfigZona(cfg: Omit<ConfigZonaAuto, 'id' | 'atualizadoEm'>): Promise<void> {
-  const q = query(
-    collection(db, 'config_auto_slots'),
-    where('zonaId', '==', cfg.zonaId),
-    where('cidade', '==', cfg.cidade)
-  );
-  const snap = await getDocs(q);
-  const data = { ...cfg, atualizadoEm: serverTimestamp() };
-  if (snap.empty) {
-    await addDoc(collection(db, 'config_auto_slots'), data);
-    supabase.from('config_auto_slots').upsert({ zona_id: cfg.zonaId, zona_nome: cfg.zonaNome, cidade: cfg.cidade, pais: cfg.pais, ativo: cfg.ativo, scout_ativo: cfg.scoutAtivo, bikes_minimo: cfg.bikesMinimo, bikes_alvo: cfg.bikesAlvo, bikes_maximo: cfg.bikesMaximo, charger_ativo: cfg.chargerAtivo, bateria_threshold: cfg.bateriaThreshold, charger_minimo: cfg.chargerMinimo, horario_ativo_inicio: cfg.horarioAtivoInicio, horario_ativo_fim: cfg.horarioAtivoFim, intervalo_checagem_min: cfg.intervaloChecagemMin, sla_aceite_min: cfg.slaAceiteMin, auto_assign: cfg.autoAssign, sensibilidade_clima: cfg.sensibilidadeClima, notificar_gestor: cfg.notificarGestor, atualizado_em: new Date().toISOString() }, { onConflict: 'zona_id,cidade' }).then(({ error }) => { if (error) console.error('[config_auto_slots] upsert:', error.message); });
-  } else {
-    await updateDoc(doc(db, 'config_auto_slots', snap.docs[0].id), data);
-    supabase.from('config_auto_slots').update({ zona_nome: cfg.zonaNome, ativo: cfg.ativo, scout_ativo: cfg.scoutAtivo, bikes_minimo: cfg.bikesMinimo, bikes_alvo: cfg.bikesAlvo, bikes_maximo: cfg.bikesMaximo, charger_ativo: cfg.chargerAtivo, bateria_threshold: cfg.bateriaThreshold, charger_minimo: cfg.chargerMinimo, horario_ativo_inicio: cfg.horarioAtivoInicio, horario_ativo_fim: cfg.horarioAtivoFim, intervalo_checagem_min: cfg.intervaloChecagemMin, sla_aceite_min: cfg.slaAceiteMin, auto_assign: cfg.autoAssign, sensibilidade_clima: cfg.sensibilidadeClima, notificar_gestor: cfg.notificarGestor, atualizado_em: new Date().toISOString() }).eq('zona_id', cfg.zonaId).eq('cidade', cfg.cidade).then(({ error }) => { if (error) console.error('[config_auto_slots] update:', error.message); });
-  }
+  const row = {
+    zona_id: cfg.zonaId,
+    zona_nome: cfg.zonaNome,
+    cidade: cfg.cidade,
+    pais: cfg.pais,
+    ativo: cfg.ativo,
+    scout_ativo: cfg.scoutAtivo,
+    bikes_minimo: cfg.bikesMinimo,
+    bikes_alvo: cfg.bikesAlvo,
+    bikes_maximo: cfg.bikesMaximo,
+    charger_ativo: cfg.chargerAtivo,
+    bateria_threshold: cfg.bateriaThreshold,
+    charger_minimo: cfg.chargerMinimo,
+    horario_ativo_inicio: cfg.horarioAtivoInicio,
+    horario_ativo_fim: cfg.horarioAtivoFim,
+    intervalo_checagem_min: cfg.intervaloChecagemMin,
+    sla_aceite_min: cfg.slaAceiteMin,
+    auto_assign: cfg.autoAssign,
+    sensibilidade_clima: cfg.sensibilidadeClima,
+    notificar_gestor: cfg.notificarGestor,
+    atualizado_em: new Date().toISOString(),
+  };
+  const { error } = await supabase
+    .from('config_auto_slots')
+    .upsert(row, { onConflict: 'zona_id,cidade' });
+  if (error) throw new Error(`[config_auto_slots] upsert: ${error.message}`);
 }
 
 export async function criarOcorrencia(dados: Omit<Ocorrencia, 'id' | 'criadoEm' | 'atualizadoEm'>): Promise<string> {
-  const ref = await addDoc(collection(db, 'ocorrencias'), {
-    ...dados, criadoEm: serverTimestamp(), atualizadoEm: serverTimestamp(),
-  });
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('ocorrencias')
+    .insert({
+      ...keysToSnake(dados as Record<string, unknown>),
+      criado_em: now,
+      atualizado_em: now,
+    })
+    .select('id')
+    .single();
+  if (error) throw new Error(`[ocorrencias] insert: ${error.message}`);
+
+  // Mirror via guard helper if enabled
   if (guardWriteSupabase()) {
-    criarOcorrenciaSupabase(ref.id, dados).catch(err => console.error('[guard-write] create Supabase:', err));
+    criarOcorrenciaSupabase(data.id, dados).catch(err => console.error('[guard-write] create Supabase:', err));
   }
-  return ref.id;
+  return data.id;
 }
 
 export function ouvirOcorrencias(cidade: string, cb: (ocs: Ocorrencia[]) => void): () => void {
-  const q = query(
-    collection(db, 'ocorrencias'),
-    where('cidade', '==', cidade),
-    where('status', 'in', ['aberta', 'em_tratamento']),
-    orderBy('criadoEm', 'desc')
-  );
-  return onSnapshot(q, (snap) => cb(snap.docs.map(d => ({ id: d.id, ...d.data() } as Ocorrencia))));
+  // Initial fetch
+  supabase
+    .from('ocorrencias')
+    .select('*')
+    .eq('cidade', cidade)
+    .in('status', ['aberta', 'em_tratamento'])
+    .order('criado_em', { ascending: false })
+    .then(({ data, error }) => {
+      if (!error && data) cb(data.map(r => ({ ...keysToCamel(r), id: r.id }) as unknown as Ocorrencia));
+    });
+
+  // Realtime subscription
+  const channel = supabase
+    .channel(`ocorrencias-${cidade}`)
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'ocorrencias',
+      filter: `cidade=eq.${cidade}`,
+    }, () => {
+      supabase
+        .from('ocorrencias')
+        .select('*')
+        .eq('cidade', cidade)
+        .in('status', ['aberta', 'em_tratamento'])
+        .order('criado_em', { ascending: false })
+        .then(({ data, error }) => {
+          if (!error && data) cb(data.map(r => ({ ...keysToCamel(r), id: r.id }) as unknown as Ocorrencia));
+        });
+    })
+    .subscribe();
+
+  return () => { supabase.removeChannel(channel); };
 }

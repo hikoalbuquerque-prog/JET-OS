@@ -1,19 +1,14 @@
 ﻿// TurnoRegistro.tsx — Registro de turno para trabalhadores CLT
-// Feature portada do V2 shift-register-screen.tsx → Firebase/Firestore
+// Feature portada do V2 shift-register-screen.tsx → Supabase
 //
 // Fluxo:
 //   1. Worker abre o painel
 //   2. Seleciona função (motorista/scout/charger/clt) e turno (T0/T1/T2)
 //   3. Tira foto obrigatória
-//   4. Confirma → grava em /turnos/{uid}_{timestamp}
+//   4. Confirma → grava em turnos (Supabase)
 //   5. Status "trabalhando" ativo até registrar saída
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  collection, addDoc, query, where, orderBy, limit,
-  onSnapshot, serverTimestamp, Timestamp, doc, updateDoc,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
 import { uploadComRetry } from '../lib/uploadUtils';
 import { comprimirImagem, capturarFotoNativa } from '../lib/imageUtils';
@@ -101,16 +96,28 @@ export default function TurnoRegistro({ uid, nome, cidade, role, visivel, onFech
   // Carrega turno aberto (se houver)
   useEffect(() => {
     if (!uid || !visivel) return;
-    const q = query(
-      collection(db, 'turnos'),
-      where('uid', '==', uid),
-      where('aberto', '==', true),
-      orderBy('registradoEm', 'desc'),
-      limit(1),
-    );
-    return onSnapshot(q, snap => {
-      setTurnoAberto(snap.empty ? null : ({ id: snap.docs[0].id, ...snap.docs[0].data() } as TurnoRecord));
-    });
+    const loadTurno = async () => {
+      const { data } = await supabase
+        .from('turnos')
+        .select('*')
+        .eq('uid', uid)
+        .eq('aberto', true)
+        .order('registrado_em', { ascending: false })
+        .limit(1);
+      if (data && data.length > 0) {
+        const row = data[0];
+        setTurnoAberto({
+          id: row.id, uid: row.uid, nome: row.nome, acao: row.acao,
+          funcao: row.funcao, turno: row.turno, fotoUrl: row.foto_url,
+          lat: row.lat, lng: row.lng, accuracy: row.accuracy,
+          cidade: row.cidade, registradoEm: row.registrado_em ? new Date(row.registrado_em) : null,
+          aberto: row.aberto,
+        } as TurnoRecord);
+      } else {
+        setTurnoAberto(null);
+      }
+    };
+    loadTurno();
   }, [uid, visivel]);
 
   // Captura GPS ao abrir
@@ -160,35 +167,24 @@ export default function TurnoRegistro({ uid, nome, cidade, role, visivel, onFech
 
       // Fecha turno aberto se houver
       if (acao === 'saida' && turnoAberto?.id) {
-        await updateDoc(doc(db, 'turnos', turnoAberto.id), {
-          aberto: false,
-          saidaEm: serverTimestamp(),
-          fotoSaidaUrl: fotoUrl,
-          latSaida: gps?.lat, lngSaida: gps?.lng,
-        });
-        // dual-write Supabase
-        supabase.from('turnos').update({
+        const { error } = await supabase.from('turnos').update({
           aberto: false,
           saida_em: new Date().toISOString(),
           foto_saida_url: fotoUrl,
           lat_saida: gps?.lat, lng_saida: gps?.lng,
-        }).eq('id', turnoAberto.id).then(({ error }) => { if (error) console.error('[TurnoRegistro] update turnos:', error.message); });
+        }).eq('id', turnoAberto.id);
+        if (error) console.error('[TurnoRegistro] update turnos:', error.message);
         setMsg('✓ Saída registrada');
       } else {
-        const docRef = await addDoc(collection(db, 'turnos'), {
-          uid, nome, acao, funcao, turno,
-          fotoUrl,
-          lat: gps?.lat, lng: gps?.lng, accuracy: gps?.accuracy,
-          cidade, registradoEm: serverTimestamp(), aberto: true,
-        } satisfies Omit<TurnoRecord, 'id'>);
-        // dual-write Supabase
-        supabase.from('turnos').upsert({
-          id: docRef.id,
+        const id = crypto.randomUUID();
+        const { error } = await supabase.from('turnos').upsert({
+          id,
           uid, nome, acao, funcao, turno,
           foto_url: fotoUrl,
           lat: gps?.lat, lng: gps?.lng, accuracy: gps?.accuracy,
           cidade, registrado_em: new Date().toISOString(), aberto: true,
-        }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[TurnoRegistro] upsert turnos:', error.message); });
+        }, { onConflict: 'id' });
+        if (error) console.error('[TurnoRegistro] upsert turnos:', error.message);
         setMsg('✓ Entrada registrada');
       }
       setFotoBase64(null); setFotoBlob(null);
@@ -235,8 +231,8 @@ export default function TurnoRegistro({ uid, nome, cidade, role, visivel, onFech
             <div style={{ fontSize:12, color:'#22c55e', fontWeight:700 }}>✓ Turno em andamento</div>
             <div style={{ fontSize:11, color:'rgba(255,255,255,.5)', marginTop:2 }}>
               {turnoAberto.funcao} • {turnoAberto.turno} • desde {
-                turnoAberto.registradoEm?.toDate
-                  ? new Date(turnoAberto.registradoEm.toDate()).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})
+                turnoAberto.registradoEm
+                  ? new Date(turnoAberto.registradoEm).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})
                   : '—'
               }
             </div>

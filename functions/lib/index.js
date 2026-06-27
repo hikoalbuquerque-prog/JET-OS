@@ -206,13 +206,7 @@ __exportStar(require("./gps-alertas"), exports); // verificarAtrasos, verificarC
 __exportStar(require("./automacao-tarefas"), exports); // gerarTarefasGoJetFn, gerarTarefasAgendado, etc.
 __exportStar(require("./relatorios"), exports); // enviarRelatorioManual, relatorioGuardSemanal, relatorioPerdasDiario, relatorioPerdasSemanal
 __exportStar(require("./notificacoes-prestador"), exports); // notificarGestorNovaSolicitacao
-__exportStar(require("./mirror-ocorrencias"), exports); // espelharOcorrenciaSupabase — dual-write Guard -> Supabase (DEBRIEF §16)
-__exportStar(require("./mirror-estacoes"), exports); // espelharEstacaoSupabase — dual-write estações -> Supabase (Fase 2 Onda A)
-__exportStar(require("./mirror-onda-b-menores"), exports); // espelhar Solicitacao/TurnoLogistica -> Supabase (Fase 2 Onda B menores)
-__exportStar(require("./mirror-tarefas"), exports); // espelharTarefaSupabase, espelharTarefaLogisticaSupabase (Onda H)
-__exportStar(require("./mirror-solicitacoes"), exports); // espelharSolicitacaoSupabase — user access requests (Onda H)
-__exportStar(require("./mirror-gojet-config"), exports); // espelharGojetConfigSupabase — gojet_config dual-write (Onda H)
-__exportStar(require("./mirror-lgpd"), exports); // espelharConsentimentoLgpdSupabase — consentimentos_lgpd dual-write
+// ── Mirror functions removidos (Firestore→Supabase dual-write aposentado) ──
 __exportStar(require("./buscar-pois-osm"), exports); // buscarPOIsOSMFn — Overpass/OSM server-side (gratuito; resolve CORS/429)
 __exportStar(require("./slots-telegram"), exports); // resumoSlotsTelegram, confirmarSlotsCascata, enviarResumoManual
 // ══════════════════════════════════════════════════════════════════

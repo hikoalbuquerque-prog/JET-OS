@@ -1,69 +1,78 @@
-﻿// UpdateBanner.tsx — Banner de atualização OTA para Capacitor
-// Portado do V2 UpdateBanner.tsx + updates.ts
-// Aparece quando uma nova versão do app está disponível via Capacitor Live Updates
+// UpdateBanner.tsx — Banner de atualização para PWA + Capacitor
+// PWA: detecta novo service worker via vite-plugin-pwa (registerType: 'prompt')
+// Capacitor: detecta via Live Updates plugin
 
 import React, { useState, useEffect } from 'react';
-
-// Tipa o plugin do Capacitor Live Updates sem importar o pacote diretamente
-// (evita erro se o pacote não estiver instalado na versão web)
-function getUpdater(): any {
-  return (window as any)?.Capacitor?.Plugins?.LiveUpdates ?? null;
-}
 
 function isNative(): boolean {
   return !!(window as any)?.Capacitor?.isNativePlatform?.();
 }
 
-interface Props {
-  /** Callback chamado após aplicar a atualização (antes de reload) */
-  onApply?: () => void;
-}
-
-export default function UpdateBanner({ onApply }: Props) {
+export default function UpdateBanner() {
   const [disponivel, setDisponivel] = useState(false);
-  const [aplicando,  setAplicando]  = useState(false);
-  const [progresso,  setProgresso]  = useState(0);
+  const [aplicando, setAplicando] = useState(false);
+  const [swReg, setSwReg] = useState<ServiceWorkerRegistration | null>(null);
 
   useEffect(() => {
-    if (!isNative()) return;
-    const updater = getUpdater();
-    if (!updater) return;
+    if (isNative()) {
+      const updater = (window as any)?.Capacitor?.Plugins?.LiveUpdates ?? null;
+      if (!updater) return;
+      let cancelado = false;
+      const checar = async () => {
+        try {
+          const result = await updater.sync?.();
+          if (!cancelado && result?.activeApplicationPathChanged) setDisponivel(true);
+        } catch {}
+      };
+      checar();
+      const interval = setInterval(checar, 5 * 60 * 1000);
+      return () => { cancelado = true; clearInterval(interval); };
+    }
 
-    let cancelado = false;
-
-    const checar = async () => {
-      try {
-        const result = await updater.sync?.();
-        if (!cancelado && result?.activeApplicationPathChanged) {
-          setDisponivel(true);
-        }
-      } catch {
-        // silencioso — app continua funcionando normalmente
-      }
+    // PWA: listen for vite-plugin-pwa prompt event
+    const onNeedRefresh = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.registration) setSwReg(detail.registration);
+      setDisponivel(true);
     };
+    window.addEventListener('vite-pwa:need-refresh', onNeedRefresh);
 
-    checar();
-    const interval = setInterval(checar, 5 * 60 * 1000); // recheca a cada 5min
-    return () => { cancelado = true; clearInterval(interval); };
+    // Also check if SW is already waiting
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration().then(reg => {
+        if (reg?.waiting) { setSwReg(reg); setDisponivel(true); }
+        if (reg) {
+          reg.addEventListener('updatefound', () => {
+            const newSW = reg.installing;
+            if (newSW) {
+              newSW.addEventListener('statechange', () => {
+                if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
+                  setSwReg(reg);
+                  setDisponivel(true);
+                }
+              });
+            }
+          });
+        }
+      });
+    }
+
+    return () => window.removeEventListener('vite-pwa:need-refresh', onNeedRefresh);
   }, []);
 
   const aplicar = async () => {
-    const updater = getUpdater();
-    if (!updater) return;
     setAplicando(true);
-    try {
-      // Simula progresso visual
-      const steps = [20, 50, 80, 100];
-      for (const step of steps) {
-        await new Promise(r => setTimeout(r, 300));
-        setProgresso(step);
-      }
-      onApply?.();
-      await updater.reload?.();
-    } catch {
-      setAplicando(false);
-      setProgresso(0);
+    if (isNative()) {
+      const updater = (window as any)?.Capacitor?.Plugins?.LiveUpdates;
+      try { await updater?.reload?.(); } catch { setAplicando(false); }
+      return;
     }
+    // PWA: tell waiting SW to skipWaiting, then reload
+    if (swReg?.waiting) {
+      swReg.waiting.postMessage({ type: 'SKIP_WAITING' });
+    }
+    // Reload after short delay to let SW activate
+    setTimeout(() => window.location.reload(), 500);
   };
 
   if (!disponivel) return null;
@@ -77,12 +86,7 @@ export default function UpdateBanner({ onApply }: Props) {
     }}>
       <div style={{ flex: 1 }}>
         {aplicando ? (
-          <>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa' }}>⬇ Aplicando atualização…</div>
-            <div style={{ marginTop: 6, background: 'rgba(255,255,255,.1)', borderRadius: 4, height: 4 }}>
-              <div style={{ width: `${progresso}%`, height: 4, background: '#3b82f6', borderRadius: 4, transition: 'width .3s' }} />
-            </div>
-          </>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa' }}>⬇ Atualizando…</div>
         ) : (
           <>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa' }}>🆕 Nova versão disponível</div>

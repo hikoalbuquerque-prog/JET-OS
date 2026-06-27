@@ -14,12 +14,14 @@ export const mapaProviderSupabase = (): boolean => {
 
 // Carrega as estações de uma cidade do Supabase, no MESMO formato que o app usa
 // (id = firebase_id, p/ compatibilidade com os writes que ainda vão pro Firestore).
-export async function carregarEstacoesSupabase(cidade: string): Promise<any[]> {
+export async function carregarEstacoesSupabase(cidade?: string): Promise<any[]> {
   const PAGE = 1000;
   let all: any[] = [];
   let from = 0;
   while (true) {
-    const { data, error } = await supabase.from('estacoes_geo').select('*').eq('cidade', cidade).range(from, from + PAGE - 1);
+    let q = supabase.from('estacoes_geo').select('*');
+    if (cidade) q = q.eq('cidade', cidade);
+    const { data, error } = await q.range(from, from + PAGE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
     all = all.concat(data);
@@ -54,6 +56,18 @@ export async function carregarZonasSupabase(cidades: string[]): Promise<any[]> {
       pontos, poligono: pontos,   // ambos os nomes de campo que o app usa
     };
   });
+}
+
+// ── Cidades distintas que possuem estações ──
+export async function carregarCidadesSupabase(): Promise<string[]> {
+  const { data, error } = await supabase.from('estacoes_geo').select('cidade');
+  if (error) throw error;
+  const set = new Set<string>();
+  (data || []).forEach((r: any) => {
+    const c = r.cidade;
+    if (c && typeof c === 'string') set.add(c.trim());
+  });
+  return Array.from(set).sort();
 }
 
 // ── Locais operacionais — lê locais_geo (lat/lng) ──

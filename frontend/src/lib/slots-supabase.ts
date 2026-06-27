@@ -67,3 +67,99 @@ export const checkOutSlotSupa   = (slotId: string) => rpc('check_out_slot', { p_
 export const cancelarSlotSupa   = (slotId: string) => rpc('cancelar_slot', { p_slot_id: slotId });
 export const reatribuirSlotSupa = (slotId: string, novoUid: string) =>
   rpc('reatribuir_slot', { p_slot_id: slotId, p_novo_uid: novoUid });
+
+// ── CRUD direto (sem RPC) ───────────────────────────────────────────────────
+
+export async function criarSlotSupa(data: Record<string, any>): Promise<string> {
+  const { data: row, error } = await supabase.from('slots').insert(data).select('id').single();
+  if (error) throw new Error('criarSlotSupa: ' + error.message);
+  return row.id;
+}
+
+export async function criarTarefaSupa(data: Record<string, any>): Promise<string> {
+  const { data: row, error } = await supabase.from('tarefas').insert(data).select('id').single();
+  if (error) throw new Error('criarTarefaSupa: ' + error.message);
+  return row.id;
+}
+
+export async function atualizarSlotSupa(id: string, data: Record<string, any>): Promise<void> {
+  const { error } = await supabase.from('slots').update(data).eq('id', id);
+  if (error) throw new Error('atualizarSlotSupa: ' + error.message);
+}
+
+export async function atualizarTarefaSupa(id: string, data: Record<string, any>): Promise<void> {
+  const { error } = await supabase.from('tarefas').update(data).eq('id', id);
+  if (error) throw new Error('atualizarTarefaSupa: ' + error.message);
+}
+
+// Tarefas polling (mesmo padrão de subscribeSlots)
+export async function fetchTarefas(opts: { cidade: string; pais?: string; isAdmin: boolean; uid?: string }): Promise<any[]> {
+  let q = supabase.from('tarefas').select('*');
+  if (opts.isAdmin) {
+    q = q.eq('cidade', opts.cidade);
+    if (opts.pais) q = q.eq('pais', opts.pais);
+    q = q.order('criado_em', { ascending: false });
+  } else {
+    q = q.eq('assignee_uid', opts.uid ?? '').in('status', ['pendente', 'aceita', 'em_andamento']).order('rota_ordem', { ascending: true });
+  }
+  const { data, error } = await q.limit(2000);
+  if (error) throw new Error('fetchTarefas: ' + error.message);
+  return (data ?? []).map(mapTarefaRow);
+}
+
+function mapTarefaRow(r: any): any {
+  return {
+    id: r.id, tipo: r.tipo, tipoSlot: r.tipo_slot, status: r.status,
+    prioridade: r.prioridade, titulo: r.titulo, cargo: r.cargo,
+    cidade: r.cidade, pais: r.pais, slotId: r.slot_id,
+    assigneeUid: r.assignee_uid, assigneeNome: r.assignee_nome,
+    qtdAlvo: r.qtd_alvo, qtdConcluida: r.qtd_concluida,
+    entregas: r.entregas ?? [], rotaOrdem: r.rota_ordem,
+    criadoEm: r.criado_em, atualizadoEm: r.atualizado_em,
+    fotoUrl: r.foto_url ?? null, fotoChegadaUrl: r.foto_chegada_url ?? null,
+    aCaminhoEm: r.a_caminho_em ?? null, iniciadoEm: r.iniciado_em ?? null,
+    chegadaEm: r.chegada_em ?? null, concluidoEm: r.concluido_em ?? null,
+    canceladoEm: r.cancelado_em ?? null,
+    patineteSugeridas: r.patinete_sugeridas ?? [],
+    estacao: r.estacao ?? null, estacaoOrigem: r.estacao_origem ?? null,
+  };
+}
+
+export function subscribeTarefas(
+  opts: { cidade: string; pais?: string; isAdmin: boolean; uid?: string; intervaloMs?: number },
+  cb: (tarefas: any[]) => void,
+): () => void {
+  let vivo = true;
+  const carregar = () => fetchTarefas(opts).then(t => { if (vivo) cb(t); }).catch(e => console.warn('[tarefas-supa]', e?.message));
+  carregar();
+  const t = setInterval(carregar, opts.intervaloMs ?? 8000);
+  return () => { vivo = false; clearInterval(t); };
+}
+
+export async function fetchLogSlotsAuto(cidade: string): Promise<any[]> {
+  const { data, error } = await supabase
+    .from('log_slots_auto')
+    .select('*')
+    .eq('cidade', cidade)
+    .order('registrado_em', { ascending: false })
+    .limit(20);
+  if (error) throw new Error('fetchLogSlotsAuto: ' + error.message);
+  return (data ?? []).map(r => ({ id: r.id, ...r }));
+}
+
+export async function fetchPoligonos(cidade: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('poligonos')
+    .select('nome')
+    .eq('cidade', cidade);
+  if (error) throw new Error('fetchPoligonos: ' + error.message);
+  return (data ?? []).map(r => r.nome).filter(Boolean).sort();
+}
+
+export async function updateCheckInFoto(slotId: string, fotoUrl: string): Promise<void> {
+  const { error } = await supabase.from('slots').update({
+    check_in_foto_url: fotoUrl,
+    atualizado_em: new Date().toISOString(),
+  }).eq('id', slotId);
+  if (error) throw new Error('updateCheckInFoto: ' + error.message);
+}

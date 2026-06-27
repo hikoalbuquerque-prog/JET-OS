@@ -2,16 +2,11 @@
 import { useState, useEffect, useRef, CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import L from 'leaflet';
-import {
-  collection, addDoc, query, where, orderBy,
-  onSnapshot, serverTimestamp, Timestamp, doc, updateDoc, arrayUnion
-} from 'firebase/firestore';
-import { db } from './lib/firebase';
 import { uploadComRetry } from './lib/uploadUtils';
 import { comprimirImagem, capturarFotoNativa } from './lib/imageUtils';
 import { capturarPosicaoUnica } from './lib/gps-background';
 import { isAndroidNative } from './lib/gps-native';
-import { guardProviderSupabase, carregarMinhasOcorrenciasSupabase, guardWriteSupabase, criarOcorrenciaSupabase, atualizarOcorrenciaSupabase, deletarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
+import { carregarMinhasOcorrenciasSupabase, criarOcorrenciaSupabase, atualizarOcorrenciaSupabase, deletarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
 
 // ── TIPOS ─────────────────────────────────────────────────────────
 interface Ocorrencia {
@@ -311,7 +306,7 @@ function ModalEdicao({ ocorrencia, onFechar, onSalvo, showToast, roleUsuario = '
         observacao_fechamento: obs.trim(),
         bo_numero:             boNum.trim(),
         bo_url:                boUrl,
-        updated_at:            serverTimestamp(),
+        updated_at:            new Date().toISOString(),
       };
       // Localização (só atualiza se preenchida)
       if (lat && lng) {
@@ -329,7 +324,7 @@ function ModalEdicao({ ocorrencia, onFechar, onSalvo, showToast, roleUsuario = '
       update.ultimoEditor = ocorrencia.registradoPor || '';
       update.ultimoEditorNome = ocorrencia.registradoPorNome || '';
       // Histórico de alterações
-      const agoraTs = serverTimestamp();
+      const agoraTs = new Date().toISOString();
       const entradas: any[] = [];
       const checar = (campo: string, de: string, para: string) => {
         if (String(de).trim() !== String(para).trim())
@@ -344,14 +339,10 @@ function ModalEdicao({ ocorrencia, onFechar, onSalvo, showToast, roleUsuario = '
       checar('danoValor', String(ocorrencia.danoValor ?? ''), danoValor.trim());
       checar('data',      ocorrencia.dataManual || toDateStr(ocorrencia.criadoEm), dataOcorr);
       if (entradas.length > 0) {
-        update.historico = arrayUnion(...entradas);
+        update.historico = [...(ocorrencia.historico || []), ...entradas];
       }
 
-      await updateDoc(doc(db, 'ocorrencias', ocorrencia.id), update);
-      if (guardWriteSupabase()) {
-        atualizarOcorrenciaSupabase(ocorrencia.id, update)
-          .catch(err => console.error('[guard-write] update Supabase falhou:', err));
-      }
+      await atualizarOcorrenciaSupabase(ocorrencia.id, update);
 
       // Notificação Telegram ao recuperar
       if ((status === 'Recuperado' || status === 'Encerrado') &&
@@ -677,9 +668,7 @@ function ModalEdicao({ ocorrencia, onFechar, onSalvo, showToast, roleUsuario = '
           <button onClick={async () => {
             if (!confirm('Excluir esta ocorrência permanentemente?')) return;
             try {
-              const { doc: fsDoc, deleteDoc: fsDel, collection: col } = await import('firebase/firestore');
-              await fsDel(fsDoc(col(db, 'ocorrencias'), ocorrencia.id));
-              if (guardWriteSupabase()) deletarOcorrenciaSupabase(ocorrencia.id).catch(err => console.error('[guard-write] delete Supabase:', err));
+              await deletarOcorrenciaSupabase(ocorrencia.id);
               showToast('Ocorrência excluída', 'ok');
               onSalvo();
             } catch { showToast('Erro ao excluir', 'erro'); }
@@ -777,24 +766,11 @@ export default function TelaGuard({ usuario, onLogout, onVoltarMapa }: Props) {
   };
 
   useEffect(() => {
-    // Fase 2 / Onda B — leitura do Supabase atrás de flag (read-only; escrita ainda Firestore).
-    if (guardProviderSupabase()) {
-      let vivo = true;
-      carregarMinhasOcorrenciasSupabase(usuario.uid)
-        .then(rows => { if (vivo) setOcorrencias(rows as Ocorrencia[]); })
-        .catch(err => console.error('[guard] leitura Supabase falhou:', err));
-      return () => { vivo = false; };
-    }
-    const ontemTs = Timestamp.fromDate(new Date(Date.now() - 24 * 60 * 60 * 1000));
-    const q = query(
-      collection(db, 'ocorrencias'),
-      where('registradoPor', '==', usuario.uid),
-      where('criadoEm', '>=', ontemTs),
-      orderBy('criadoEm', 'desc')
-    );
-    return onSnapshot(q, snap => {
-      setOcorrencias(snap.docs.map(d => ({ id: d.id, ...d.data() } as Ocorrencia)));
-    });
+    let vivo = true;
+    carregarMinhasOcorrenciasSupabase(usuario.uid)
+      .then(rows => { if (vivo) setOcorrencias(rows as Ocorrencia[]); })
+      .catch(err => console.error('[guard] leitura Supabase falhou:', err));
+    return () => { vivo = false; };
   }, [usuario.uid]);
 
   return (
@@ -1207,22 +1183,17 @@ export function FormNovaOcorrenciaExport({ usuario, showToast, onSucesso }: {
         origem_registro:   'Guard',
         procurando:        !!(tipo === 'Roubo' && procurando.trim()),
         telegramEnviado:   false,
-        criadoEm:    serverTimestamp(),
+        criadoEm:    new Date().toISOString(),
         dataManual:  dataOcorr,
-        updated_at:  serverTimestamp(),
+        updated_at:  new Date().toISOString(),
       };
-      const ocorrenciaDoc = await addDoc(collection(db, 'ocorrencias'), novaOcorrencia);
-      // Cutover de writes (Onda C): dual-write no Supabase atrás de flag (best-effort).
-      if (guardWriteSupabase()) {
-        criarOcorrenciaSupabase(ocorrenciaDoc.id, { ...novaOcorrencia, lat_inicial: gps.lat, lng_inicial: gps.lng })
-          .catch(err => console.error('[guard-write] create Supabase falhou:', err));
-      }
+      await criarOcorrenciaSupabase(id, { ...novaOcorrencia, lat_inicial: gps.lat, lng_inicial: gps.lng });
 
       // Dispara notificação Telegram para roubos e ocorrências urgentes
       try {
         const fnNotificar = (window as any).__fnNotificarOcorrencia;
         if (fnNotificar) {
-          fnNotificar({ ocorrenciaId: ocorrenciaDoc.id }).catch(() => {});
+          fnNotificar({ ocorrenciaId: id }).catch(() => {});
         }
       } catch { /* notificação é best-effort */ }
 
@@ -1617,9 +1588,7 @@ function ListaOcorrencias({ ocorrencias, showToast, roleUsuario = 'guard' }: {
                     <button onClick={async () => {
                       if (!confirm('Excluir esta ocorrência permanentemente?')) return;
                       try {
-                        const { doc: fsDoc, deleteDoc: fsDel, collection: col } = await import('firebase/firestore');
-                        await fsDel(fsDoc(col(db, 'ocorrencias'), o.id));
-                        if (guardWriteSupabase()) deletarOcorrenciaSupabase(o.id).catch(err => console.error('[guard-write] delete Supabase:', err));
+                        await deletarOcorrenciaSupabase(o.id);
                         showToast('Ocorrência excluída', 'ok');
                       } catch { showToast('Erro ao excluir', 'erro'); }
                     }} style={{ flex: 1, padding: '11px 0', borderRadius: 10,

@@ -1,20 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  serverTimestamp,
-  orderBy,
-  limit,
-  Timestamp,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
 import { uploadComRetry } from '../lib/uploadUtils';
 
@@ -44,8 +29,8 @@ interface PagamentoSemana {
   email: string;
   cidade: string;
   cargo: string;
-  semana_inicio: Timestamp;
-  semana_fim: Timestamp;
+  semana_inicio: string | null;
+  semana_fim: string | null;
   ano: number;
   semana_iso: number;
   tarefas_count: number;
@@ -53,18 +38,18 @@ interface PagamentoSemana {
   valor_total: number;
   status: StatusPagamento;
   nf_url: string | null;
-  nf_enviada_em: Timestamp | null;
+  nf_enviada_em: string | null;
   nf_validada_por: string | null;
   motivo_rejeicao: string | null;
-  pago_em: Timestamp | null;
-  criadoEm: Timestamp;
-  atualizadoEm: Timestamp;
+  pago_em: string | null;
+  criadoEm: string | null;
+  atualizadoEm: string | null;
 }
 
 interface TarefaLogistica {
   id: string;
   titulo: string;
-  concluidoEm: Timestamp;
+  concluidoEm: string;
 }
 
 interface ISOWeekInfo {
@@ -117,10 +102,6 @@ function formatDateFull(d: Date): string {
 
 function formatCurrency(value: number): string {
   return value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function timestampToDate(ts: Timestamp): Date {
-  return ts.toDate();
 }
 
 // ---------------------------------------------------------------------------
@@ -543,41 +524,41 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
       const info = getISOWeekInfo(new Date());
       setWeekInfo(info);
 
-      const inicioTs = Timestamp.fromDate(info.inicio);
-      const fimTs = Timestamp.fromDate(info.fim);
-
       // Tarefas concluídas na semana
-      const tarefasQ = query(
-        collection(db, 'tarefas_logistica'),
-        where('assigneeUid', '==', usuario.uid),
-        where('status', '==', 'concluida'),
-        where('concluidoEm', '>=', inicioTs),
-        where('concluidoEm', '<=', fimTs)
-      );
-      const tarefasSnap = await getDocs(tarefasQ);
-      const tarefasList: TarefaLogistica[] = tarefasSnap.docs.map((d) => ({
+      const { data: tarefasData } = await supabase
+        .from('tarefas_logistica')
+        .select('id, titulo, concluido_em')
+        .eq('assignee_uid', usuario.uid)
+        .eq('status', 'concluida')
+        .gte('concluido_em', info.inicio.toISOString())
+        .lte('concluido_em', info.fim.toISOString());
+      const tarefasList: TarefaLogistica[] = (tarefasData ?? []).map((d: any) => ({
         id: d.id,
-        titulo: d.data().titulo ?? pick(T.semTitulo),
-        concluidoEm: d.data().concluidoEm,
+        titulo: d.titulo ?? pick(T.semTitulo),
+        concluidoEm: d.concluido_em,
       }));
       setTarefas(tarefasList);
 
       // Configuração de pagamento da cidade
-      const configRef = doc(db, 'pagamentos_config', cidade);
-      const configSnap = await getDoc(configRef);
-      const valorUni =
-        configSnap.exists() && configSnap.data().ativo !== false
-          ? (configSnap.data().valor_por_tarefa ?? 3.5)
-          : 3.5;
+      const { data: configData } = await supabase
+        .from('pagamentos_config')
+        .select('*')
+        .eq('id', cidade)
+        .single();
+      const valorUni = configData && configData.ativo !== false
+        ? (configData.valor_por_tarefa ?? 3.5) : 3.5;
       setValorUnitario(valorUni);
 
       // Registro da semana atual
       const semanaPadded = String(info.semana).padStart(2, '0');
       const docId = `${usuario.uid}_${info.ano}W${semanaPadded}`;
-      const regRef = doc(db, 'pagamentos_semana', docId);
-      const regSnap = await getDoc(regRef);
-      if (regSnap.exists()) {
-        setRegistroSemana({ id: regSnap.id, ...regSnap.data() } as PagamentoSemana);
+      const { data: regData } = await supabase
+        .from('pagamentos_semana')
+        .select('*')
+        .eq('id', docId)
+        .maybeSingle();
+      if (regData) {
+        setRegistroSemana({ ...regData } as PagamentoSemana);
       } else {
         setRegistroSemana(null);
       }
@@ -599,14 +580,13 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
   const loadHistorico = useCallback(async () => {
     setLoadingHistorico(true);
     try {
-      const q = query(
-        collection(db, 'pagamentos_semana'),
-        where('uid', '==', usuario.uid),
-        orderBy('semana_inicio', 'desc'),
-        limit(20)
-      );
-      const snap = await getDocs(q);
-      setHistorico(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PagamentoSemana)));
+      const { data } = await supabase
+        .from('pagamentos_semana')
+        .select('*')
+        .eq('uid', usuario.uid)
+        .order('semana_inicio', { ascending: false })
+        .limit(20);
+      setHistorico((data ?? []) as PagamentoSemana[]);
     } catch {
       // silently ignore
     } finally {
@@ -635,49 +615,18 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
     const storagePath = `notas_fiscais/${usuario.uid}/${info.ano}W${semanaPadded}.${ext}`;
     const nfUrl = await uploadComRetry(file, storagePath);
 
-    const regRef = doc(db, 'pagamentos_semana', docId);
+    const now = new Date().toISOString();
 
     if (existingRegistro) {
-      await updateDoc(regRef, {
+      const { error } = await supabase.from('pagamentos_semana').update({
         nf_url: nfUrl,
-        nf_enviada_em: serverTimestamp(),
+        nf_enviada_em: now,
         status: 'nf_enviada',
-        atualizadoEm: serverTimestamp(),
-      });
-      // dual-write Supabase
-      supabase.from('pagamentos_semana').update({
-        nf_url: nfUrl,
-        nf_enviada_em: new Date().toISOString(),
-        status: 'nf_enviada',
-        atualizado_em: new Date().toISOString(),
-      }).eq('id', docId).then(({ error }) => { if (error) console.error('[PagModule] update pagamentos_semana:', error.message); });
+        atualizado_em: now,
+      }).eq('id', docId);
+      if (error) console.error('[PagModule] update pagamentos_semana:', error.message);
     } else {
-      const inicioTs = Timestamp.fromDate(info.inicio);
-      const fimTs = Timestamp.fromDate(info.fim);
-      await setDoc(regRef, {
-        uid: usuario.uid,
-        nome: usuario.nome,
-        email: usuario.email,
-        cidade,
-        cargo,
-        semana_inicio: inicioTs,
-        semana_fim: fimTs,
-        ano: info.ano,
-        semana_iso: info.semana,
-        tarefas_count: count,
-        valor_unitario: valorUni,
-        valor_total: count * valorUni,
-        status: 'nf_enviada',
-        nf_url: nfUrl,
-        nf_enviada_em: serverTimestamp(),
-        nf_validada_por: null,
-        motivo_rejeicao: null,
-        pago_em: null,
-        criadoEm: serverTimestamp(),
-        atualizadoEm: serverTimestamp(),
-      });
-      // dual-write Supabase
-      supabase.from('pagamentos_semana').upsert({
+      const { error } = await supabase.from('pagamentos_semana').upsert({
         id: docId,
         uid: usuario.uid,
         nome: usuario.nome,
@@ -693,13 +642,14 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
         valor_total: count * valorUni,
         status: 'nf_enviada',
         nf_url: nfUrl,
-        nf_enviada_em: new Date().toISOString(),
+        nf_enviada_em: now,
         nf_validada_por: null,
         motivo_rejeicao: null,
         pago_em: null,
-        criado_em: new Date().toISOString(),
-        atualizado_em: new Date().toISOString(),
-      }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[PagModule] upsert pagamentos_semana:', error.message); });
+        criado_em: now,
+        atualizado_em: now,
+      }, { onConflict: 'id' });
+      if (error) console.error('[PagModule] upsert pagamentos_semana:', error.message);
     }
   };
 
@@ -734,8 +684,8 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
       const info: ISOWeekInfo = {
         ano: reg.ano,
         semana: reg.semana_iso,
-        inicio: timestampToDate(reg.semana_inicio),
-        fim: timestampToDate(reg.semana_fim),
+        inicio: new Date(reg.semana_inicio!),
+        fim: new Date(reg.semana_fim!),
       };
       await uploadNF(file, info, reg.tarefas_count, reg.valor_unitario, reg.id, reg);
       await loadHistorico();
@@ -854,7 +804,7 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
                   <span style={{ color: '#4ade80', fontSize: 10 }}>●</span>
                   {t.titulo}
                   <span style={{ marginLeft: 'auto', fontSize: 11, color: '#475569' }}>
-                    {t.concluidoEm ? formatDateFull(timestampToDate(t.concluidoEm)) : ''}
+                    {t.concluidoEm ? formatDateFull(new Date(t.concluidoEm)) : ''}
                   </span>
                 </li>
               ))}
@@ -880,7 +830,7 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
             </div>
             {registroSemana.status === 'pago' && registroSemana.pago_em && (
               <div style={{ fontSize: 13, color: '#4ade80' }}>
-                {pick(T.pagoEm)} {formatDateFull(timestampToDate(registroSemana.pago_em))}
+                {pick(T.pagoEm)} {formatDateFull(new Date(registroSemana.pago_em!))}
               </div>
             )}
             {registroSemana.status === 'rejeitada' && registroSemana.motivo_rejeicao && (
@@ -945,8 +895,8 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
     return (
       <div>
         {historico.map((reg) => {
-          const inicio = timestampToDate(reg.semana_inicio);
-          const fim = timestampToDate(reg.semana_fim);
+          const inicio = new Date(reg.semana_inicio!);
+          const fim = new Date(reg.semana_fim!);
           const encerrada = new Date() > fim;
           const podeEnviar =
             encerrada &&
@@ -997,7 +947,7 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
 
               {reg.status === 'pago' && reg.pago_em && (
                 <div style={{ fontSize: 12, color: '#4ade80', marginBottom: 8 }}>
-                  {pick(T.pagoEm)} {formatDateFull(timestampToDate(reg.pago_em))}
+                  {pick(T.pagoEm)} {formatDateFull(new Date(reg.pago_em!))}
                 </div>
               )}
               {reg.status === 'rejeitada' && reg.motivo_rejeicao && (

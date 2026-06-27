@@ -8,19 +8,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { usuariosReadSupabase, fetchUsuarios } from './lib/usuarios-supabase';
-import {
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  serverTimestamp,
-  collection,
-  getDocs,
-  query,
-  where,
-} from 'firebase/firestore';
-import { db } from './lib/firebase';
+import { fetchUsuarios } from './lib/usuarios-supabase';
 import { supabase } from './lib/supabase';
 
 // ─── i18n (padrão TermosUsoGate: objeto T { pt, en, es, ru } + pick, sem json) ──
@@ -455,16 +443,7 @@ function GestoresEditor({
     if (termo.length < 2) { setResultados([]); return; }
     setBuscando(true);
     try {
-      let todos: any[];
-      if (usuariosReadSupabase()) {
-        todos = await fetchUsuarios({ role_in: ['admin', 'gestor'] });
-      } else {
-        const snap = await getDocs(query(
-          collection(db, 'usuarios'),
-          where('role', 'in', ['admin', 'gestor'])
-        ));
-        todos = snap.docs.map(d => ({ uid: d.id, ...d.data() })) as any[];
-      }
+      const todos = await fetchUsuarios({ role_in: ['admin', 'gestor'] });
       const filtrado = todos.filter((u: any) =>
         u.nome?.toLowerCase().includes(termo.toLowerCase()) ||
         u.email?.toLowerCase().includes(termo.toLowerCase())
@@ -581,27 +560,30 @@ export default function TelegramConfigPanel({ onFechar, inline }: Props) {
   useEffect(() => {
     const carregar = async () => {
       try {
-        const [gSnap, cSnap] = await Promise.all([
-          getDoc(doc(db, 'telegram_config', 'global')),
-          getDoc(doc(db, 'telegram_config', 'cidades')),
-        ]);
-        if (gSnap.exists()) {
-          const d = gSnap.data() as Partial<ConfigGlobal>;
-          setGlobal({
-            botToken:         d.botToken ?? '',
-            diretoria:        d.diretoria ?? [],
-            regionais:        d.regionais ?? [],
-            relatoriosChatId: d.relatoriosChatId,
-            atualizadoEm:     d.atualizadoEm,
-          });
-        }
-        if (cSnap.exists()) {
-          const raw = cSnap.data() as Record<string, any>;
-          const normalizado: Record<string, CidadeConfig> = {};
-          for (const [k, v] of Object.entries(raw)) {
-            normalizado[k] = { grupos: v?.grupos ?? {}, gestores: v?.gestores ?? [] };
+        const { data: rows, error } = await supabase
+          .from('telegram_config')
+          .select('id, config')
+          .in('id', ['global', 'cidades']);
+        if (error) throw error;
+        for (const row of rows ?? []) {
+          if (row.id === 'global' && row.config) {
+            const d = row.config as Partial<ConfigGlobal>;
+            setGlobal({
+              botToken:         d.botToken ?? '',
+              diretoria:        d.diretoria ?? [],
+              regionais:        d.regionais ?? [],
+              relatoriosChatId: d.relatoriosChatId,
+              atualizadoEm:     d.atualizadoEm,
+            });
           }
-          setCidadesConfig(normalizado);
+          if (row.id === 'cidades' && row.config) {
+            const raw = row.config as Record<string, any>;
+            const normalizado: Record<string, CidadeConfig> = {};
+            for (const [k, v] of Object.entries(raw)) {
+              normalizado[k] = { grupos: v?.grupos ?? {}, gestores: v?.gestores ?? [] };
+            }
+            setCidadesConfig(normalizado);
+          }
         }
       } catch (e) {
         console.error('[TelegramConfig] load:', e);
@@ -616,11 +598,10 @@ export default function TelegramConfigPanel({ onFechar, inline }: Props) {
   const salvarGlobal = useCallback(async () => {
     setSalvando(true);
     try {
-      await setDoc(doc(db, 'telegram_config', 'global'), {
-        ...global,
-        atualizadoEm: serverTimestamp(),
-      });
-      supabase.from('telegram_config').upsert({ id: 'global', config: global, atualizado_em: new Date().toISOString() }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[telegram_config] upsert global:', error.message); });
+      const { error } = await supabase
+        .from('telegram_config')
+        .upsert({ id: 'global', config: global, atualizado_em: new Date().toISOString() }, { onConflict: 'id' });
+      if (error) throw error;
       setSalvoErro(false);
       setSalvoMsg(pick(T.salvo));
       setTimeout(() => setSalvoMsg(''), 2000);
@@ -637,8 +618,10 @@ export default function TelegramConfigPanel({ onFechar, inline }: Props) {
     setSalvando(true);
     try {
       const novas = { ...cidadesConfig, [cidadeKey]: config };
-      await setDoc(doc(db, 'telegram_config', 'cidades'), novas);
-      supabase.from('telegram_config').upsert({ id: 'cidades', config: novas, atualizado_em: new Date().toISOString() }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[telegram_config] upsert cidades:', error.message); });
+      const { error } = await supabase
+        .from('telegram_config')
+        .upsert({ id: 'cidades', config: novas, atualizado_em: new Date().toISOString() }, { onConflict: 'id' });
+      if (error) throw error;
       setCidadesConfig(novas);
       setSalvoErro(false);
       setSalvoMsg(pick(T.salvo));

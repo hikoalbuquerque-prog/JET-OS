@@ -4,13 +4,8 @@
 
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  collection, doc, getDocs, setDoc, deleteDoc, onSnapshot,
-  getDoc, serverTimestamp,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
-import { gojetProviderSupabase, onGojetConfigChange, salvarGojetConfigSupabase, removerGojetConfigSupabase } from '../lib/gojet-config-supabase';
+import { onGojetConfigChange, salvarGojetConfigSupabase, removerGojetConfigSupabase } from '../lib/gojet-config-supabase';
 import { MonitorConfigPanel } from './MonitorConfigPanel';
 import TelegramConfigPanel from '../TelegramConfigPanel';
 
@@ -151,23 +146,16 @@ function AbaGoJet() {
   const [msg, setMsg] = useState('');
 
   useEffect(() => {
-    getDocs(collection(db, 'estacoes')).then(snap => {
+    supabase.from('estacoes').select('cidade').then(({ data }) => {
       const set = new Set<string>();
-      snap.docs.forEach(d => { const c = d.data().cidade; if (c) set.add(c.trim()); });
+      (data || []).forEach((d: any) => { if (d.cidade) set.add(d.cidade.trim()); });
       setCidadesEstacoes(Array.from(set).sort());
     });
   }, []);
 
   useEffect(() => {
-    // Onda H: leitura do Supabase (flag-based) ou Firestore
-    if (gojetProviderSupabase()) {
-      return onGojetConfigChange(lista => {
-        setCidades(lista);
-        setLoading(false);
-      });
-    }
-    return onSnapshot(collection(db, 'gojet_config'), snap => {
-      setCidades(snap.docs.map(d => ({ id: d.id, ...d.data() } as GoJetCidade)));
+    return onGojetConfigChange(lista => {
+      setCidades(lista);
       setLoading(false);
     });
   }, []);
@@ -178,8 +166,7 @@ function AbaGoJet() {
     try {
       const nome = form.nome.trim();
       const cityId = form.cityId.trim();
-      await setDoc(doc(db, 'gojet_config', nome), { cityId, nome, ativo: form.ativo });
-      salvarGojetConfigSupabase(nome, cityId, form.ativo).catch(() => {});
+      await salvarGojetConfigSupabase(nome, cityId, form.ativo);
       setMsg(pick(T.saved));
       setEditando(null); setNova(false);
       setForm({ nome: '', cityId: '', ativo: true });
@@ -188,14 +175,12 @@ function AbaGoJet() {
   };
 
   const toggleAtivo = async (c: GoJetCidade) => {
-    await setDoc(doc(db, 'gojet_config', c.id), { ...c, ativo: !c.ativo });
-    salvarGojetConfigSupabase(c.id, c.cityId, !c.ativo).catch(() => {});
+    await salvarGojetConfigSupabase(c.id, c.cityId, !c.ativo);
   };
 
   const remover = async (id: string) => {
     if (!confirm(`${pick(T.remove)} ${id}?`)) return;
-    await deleteDoc(doc(db, 'gojet_config', id));
-    removerGojetConfigSupabase(id).catch(() => {});
+    await removerGojetConfigSupabase(id);
   };
 
   if (loading) return <div style={{ color: 'rgba(255,255,255,.4)', padding: 20 }}>{pick(T.loading)}</div>;
@@ -298,9 +283,9 @@ function AbaMonitor({ cidadeAtual }: { cidadeAtual: string }) {
   const [cidade, setCidade] = useState(cidadeAtual);
 
   useEffect(() => {
-    getDocs(collection(db, 'estacoes')).then(snap => {
+    supabase.from('estacoes').select('cidade').then(({ data }) => {
       const set = new Set<string>();
-      snap.docs.forEach(d => { const c = d.data().cidade; if (c) set.add(c.trim()); });
+      (data || []).forEach((d: any) => { if (d.cidade) set.add(d.cidade.trim()); });
       const arr = Array.from(set).sort();
       setCidadesDisp(arr);
       if (!arr.includes(cidade) && arr.length > 0) setCidade(arr[0]);
@@ -338,15 +323,15 @@ function AbaPagamentos() {
 
   useEffect(() => {
     Promise.all([
-      getDocs(collection(db, 'pagamentos_config')),
-      getDocs(collection(db, 'estacoes')),
-    ]).then(([pagSnap, estSnap]) => {
+      supabase.from('pagamentos_config').select('*'),
+      supabase.from('estacoes').select('cidade'),
+    ]).then(([pagRes, estRes]) => {
       const cfgs: Record<string, PagConfig> = {};
-      pagSnap.docs.forEach(d => { cfgs[d.id] = d.data() as PagConfig; });
+      (pagRes.data || []).forEach((d: any) => { cfgs[d.id] = { valor_por_tarefa: d.valor_por_tarefa, moeda: d.moeda, ativo: d.ativo }; });
       setConfigs(cfgs);
 
       const set = new Set<string>();
-      estSnap.docs.forEach(d => { const c = d.data().cidade; if (c) set.add(c.trim()); });
+      (estRes.data || []).forEach((d: any) => { if (d.cidade) set.add(d.cidade.trim()); });
       setCidades(Array.from(set).sort());
     });
   }, []);
@@ -361,8 +346,14 @@ function AbaPagamentos() {
     if (!editando) return;
     setSalvando(true);
     try {
-      await setDoc(doc(db, 'pagamentos_config', editando), { ...form, atualizadoEm: serverTimestamp() });
-      supabase.from('pagamentos_config').upsert({ id: editando, valor_por_tarefa: form.valor_por_tarefa, moeda: form.moeda, ativo: form.ativo, atualizado_em: new Date().toISOString() }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[pagamentos_config] upsert:', error.message); });
+      const { error } = await supabase.from('pagamentos_config').upsert({
+        id: editando,
+        valor_por_tarefa: form.valor_por_tarefa,
+        moeda: form.moeda,
+        ativo: form.ativo,
+        atualizado_em: new Date().toISOString(),
+      }, { onConflict: 'id' });
+      if (error) throw error;
       setConfigs(prev => ({ ...prev, [editando]: form }));
       setMsg(pick(T.saved));
       setEditando(null);

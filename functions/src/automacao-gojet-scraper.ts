@@ -254,13 +254,8 @@ async function gerarTarefasMonitorAuto(
   try {
     const sbCfg = await getAppSetting('monitor_config_' + dados.cidade);
     if (sbCfg) monitorCfg = typeof sbCfg === 'string' ? JSON.parse(sbCfg) : sbCfg;
-  } catch (_) { /* fallback abaixo */ }
-  // Fallback Firestore
-  if (!monitorCfg) {
-    const cfgSnap = await db.collection('monitor_config').doc(dados.cidade).get();
-    if (!cfgSnap.exists) return; // sem config = feature desativada para esta cidade
-    monitorCfg = cfgSnap.data()!;
-  }
+  } catch (_) { /* ignore */ }
+  if (!monitorCfg) return; // sem config = feature desativada para esta cidade
 
   const niveisAtivos = (['M1','M2','M3'] as const).filter(m => monitorCfg[m]?.ativo);
   if (niveisAtivos.length === 0) return;
@@ -277,20 +272,6 @@ async function gerarTarefasMonitorAuto(
         lng: (e.lng ?? 0) as number,
       }))
       .filter((e: any) => e.lat && e.lng);
-  }
-  // Fallback Firestore
-  if (estacoes.length === 0) {
-    const estSnap = await db.collection('estacoes')
-      .where('tipoMonitor', 'in', ['M1','M2','M3'])
-      .get();
-    estacoes = estSnap.docs
-      .map(d => ({
-        id: d.id,
-        tipoMonitor: d.data().tipoMonitor as string,
-        lat: (d.data().lat ?? d.data().latitude ?? 0) as number,
-        lng: (d.data().lng ?? d.data().longitude ?? 0) as number,
-      }))
-      .filter(e => e.lat && e.lng);
   }
 
   if (estacoes.length === 0) return;
@@ -393,16 +374,9 @@ export const scraperGoJet = onSchedule(
     if (sbCfg && sbCfg.length > 0) {
       cidades = sbCfg.map((r: any) => ({ cidade: r.cidade, cityId: r.city_id })).filter((c: any) => c.cityId);
     }
-    // Fallback Firestore
     if (cidades.length === 0) {
-      const configSnap = await db.collection('gojet_config').get();
-      if (configSnap.empty) {
-        console.warn('[gojet] Nenhuma cidade configurada em gojet_config');
-        return;
-      }
-      cidades = configSnap.docs
-        .map(d => ({ cidade: d.id, cityId: d.data().cityId as string }))
-        .filter(c => c.cityId);
+      console.warn('[gojet] Nenhuma cidade configurada em gojet_config (Supabase)');
+      return;
     }
 
     console.log(`[gojet] ${cidades.length} cidades configuradas: ${cidades.map(c => c.cidade).join(', ')}`);
@@ -443,19 +417,14 @@ export const scraperGoJetManual = onCall(
       return { ok: true, parkings: dados.parkings.length, bikes: dados.bikes.length };
     }
 
-    // Todas as cidades — Supabase-first
-    const db = admin.firestore();
+    // Todas as cidades — Supabase-only
     let cidadesManual: Array<{cidade: string; cityId: string}> = [];
     const sbCfgM = await supabaseGet<any>('gojet_config', 'select=cidade,city_id&ativo=eq.true');
     if (sbCfgM && sbCfgM.length > 0) {
       cidadesManual = sbCfgM.map((r: any) => ({ cidade: r.cidade, cityId: r.city_id })).filter((c: any) => c.cityId);
     }
-    // Fallback Firestore
     if (cidadesManual.length === 0) {
-      const configSnap = await db.collection('gojet_config').get();
-      cidadesManual = configSnap.docs
-        .map(d => ({ cidade: d.id, cityId: d.data().cityId as string }))
-        .filter(c => c.cityId);
+      return { ok: true, resultados: { erro: 'Nenhuma cidade configurada em gojet_config (Supabase)' } };
     }
     const resultados: Record<string, any> = {};
 

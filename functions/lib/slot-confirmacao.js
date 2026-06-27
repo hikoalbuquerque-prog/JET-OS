@@ -102,32 +102,7 @@ async function getTelegramConfig(cidade) {
             }
         }
     }
-    catch { /* fallback */ }
-    // Fallback Firestore
-    const globalDoc = await db.doc('telegram_config/global').get();
-    const token = globalDoc.exists ? globalDoc.data()?.botToken || '' : '';
-    if (!token)
-        return null;
-    const cidadesDoc = await db.doc('telegram_config/cidades').get();
-    if (cidadesDoc.exists) {
-        const data = cidadesDoc.data() || {};
-        const cfg = data[cidade]?.grupos?.logistica;
-        if (cfg?.chatId) {
-            const threadId = cfg.topicos?.alertas || cfg.topicos?.charger;
-            return { token, chatId: cfg.chatId, threadId: threadId ? Number(threadId) : undefined };
-        }
-    }
-    const cfgDoc = await db.doc(`config_logistica/${cidade}`).get();
-    if (cfgDoc.exists) {
-        const cfg = cfgDoc.data();
-        if (cfg?.telegramChatId) {
-            return {
-                token,
-                chatId: cfg.telegramChatId,
-                threadId: cfg.telegramThreadId ? Number(cfg.telegramThreadId) : undefined,
-            };
-        }
-    }
+    catch { /* ignore */ }
     return null;
 }
 // ─── Função principal: roda a cada 5 minutos ──────────────────────────────────
@@ -150,15 +125,8 @@ exports.verificarConfirmacoesSlots = functions.scheduler.onSchedule({ schedule: 
         }
     }
     catch { /* fallback */ }
-    if (slots.length === 0) {
-        // Fallback Firestore
-        const slotsSnap = await db.collection('slots')
-            .where('dataSlot', 'in', [hoje, amanha])
-            .get();
-        if (slotsSnap.empty)
-            return;
-        slots = slotsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    }
+    if (slots.length === 0)
+        return;
     for (const slot of slots) {
         try {
             await processarSlot(slot, agora);
@@ -190,16 +158,6 @@ async function processarSlot(slot, agora) {
         }
     }
     catch { /* fallback */ }
-    if (aceites.length === 0) {
-        // Fallback Firestore
-        const aceitesSnap = await db.collection('slot_aceites')
-            .where('slotId', '==', slot.id)
-            .where('status', 'in', ['Pendente', 'Confirmado'])
-            .get();
-        if (aceitesSnap.empty)
-            return;
-        aceites = aceitesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    }
     if (aceites.length === 0)
         return;
     const pendentes = aceites.filter(a => a.status === 'Pendente');
@@ -346,16 +304,7 @@ exports.enviarConfirmacoesManual = functions.https.onCall({ region: 'southameric
     }
     catch { /* fallback */ }
     if (!slot) {
-        // Fallback Firestore
-        const slotDoc = await db.doc(`slots/${slotId}`).get();
-        if (!slotDoc.exists)
-            return { ok: false, erro: 'Slot não encontrado' };
-        slot = { id: slotId, ...slotDoc.data() };
-    }
-    if (aceites.length === 0) {
-        const aceitesSnap = await db.collection('slot_aceites')
-            .where('slotId', '==', slotId).where('status', '==', 'Pendente').get();
-        aceites = aceitesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        return { ok: false, erro: 'Slot não encontrado' };
     }
     const tgCfg = await getTelegramConfig(cidade || slot.cidade || 'SP');
     let enviados = 0;

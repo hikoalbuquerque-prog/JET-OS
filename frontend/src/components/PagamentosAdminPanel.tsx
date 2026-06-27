@@ -1,19 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  doc,
-  setDoc,
-  updateDoc,
-  serverTimestamp,
-  orderBy,
-  limit,
-  Timestamp,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
@@ -110,8 +96,8 @@ interface PagamentoSemana {
   email: string;
   cidade: string;
   cargo: string;
-  semana_inicio: Timestamp | null;
-  semana_fim: Timestamp | null;
+  semana_inicio: string | null;
+  semana_fim: string | null;
   ano: number;
   semana_iso: number;
   tarefas_count: number;
@@ -119,9 +105,9 @@ interface PagamentoSemana {
   valor_total: number;
   status: 'aberto' | 'nf_enviada' | 'nf_aprovada' | 'rejeitada' | 'pago';
   nf_url: string | null;
-  nf_enviada_em: Timestamp | null;
-  nf_validada_em: Timestamp | null;
-  pago_em: Timestamp | null;
+  nf_enviada_em: string | null;
+  nf_validada_em: string | null;
+  pago_em: string | null;
   nf_validada_por: string;
   motivo_rejeicao: string;
 }
@@ -410,13 +396,13 @@ function AbaNFsPendentes({
   const carregar = useCallback(async () => {
     setLoading(true);
     try {
-      const q = query(
-        collection(db, 'pagamentos_semana'),
-        where('status', '==', 'nf_enviada'),
-        orderBy('nf_enviada_em', 'desc')
-      );
-      const snap = await getDocs(q);
-      let docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as PagamentoSemana));
+      const { data, error } = await supabase
+        .from('pagamentos_semana')
+        .select('*')
+        .eq('status', 'nf_enviada')
+        .order('nf_enviada_em', { ascending: false });
+      if (error) throw error;
+      let docs = (data ?? []) as PagamentoSemana[];
       if (cidadesPermitidas) {
         docs = docs.filter((d) => cidadesPermitidas.includes(d.cidade));
       }
@@ -431,17 +417,12 @@ function AbaNFsPendentes({
   const aprovar = async (p: PagamentoSemana) => {
     setProcessando(p.id);
     try {
-      await updateDoc(doc(db, 'pagamentos_semana', p.id), {
-        status: 'nf_aprovada',
-        nf_validada_por: usuario.nome,
-        nf_validada_em: serverTimestamp(),
-      });
-      // dual-write Supabase
-      supabase.from('pagamentos_semana').update({
+      const { error } = await supabase.from('pagamentos_semana').update({
         status: 'nf_aprovada',
         nf_validada_por: usuario.nome,
         nf_validada_em: new Date().toISOString(),
-      }).eq('id', p.id).then(({ error }) => { if (error) console.error('[PagAdmin] update pagamentos_semana aprovar:', error.message); });
+      }).eq('id', p.id);
+      if (error) throw error;
       chamarNotificarStatusNF({
         uid: p.uid,
         status: 'nf_aprovada',
@@ -459,19 +440,13 @@ function AbaNFsPendentes({
     if (!motivo.trim()) return;
     setProcessando(p.id);
     try {
-      await updateDoc(doc(db, 'pagamentos_semana', p.id), {
-        status: 'rejeitada',
-        motivo_rejeicao: motivo,
-        nf_validada_por: usuario.nome,
-        nf_validada_em: serverTimestamp(),
-      });
-      // dual-write Supabase
-      supabase.from('pagamentos_semana').update({
+      const { error } = await supabase.from('pagamentos_semana').update({
         status: 'rejeitada',
         motivo_rejeicao: motivo,
         nf_validada_por: usuario.nome,
         nf_validada_em: new Date().toISOString(),
-      }).eq('id', p.id).then(({ error }) => { if (error) console.error('[PagAdmin] update pagamentos_semana rejeitar:', error.message); });
+      }).eq('id', p.id);
+      if (error) throw error;
       chamarNotificarStatusNF({
         uid: p.uid,
         status: 'rejeitada',
@@ -574,26 +549,14 @@ function AbaPagamentos({ usuario }: { usuario: Props['usuario'] }) {
   const carregar = useCallback(async () => {
     setLoading(true);
     try {
-      const [snapAprov, snapPagos] = await Promise.all([
-        getDocs(
-          query(
-            collection(db, 'pagamentos_semana'),
-            where('status', '==', 'nf_aprovada'),
-            orderBy('nf_validada_em', 'desc')
-          )
-        ),
-        getDocs(
-          query(
-            collection(db, 'pagamentos_semana'),
-            where('status', '==', 'pago'),
-            orderBy('pago_em', 'desc'),
-            limit(30)
-          )
-        ),
+      const [{ data: dataAprov, error: errAprov }, { data: dataPagos, error: errPagos }] = await Promise.all([
+        supabase.from('pagamentos_semana').select('*').eq('status', 'nf_aprovada').order('nf_validada_em', { ascending: false }),
+        supabase.from('pagamentos_semana').select('*').eq('status', 'pago').order('pago_em', { ascending: false }).limit(30),
       ]);
-
-      let docsAprov = snapAprov.docs.map((d) => ({ id: d.id, ...d.data() } as PagamentoSemana));
-      let docsPagos = snapPagos.docs.map((d) => ({ id: d.id, ...d.data() } as PagamentoSemana));
+      if (errAprov) throw errAprov;
+      if (errPagos) throw errPagos;
+      let docsAprov = (dataAprov ?? []) as PagamentoSemana[];
+      let docsPagos = (dataPagos ?? []) as PagamentoSemana[];
 
       if (cidadesPermitidas) {
         docsAprov = docsAprov.filter((d) => cidadesPermitidas.includes(d.cidade));
@@ -612,15 +575,11 @@ function AbaPagamentos({ usuario }: { usuario: Props['usuario'] }) {
   const marcarPago = async (p: PagamentoSemana) => {
     setProcessando(p.id);
     try {
-      await updateDoc(doc(db, 'pagamentos_semana', p.id), {
-        status: 'pago',
-        pago_em: serverTimestamp(),
-      });
-      // dual-write Supabase
-      supabase.from('pagamentos_semana').update({
+      const { error } = await supabase.from('pagamentos_semana').update({
         status: 'pago',
         pago_em: new Date().toISOString(),
-      }).eq('id', p.id).then(({ error }) => { if (error) console.error('[PagAdmin] update pagamentos_semana pago:', error.message); });
+      }).eq('id', p.id);
+      if (error) throw error;
       chamarNotificarStatusNF({
         uid: p.uid,
         status: 'pago',
@@ -634,7 +593,7 @@ function AbaPagamentos({ usuario }: { usuario: Props['usuario'] }) {
   };
 
   const exportCSV = (lista: PagamentoSemana[], nomeArquivo: string) => {
-    const fmtTs = (ts: any) => { if (!ts) return ''; const d = ts?.toDate?.() ?? new Date(ts); return d.toLocaleDateString('pt-BR'); };
+    const fmtTs = (ts: any) => { if (!ts) return ''; const d = new Date(ts); return d.toLocaleDateString('pt-BR'); };
     const H: Record<string, Tr> = {
       nome: { pt: 'Nome', en: 'Name', es: 'Nombre', ru: 'Имя' },
       email: { pt: 'Email', en: 'Email', es: 'Correo', ru: 'Эл. почта' },
@@ -769,21 +728,20 @@ function AbaConfiguracao({ usuario }: { usuario: Props['usuario'] }) {
   const carregar = useCallback(async () => {
     setLoading(true);
     try {
-      const [snapConfig, snapEstacoes] = await Promise.all([
-        getDocs(collection(db, 'pagamentos_config')),
-        getDocs(collection(db, 'estacoes')),
+      const [{ data: configData }, { data: estacoesData }] = await Promise.all([
+        supabase.from('pagamentos_config').select('*'),
+        supabase.from('estacoes').select('cidade'),
       ]);
 
       const configMap: Record<string, PagamentoConfig> = {};
-      snapConfig.docs.forEach((d) => {
-        configMap[d.id] = { cidade: d.id, moeda: 'BRL', ativo: true, ...d.data() } as PagamentoConfig;
+      (configData ?? []).forEach((d: any) => {
+        configMap[d.id] = { cidade: d.id, moeda: 'BRL', ativo: true, ...d };
       });
 
       // fallback: cidades das estações não configuradas
       const cidadesEstacoes = new Set<string>();
-      snapEstacoes.docs.forEach((d) => {
-        const cidade = d.data().cidade;
-        if (cidade) cidadesEstacoes.add(cidade);
+      (estacoesData ?? []).forEach((d: any) => {
+        if (d.cidade) cidadesEstacoes.add(d.cidade);
       });
       cidadesEstacoes.forEach((c) => {
         if (!configMap[c]) {
@@ -804,15 +762,10 @@ function AbaConfiguracao({ usuario }: { usuario: Props['usuario'] }) {
     if (isNaN(valor)) return;
     setSalvando(cidade);
     try {
-      await setDoc(
-        doc(db, 'pagamentos_config', cidade),
-        { valor_por_tarefa: valor, moeda: 'BRL', ativo: true },
-        { merge: true }
-      );
-      // dual-write Supabase
-      supabase.from('pagamentos_config').upsert({
+      const { error } = await supabase.from('pagamentos_config').upsert({
         id: cidade, valor_por_tarefa: valor, moeda: 'BRL', ativo: true,
-      }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[PagAdmin] upsert pagamentos_config:', error.message); });
+      }, { onConflict: 'id' });
+      if (error) throw error;
       setEditando((e) => { const n = { ...e }; delete n[cidade]; return n; });
       await carregar();
     } finally {
@@ -825,15 +778,10 @@ function AbaConfiguracao({ usuario }: { usuario: Props['usuario'] }) {
     if (!nome.trim() || !valor) return;
     setSalvando(`nova_${idx}`);
     try {
-      await setDoc(
-        doc(db, 'pagamentos_config', nome.trim()),
-        { valor_por_tarefa: parseFloat(valor), moeda: 'BRL', ativo: true },
-        { merge: true }
-      );
-      // dual-write Supabase
-      supabase.from('pagamentos_config').upsert({
+      const { error } = await supabase.from('pagamentos_config').upsert({
         id: nome.trim(), valor_por_tarefa: parseFloat(valor), moeda: 'BRL', ativo: true,
-      }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[PagAdmin] upsert pagamentos_config nova:', error.message); });
+      }, { onConflict: 'id' });
+      if (error) throw error;
       setNovasCidades((arr) => arr.filter((_, i) => i !== idx));
       await carregar();
     } finally {

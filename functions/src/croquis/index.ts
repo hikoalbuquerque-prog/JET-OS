@@ -1,6 +1,5 @@
 // src/croquis/index.ts — Geração de croquis via Google Slides API
-import * as admin from 'firebase-admin';
-import { db, logEvento, erroResponse, okResponse } from '../utils';
+import { logEvento, erroResponse, okResponse } from '../utils';
 import { supabaseGet, supabaseGetOne, supabaseUpsert } from '../lib/supabase-rest';
 
 const TEMPLATE_PUBLICO_BR = '1i0Za1wf1rK_W3-HLFQ6X2xZwoC7aaEZ_9tjpC0v6120';
@@ -221,9 +220,7 @@ export async function gerarCroqui(
   } catch { /* fallback to Firestore */ }
 
   if (!e) {
-    const snap = await db().collection('estacoes').doc(estacaoId).get();
-    if (!snap.exists) return erroResponse('Estação não encontrada.');
-    e = { id: snap.id, ...snap.data() } as EstacaoData;
+    return erroResponse('Estação não encontrada no Supabase.');
   }
   if (!e.lat || !e.lng) return erroResponse('Estação sem coordenadas.');
 
@@ -270,18 +267,13 @@ export async function gerarCroqui(
     // Remove Slides temporário
     await drive.files.delete({ fileId: copiaId }).catch(() => {});
 
-    // Atualiza estação (Firestore + dual-write Supabase)
-    await db().collection('estacoes').doc(estacaoId).update({
-      'imagens.croqui':  pdfUrl,
-      croquiStatus:      'OK',
-      croquiGeradoEm:    admin.firestore.FieldValue.serverTimestamp()
-    });
-    supabaseUpsert('estacoes', {
+    // Atualiza estação no Supabase
+    await supabaseUpsert('estacoes', {
       firebase_id: estacaoId,
       imagens: { croqui: pdfUrl },
       croqui_status: 'OK',
       croqui_gerado_em: new Date().toISOString(),
-    }, 'firebase_id').catch(() => {});
+    }, 'firebase_id');
 
     await logEvento({
       tipo: 'CROQUI_GERADO', uid, email,
@@ -295,11 +287,7 @@ export async function gerarCroqui(
     // Remove cópia em caso de erro
     await drive.files.delete({ fileId: copiaId }).catch(() => {});
 
-    await db().collection('estacoes').doc(estacaoId).update({
-      croquiStatus:      'ERRO',
-      croquiUltimoErro:  (err as Error).message
-    });
-    supabaseUpsert('estacoes', {
+    await supabaseUpsert('estacoes', {
       firebase_id: estacaoId,
       croqui_status: 'ERRO',
       croqui_ultimo_erro: (err as Error).message,
@@ -325,19 +313,10 @@ export async function gerarCroquisLote(
       todasSemCroqui = sbRows
         .filter((r: any) => !r.croqui_status || r.croqui_status === 'PENDENTE' || r.croqui_status === 'ERRO')
         .map((r: any) => ({ id: r.firebase_id || r.id, data: () => r }));
-    } else {
-      throw new Error('fallback');
     }
-  } catch {
-    const snapSem = await db().collection('estacoes')
-      .where('pais', '==', pais)
-      .where('cidade', '==', cidade)
-      .get();
-    todasSemCroqui = snapSem.docs
-      .filter((d: admin.firestore.QueryDocumentSnapshot) => {
-        const data = d.data();
-        return !data.croquiStatus || data.croquiStatus === 'PENDENTE' || data.croquiStatus === 'ERRO';
-      });
+  } catch (e) {
+    console.error('[CroquisLote] Supabase estacoes falhou:', e);
+    throw e;
   }
 
   const semCroqui = todasSemCroqui.slice(0, loteSize);

@@ -190,14 +190,7 @@ async function buscarDadosDinamicosFiliais(): Promise<Record<string, {
   try {
     // Supabase-first
     const supa = await getAppSetting<{ filiais?: any[] }>('controle_perdas');
-    let filiais: any[] = supa?.filiais ?? [];
-
-    // Fallback Firestore
-    if (filiais.length === 0) {
-      const snap = await admin.firestore().collection('guard_config').doc('controle_perdas').get();
-      if (!snap.exists) return {};
-      filiais = snap.data()?.filiais || [];
-    }
+    const filiais: any[] = supa?.filiais ?? [];
     const mapa: Record<string, any> = {};
     filiais.forEach(f => {
       if (f.filial) mapa[f.filial] = {
@@ -357,7 +350,6 @@ function pct(v: number, total: number): string {
 // ── GERAR RELATÓRIO (interface legada mantida) ─────────────────────────────
 
 export async function gerarRelatorioGuard(dataStr?: string): Promise<RelatorioGuard> {
-  const db = admin.firestore();
   let dataRef: Date;
   if (dataStr) {
     dataRef = new Date(dataStr + 'T00:00:00-03:00');
@@ -379,22 +371,10 @@ export async function gerarRelatorioGuard(dataStr?: string): Promise<RelatorioGu
         criadoEm: r.criado_em ? new Date(r.criado_em) : null,
         cidade_inicial: r.cidade ?? r.cidade_inicial,
       }));
-    } else {
-      const snap = await db.collection('ocorrencias')
-        .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(dataRef))
-        .where('criadoEm', '<=', admin.firestore.Timestamp.fromDate(dataFim))
-        .orderBy('criadoEm', 'desc')
-        .get();
-      docs = snap.docs.map(d => d.data());
     }
   } catch (e) {
-    console.warn('[relatorio] Supabase ocorrencias falhou, usando Firestore:', e);
-    const snap = await db.collection('ocorrencias')
-      .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(dataRef))
-      .where('criadoEm', '<=', admin.firestore.Timestamp.fromDate(dataFim))
-      .orderBy('criadoEm', 'desc')
-      .get();
-    docs = snap.docs.map(d => d.data());
+    console.error('[relatorio] Supabase ocorrencias falhou:', e);
+    throw e;
   }
   const porTipo: Record<string,number> = {};
   const porStatus: Record<string,number> = {};
@@ -1662,7 +1642,7 @@ document.addEventListener('keydown', function(e) {
 
 async function getTelegramConfigFromFirestore(): Promise<{ token: string; chatId: string }> {
   try {
-    // Supabase-first (app_settings/telegram)
+    // Supabase-only (app_settings/telegram)
     const supa = await getAppSetting<Record<string, any>>('telegram');
     if (supa) {
       const token  = String(supa.bot_token  || supa.botToken || '').trim();
@@ -1671,23 +1651,7 @@ async function getTelegramConfigFromFirestore(): Promise<{ token: string; chatId
       if (token && chatId) return { token, chatId };
     }
 
-    // Fallback Firestore: config/telegram
-    const db = admin.firestore();
-    const snap1 = await db.collection('config').doc('telegram').get();
-    if (snap1.exists) {
-      const d = snap1.data()!;
-      const token  = String(d.bot_token  || d.botToken || '').trim();
-      const chatId = String(d.chat_id    || d.chatId   || d.relatoriosChatId || '').trim();
-      console.log('[telegram-cfg] config/telegram → token:', token?'OK':'VAZIO', 'chatId:', chatId||'VAZIO');
-      if (token && chatId) return { token, chatId };
-    }
-    const snap2 = await db.collection('telegram_config').doc('global').get();
-    if (snap2.exists) {
-      const d = snap2.data()!;
-      const token  = String(d.botToken || d.bot_token || '').trim();
-      const chatId = String(d.relatoriosChatId || d.chat_id || d.chatId || '').trim();
-      if (token && chatId) return { token, chatId };
-    }
+    // Fallback: env vars
     const envToken  = process.env.TELEGRAM_BOT_TOKEN || '';
     const envChatId = process.env.TELEGRAM_CHAT_ID   || '';
     if (envToken && envChatId) return { token: envToken, chatId: envChatId };
@@ -1707,7 +1671,6 @@ export async function enviarRelatorioTelegram(r: RelatorioGuard, lang: string = 
   }
 
   // Busca 24h, 7d, mês e acumulado (ano) para a mensagem e o PDF
-  const db   = admin.firestore();
   const agora= new Date();
   const ini24= new Date(agora.getTime() - 24*3600000);
   const ini7d= new Date(agora.getTime() - 7*24*3600000);
@@ -1728,15 +1691,11 @@ export async function enviarRelatorioTelegram(r: RelatorioGuard, lang: string = 
       const sbRows = await supabaseGet<any>('ocorrencias',
         `select=*&criado_em=gte.${desde.toISOString()}&order=criado_em.desc`
       );
-      if (sbRows && sbRows.length > 0) return mapSbRows(sbRows);
+      return sbRows ? mapSbRows(sbRows) : [];
     } catch (e) {
-      console.warn('[relatorio-tg] Supabase ocorrencias falhou, usando Firestore:', e);
+      console.error('[relatorio-tg] Supabase ocorrencias falhou:', e);
+      throw e;
     }
-    // Fallback Firestore
-    const snap = await db.collection('ocorrencias')
-      .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(desde))
-      .orderBy('criadoEm','desc').get();
-    return snap.docs.map(d=>({id:d.id,...d.data()} as OcorrenciaRaw));
   }
 
   const [ocs24h, ocs7d, ocsMes, ocsAcum] = await Promise.all([

@@ -1,13 +1,9 @@
 // frontend/src/components/BugReportsPanel.tsx
 // Painel de gestão dos reports de bug/erro (admin/gestor). Lê bug_reports em tempo
-// real, filtra por status e permite marcar como resolvido. RLS no firestore.rules.
+// real, filtra por status e permite marcar como resolvido. RLS via Supabase.
 
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  collection, query, orderBy, limit, onSnapshot, updateDoc, doc, serverTimestamp,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
 
 const T = {
@@ -60,16 +56,20 @@ export default function BugReportsPanel({ onFechar }: { onFechar: () => void }) 
   const [aberto, setAberto] = useState<string | null>(null);
 
   useEffect(() => {
-    const q = query(collection(db, 'bug_reports'), orderBy('criadoEmTs', 'desc'), limit(150));
-    return onSnapshot(q, snap => {
-      setReports(snap.docs.map(d => ({ id: d.id, ...(d.data() as any) })));
-    });
+    supabase.from('bug_reports').select('*').order('criado_em_ts', { ascending: false }).limit(150)
+      .then(({ data }) => {
+        setReports((data ?? []).map((r: any) => ({
+          id: r.id, tipo: r.tipo, descricao: r.descricao, fotoUrl: r.foto_url,
+          erro: r.erro, status: r.status, nome: r.nome, email: r.email,
+          role: r.role, contexto: r.contexto, criadoEmTs: r.criado_em_ts,
+        })));
+      });
   }, []);
 
   const resolver = async (id: string, novo: string) => {
-    await updateDoc(doc(db, 'bug_reports', id), { status: novo, resolvidoEm: serverTimestamp() });
-    // dual-write Supabase
-    supabase.from('bug_reports').update({ status: novo, resolvido_em: new Date().toISOString() }).eq('id', id).then(({ error }) => { if (error) console.error('[BugReports] update bug_reports:', error.message); });
+    const { error } = await supabase.from('bug_reports').update({ status: novo, resolvido_em: new Date().toISOString() }).eq('id', id);
+    if (error) { console.error('[BugReports] update:', error.message); return; }
+    setReports(prev => prev.map(r => r.id === id ? { ...r, status: novo } : r));
   };
 
   const visiveis = reports.filter(r => filtro === 'todos' ? true : (r.status || 'aberto') === filtro);

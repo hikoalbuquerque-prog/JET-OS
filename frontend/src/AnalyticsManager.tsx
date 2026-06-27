@@ -7,14 +7,10 @@ import { HexagonLayer } from '@deck.gl/aggregation-layers';
 import { ScatterplotLayer, ArcLayer, TextLayer } from '@deck.gl/layers';
 import type { MapViewState } from '@deck.gl/core';
 import { Map as MapLibreMap } from 'react-map-gl/maplibre';
-import { db, storage } from './lib/firebase';
-import { guardProviderSupabase, carregarOcorrenciasSupabase } from './lib/ocorrencias-supabase';
-import {
-  collection, doc, setDoc, getDocs, deleteDoc, query, orderBy, getDoc,
-  onSnapshot, where, Timestamp
-} from 'firebase/firestore';
-import { ref, deleteObject, getBytes } from 'firebase/storage';
-import { uploadComRetry, getBytesStorage, deleteStorage, storageProviderSupabase } from './lib/uploadUtils';
+import { carregarOcorrenciasSupabase } from './lib/ocorrencias-supabase';
+import { carregarZonasSupabase } from './lib/estacoes-supabase';
+import { supabase } from './lib/supabase';
+import { uploadComRetry, getBytesStorage, deleteStorage } from './lib/uploadUtils';
 import { useTranslation } from 'react-i18next';
 
 // ── i18n (padrão TermosUsoGate: objeto T {pt,en,es,ru} + pick por idioma) ──
@@ -870,9 +866,10 @@ export default function AnalyticsManager({ usuario, showToast }: { usuario:any; 
   useEffect(() => {
     const load = async () => {
       try {
-        const snap = await getDocs(query(collection(db,'analytics_days'), orderBy('date','desc')));
+        const { data: rows, error } = await supabase.from('analytics_days').select('*').order('date', { ascending: false });
+        if (error) throw error;
         const partial: Record<string,DayData> = {};
-        snap.forEach(d => { partial[d.id] = { meta:d.data() as DayMeta, rides:[] }; });
+        (rows ?? []).forEach((d: any) => { partial[d.id] = { meta: d as DayMeta, rides:[] }; });
         setDays(partial);
         const latest = Object.keys(partial).sort().pop();
         if (latest) { const [y,mo]=latest.split('-').map(Number); setCalYear(y); setCalMonth(mo-1); }
@@ -881,23 +878,30 @@ export default function AnalyticsManager({ usuario, showToast }: { usuario:any; 
     load();
   }, []);
 
-  // ── LOAD STATIONS ─────────────────────────────────────────────────
-  // Carrega estações filtradas pelas cidades dos days ativos
-  // Quando não há dias ativos, carrega todas (vista BR)
+  // ── LOAD STATIONS (Supabase) ────────────────────────────────────────
+  // Carrega todas as estações do Supabase (sem filtro de cidade — vista BR)
   useEffect(() => {
     const load = async () => {
       try {
-        const snap = await getDocs(collection(db,'estacoes'));
-        const sts: Estacao[] = [];
-        snap.forEach(d => {
-          const data = d.data();
-          if (data.lat && data.lng) sts.push({
-            id: d.id, lat: data.lat, lng: data.lng,
-            codigo: data.codigo, bairro: data.bairro || '',
-            endereco: data.endereco || '', tipo: data.tipo,
-            cidade: data.cidade || data.geo?.cidade || '',
-          } as any);
-        });
+        const PAGE = 1000;
+        let all: any[] = [];
+        let from = 0;
+        while (true) {
+          const { data, error } = await supabase.from('estacoes_geo').select('*').range(from, from + PAGE - 1);
+          if (error) throw error;
+          if (!data || data.length === 0) break;
+          all = all.concat(data);
+          if (data.length < PAGE) break;
+          from += PAGE;
+        }
+        const sts: Estacao[] = all
+          .filter((r: any) => r.lat && r.lng)
+          .map((r: any) => ({
+            id: r.firebase_id ?? r.id, lat: r.lat, lng: r.lng,
+            codigo: r.codigo, bairro: r.bairro || '',
+            endereco: r.endereco || '', tipo: r.tipo,
+            cidade: r.cidade || '',
+          } as any));
         setEstacoes(sts);
       } catch { /* silently */ }
     };
@@ -924,41 +928,37 @@ export default function AnalyticsManager({ usuario, showToast }: { usuario:any; 
     });
   }, [estacoes, activeDays, days, cidadesFiltro]);
 
-  // ── LOAD POLÍGONOS ───────────────────────────────────────────────
+  // ── LOAD POLÍGONOS (Supabase) ────────────────────────────────────
   useEffect(() => {
     if (!showPoligonos) return;
     const load = async () => {
       try {
-        const snap = await getDocs(collection(db,'poligonos'));
-        const pts: any[] = [];
-        snap.forEach(d => {
-          const data = d.data();
-          // Suporta tanto 'coords' (legado) quanto 'poligono' (formato atual do ZonasManager)
-          const raw: any[] = data.poligono || data.coords || [];
-          if (!raw.length) return;
-          // Converter {lat,lng} → [lng,lat] (DeckGL usa [lng,lat])
-          const coords = raw.map((p: any) =>
-            Array.isArray(p) ? p : [p.lng ?? p[1], p.lat ?? p[0]]
-          );
-          if (coords.length < 3) return;
-          // Converter cor hex '#2563eb' → [r,g,b]
-          let cor: [number,number,number] = [167,139,250];
-          if (data.cor && typeof data.cor === 'string' && data.cor.startsWith('#')) {
-            const hex = data.cor.slice(1);
-            cor = [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16)];
-          } else if (Array.isArray(data.cor) && data.cor.length >= 3) {
-            cor = [data.cor[0], data.cor[1], data.cor[2]] as [number,number,number];
-          }
-          pts.push({
-            id: d.id,
-            nome: data.nome || d.id,
-            cidade: data.cidade || '',
-            coords,
-            cor,
-            ativo: data.ativo !== false,
+        const zonas = await carregarZonasSupabase([]);
+        const pts: any[] = zonas
+          .filter((z: any) => z.pontos && z.pontos.length >= 3 && z.ativo !== false)
+          .map((z: any) => {
+            // Converter {lat,lng} → [lng,lat] (DeckGL usa [lng,lat])
+            const coords = z.pontos.map((p: any) =>
+              Array.isArray(p) ? p : [p.lng ?? p[1], p.lat ?? p[0]]
+            );
+            // Converter cor hex '#2563eb' → [r,g,b]
+            let cor: [number,number,number] = [167,139,250];
+            if (z.cor && typeof z.cor === 'string' && z.cor.startsWith('#')) {
+              const hex = z.cor.slice(1);
+              cor = [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16)];
+            } else if (Array.isArray(z.cor) && z.cor.length >= 3) {
+              cor = [z.cor[0], z.cor[1], z.cor[2]] as [number,number,number];
+            }
+            return {
+              id: z.id,
+              nome: z.nome || z.id,
+              cidade: z.cidade || '',
+              coords,
+              cor,
+              ativo: z.ativo !== false,
+            };
           });
-        });
-        setPoligonos(pts.filter(p => p.ativo));
+        setPoligonos(pts);
       } catch { /* silently */ }
     };
     load();
@@ -1076,24 +1076,14 @@ export default function AnalyticsManager({ usuario, showToast }: { usuario:any; 
     return () => clearInterval(animRef.current);
   }, [animPlaying]);
 
-  // ── INCIDENTES (banco histórico completo) ───────────────────────
+  // ── INCIDENTES (Supabase) ─────────────────────────────────────────
   useEffect(() => {
     if (activeTab !== 'perdas' && activeTab !== 'guard') return;
     if (incidentes.length > 0) return; // já carregado
     setLoadingIncident(true);
-    // Fase 2 / Onda B — leitura do Supabase atrás de flag (read-only).
-    if (guardProviderSupabase()) {
-      carregarOcorrenciasSupabase({ limit: 10000 })
-        .then(rows => { setIncidentes(rows); setLoadingIncident(false); })
-        .catch(() => setLoadingIncident(false));
-      return;
-    }
-    getDocs(collection(db, 'ocorrencias')).then(snap => {
-      const docs: any[] = [];
-      snap.forEach(d => docs.push({ id: d.id, ...d.data() }));
-      setIncidentes(docs);
-      setLoadingIncident(false);
-    }).catch(() => setLoadingIncident(false));
+    carregarOcorrenciasSupabase({ limit: 10000 })
+      .then(rows => { setIncidentes(rows); setLoadingIncident(false); })
+      .catch(() => setLoadingIncident(false));
   }, [activeTab]);
 
   // ── GUARD OCORRÊNCIAS ───────────────────────────────────────────
@@ -1135,20 +1125,10 @@ export default function AnalyticsManager({ usuario, showToast }: { usuario:any; 
         }));
       setGuardPoints(pts);
     };
-    // Fase 2 / Onda B — leitura do Supabase atrás de flag (read-only).
-    if (guardProviderSupabase()) {
-      carregarOcorrenciasSupabase({ limit: 10000 })
-        .then(rows => { if (ativo) processar(rows); })
-        .catch(err => { console.error('[Guard] Supabase', err); setGuardPoints([]); });
-      return () => { ativo = false; };
-    }
-    // Sem filtro server-side — aceita criadoEm (Timestamp) e created_at (ISO string)
-    const q = query(collection(db, 'ocorrencias'));
-    const unsub = onSnapshot(q,
-      snap => { if (ativo) processar(snap.docs.map(d => ({ id: d.id, ...d.data() }))); },
-      err => { console.error('[Guard] error:', err.code, err.message); setGuardPoints([]); }
-    );
-    return () => { ativo = false; unsub(); };
+    carregarOcorrenciasSupabase({ limit: 10000 })
+      .then(rows => { if (ativo) processar(rows); })
+      .catch(err => { console.error('[Guard] Supabase', err); setGuardPoints([]); });
+    return () => { ativo = false; };
   }, [showGuardHeat, activeTab, guardDias, guardModoCustom, guardCustomDe, guardCustomAte, guardFiltroTipo]);
 
   // ── DECK LAYERS ──────────────────────────────────────────────────
@@ -1540,7 +1520,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
       uploadedBy: usuario?.email || '',
       uploaded_at: new Date().toISOString(),
     };
-    await setDoc(doc(db,'analytics_days',dayKey), meta);
+    const { error: upsErr } = await supabase.from('analytics_days').upsert({ id: dayKey, ...meta }, { onConflict: 'id' }); if (upsErr) throw upsErr;
     setDays(prev => ({ ...prev, [dayKey]: { meta, rides:data.rides } }));
     setActiveDays(prev => new Set([...prev, dayKey]));
     const dateKey = data.meta.date || dayKey.split('_')[0];
@@ -1577,14 +1557,14 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
       const dayKey = regiao !== 'default' ? `${dateKey}_${regiao}` : dateKey;
 
       // Verifica se já existe dado para este dia
-      const existeSnap = await getDoc(doc(db,'analytics_days',dayKey));
+      const { data: existeRow } = await supabase.from('analytics_days').select('*').eq('id', dayKey).maybeSingle();
 
-      if (existeSnap.exists()) {
+      if (existeRow) {
         // Mesma chave (mesma cidade+dia) → perguntar mesclar ou substituir
         setUploadProgress('');
         setUploading(false);
         // Carrega rides existentes para poder mesclar
-        const existMeta = existeSnap.data() as DayMeta;
+        const existMeta = existeRow as DayMeta;
         let existRides: Ride[] = [];
         if (existMeta.storage_path) {
           try {
@@ -1644,7 +1624,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
     try {
       const path = days[dateKey]?.meta?.storage_path;
       if (path) await deleteStorage(path);
-      await deleteDoc(doc(db,'analytics_days',dateKey));
+      const { error: delErr } = await supabase.from('analytics_days').delete().eq('id', dateKey); if (delErr) throw delErr;
       setDays(prev => { const n={...prev}; delete n[dateKey]; return n; });
       setActiveDays(prev => { const n=new Set(prev); n.delete(dateKey); return n; });
       showToast(pick(T.removido),'success');

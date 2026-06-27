@@ -4,17 +4,24 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  collection, query, where, orderBy, onSnapshot, limit,
-  doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
-  serverTimestamp, Timestamp, setDoc,
-} from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { db } from '../lib/firebase';
-import { logisticaProviderSupabase, carregarTurnosLogisticaSupabase } from '../lib/onda-b-supabase';
-import { gpsProviderSupabase, fetchGpsAtual, fetchGpsHist } from '../lib/gps-supabase';
-import { usuariosReadSupabase, fetchUsuarios } from '../lib/usuarios-supabase';
-import { salvarGojetConfigSupabase } from '../lib/gojet-config-supabase';
+import { fetchUsuarios } from '../lib/usuarios-supabase';
+import {
+  fetchCidadesEstacoes,
+  fetchTarefas, subscribeTarefas, updateTarefa,
+  fetchGpsLogistica, subscribeGpsLogistica, fetchGpsHist as fetchGpsHistSupa,
+  fetchSlotsLogistica, subscribeSlots as subscribeSlotsGestor, criarSlot, deleteSlot,
+  fetchAceites, subscribeAceites, updateAceiteStatus,
+  fetchMeis, subscribeMeis, upsertMei, deleteMei,
+  fetchEficiencias, subscribeEficiencias, criarEficiencia,
+  fetchAlertas, subscribeAlertas,
+  fetchConfigLogistica, salvarConfigLogistica,
+  fetchTelegramGrupos, salvarTelegramGrupo,
+  fetchInventario, subscribeInventario, upsertInventario, deleteInventario,
+  fetchGojetConfig, fetchGojetSnapInfo, salvarGojetConfig,
+  upsertUsuario, deleteUsuario,
+} from '../lib/gestor-logistica-supabase';
+import { carregarTurnosLogisticaSupabase } from '../lib/onda-b-supabase';
 import LiveTrackingMap from './LiveTrackingMap';
 import GpsHeatmapPanel from './GpsHeatmapPanel';
 
@@ -533,8 +540,8 @@ const S = {
 
 // ─── Utilitários ──────────────────────────────────────────────────────────────
 
-const fnsCli = getFunctions(undefined as any, 'southamerica-east1');
 import { functionsProviderSupabase, getEdgeCallable } from '../lib/edge-functions';
+const fnsCli = getFunctions(undefined as any, 'southamerica-east1');
 function fnBridge(name: string) {
   if (functionsProviderSupabase()) { const e = getEdgeCallable(name); if (e) return e(); }
   return httpsCallable(fnsCli, name);
@@ -588,13 +595,8 @@ const ABAS_ALL:{id:AbaId;trKey:keyof typeof TR;soAdmin?:boolean}[]=[
 function useCidadesDisponiveis(usuario: Usuario): string[] {
   const [cidades, setCidades] = useState<string[]>([]);
   useEffect(() => {
-    // Admin/supergestor: lista todas as cidades das estações
     if (ROLES_ADMIN.includes(usuario.role) || usuario.role === 'gestor') {
-      getDocs(collection(db, 'estacoes')).then(snap => {
-        const set = new Set<string>();
-        snap.docs.forEach(d => { const c = d.data().cidade; if (c) set.add(c); });
-        setCidades(Array.from(set).sort());
-      }).catch(() => {});
+      fetchCidadesEstacoes().then(setCidades).catch(() => {});
     } else if (usuario.cidadesGerenciaLog?.length) {
       setCidades(usuario.cidadesGerenciaLog);
     }
@@ -735,14 +737,7 @@ export default function GestorLogisticaPanel({usuario, onFechar, cidade: cidadeI
 
 interface AbaProps { usuario: Usuario; cidade: string; isAdmin: boolean; }
 
-// ─── Helper query com filtro cidade ───────────────────────────────────────────
-// Evita duplicar o ternário cidade em todo lugar
-
-function qCidade(col: string, cidade: string, ...clauses: any[]) {
-  const base = collection(db, col);
-  const filters = cidade ? [where('cidade','==',cidade), ...clauses] : clauses;
-  return filters.length ? query(base, ...filters) : query(base);
-}
+// (qCidade removed — Supabase queries handle city filtering inline)
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // ABA DASHBOARD
@@ -757,11 +752,10 @@ function AbaDashboard({usuario,cidade,isAdmin}:AbaProps){
   const [clima,  setClima  ]=useState<ClimaPrev|null>(null);
 
   useEffect(()=>{
-    const since30=Timestamp.fromMillis(Date.now()-30*60000);
-    const u1=onSnapshot(qCidade('tarefas_logistica',cidade,where('status','in',['pendente','em_andamento']),limit(200)),s=>setTarefas(s.docs.map(d=>({id:d.id,...d.data()} as TarefaLogistica))));
-    const u2=onSnapshot(qCidade('gps_logistica',cidade,where('criadoEm','>=',since30)),s=>setWorkers(s.docs.map(d=>({uid:d.id,...d.data()} as GpsWorker))));
-    const u3=onSnapshot(qCidade('slots',cidade,orderBy('criadoEm','desc'),limit(100)),s=>setSlots(s.docs.map(d=>({id:d.id,...d.data()} as Slot)).filter(sl=>sl.dataSlot===hoje())));
-    const u4=onSnapshot(collection(db,'slot_aceites'),s=>setAceites(s.docs.map(d=>({id:d.id,...d.data()} as SlotAceite))));
+    const u1=subscribeTarefas({cidade,status:['pendente','em_andamento'],limit:200},t=>setTarefas(t as TarefaLogistica[]));
+    const u2=subscribeGpsLogistica({cidade,minutos:30},w=>setWorkers(w as GpsWorker[]));
+    const u3=subscribeSlotsGestor({cidade,limit:100},s=>setSlots((s as Slot[]).filter(sl=>sl.dataSlot===hoje())));
+    const u4=subscribeAceites(a=>setAceites(a as SlotAceite[]));
     // Clima
     navigator.geolocation?.getCurrentPosition(pos=>{
       fetch(`https://api.open-meteo.com/v1/forecast?latitude=${pos.coords.latitude}&longitude=${pos.coords.longitude}&current_weather=true&hourly=precipitation_probability&forecast_days=1`)
@@ -854,24 +848,14 @@ function AbaPresenca({cidade}:AbaProps){
 
   useEffect(()=>{
     const ini=new Date(); ini.setHours(0,0,0,0);
-    // Fase 2 / Onda B menores — leitura de turnos do Supabase atrás de flag (read-only).
-    let u1:(()=>void)|undefined;
-    if (logisticaProviderSupabase()) {
-      let vivo=true;
-      carregarTurnosLogisticaSupabase(ini.toISOString())
-        .then(rows=>{ if(vivo) setTurnos(rows as TurnoLog[]); })
-        .catch(err=>console.error('[logistica-turnos] Supabase', err));
-      u1=()=>{vivo=false;};
-    } else {
-      u1=onSnapshot(query(collection(db,'turnos_logistica'),where('criadoEm','>=',Timestamp.fromDate(ini)),orderBy('criadoEm','desc'),limit(300)),s=>setTurnos(s.docs.map(d=>({id:d.id,...d.data()} as TurnoLog))));
-    }
-    if (usuariosReadSupabase()) {
-      fetchUsuarios({ role_in: ['campo','logistica','charger','scalt','promotor'] }).then(users=>setClt(users.map(u=>({...u,id:u.uid}))));
-    } else {
-      getDocs(collection(db,'usuarios')).then(s=>setClt(s.docs.map(d=>({id:d.id,...d.data()})).filter((f:any)=>['campo','logistica','charger','scalt','promotor'].includes(f.role||''))));
-    }
-    const u3=onSnapshot(qCidade('slots',cidade,orderBy('criadoEm','desc'),limit(100)),s=>setSlots(s.docs.map(d=>({id:d.id,...d.data()} as Slot)).filter(sl=>sl.dataSlot===hoje())));
-    const u4=onSnapshot(collection(db,'slot_aceites'),s=>setAceites(s.docs.map(d=>({id:d.id,...d.data()} as SlotAceite))));
+    let vivo=true;
+    carregarTurnosLogisticaSupabase(ini.toISOString())
+      .then(rows=>{ if(vivo) setTurnos(rows as TurnoLog[]); })
+      .catch(err=>console.error('[logistica-turnos] Supabase', err));
+    const u1=()=>{vivo=false;};
+    fetchUsuarios({ role_in: ['campo','logistica','charger','scalt','promotor'] }).then(users=>setClt(users.map(u=>({...u,id:u.uid}))));
+    const u3=subscribeSlotsGestor({cidade,limit:100},s=>setSlots((s as Slot[]).filter(sl=>sl.dataSlot===hoje())));
+    const u4=subscribeAceites(a=>setAceites(a as SlotAceite[]));
     return()=>{u1();u3();u4();};
   },[cidade]);
 
@@ -962,40 +946,14 @@ function AbaOperadores({usuario,cidade}:AbaProps){
   const [busca,  setBusca  ]=useState('');
 
   useEffect(()=>{
-    if (gpsProviderSupabase()) {
-      // Supabase: polling GPS a cada 10s + Firestore tarefas (tarefas still in Firestore)
-      let alive = true;
-      const poll = () => {
-        fetchGpsAtual(60).then(pts => {
-          if (!alive) return;
-          const filtered = cidade ? pts.filter(p => !p.cidade || p.cidade === cidade || p.cidade === '') : pts;
-          setWorkers(filtered.map(p => ({ uid: p.uid, nome: p.nome, lat: p.lat, lng: p.lng, atualizadoEm: p.criadoEm, cidade: p.cidade } as GpsWorker)));
-        });
-      };
-      poll();
-      const id = setInterval(poll, 10_000);
-      const u2=onSnapshot(qCidade('tarefas_logistica',cidade,where('status','in',['pendente','em_andamento']),limit(200)),s=>setTarefas(s.docs.map(d=>({id:d.id,...d.data()} as TarefaLogistica))));
-      return()=>{alive=false;clearInterval(id);u2();};
-    }
-
-    // Firestore fallback
-    const since=Timestamp.fromMillis(Date.now()-60*60000);
-    const u1=onSnapshot(qCidade('gps_logistica',cidade,where('criadoEm','>=',since)),s=>setWorkers(s.docs.map(d=>({uid:d.id,...d.data()} as GpsWorker))));
-    const u2=onSnapshot(qCidade('tarefas_logistica',cidade,where('status','in',['pendente','em_andamento']),limit(200)),s=>setTarefas(s.docs.map(d=>({id:d.id,...d.data()} as TarefaLogistica))));
+    const u1=subscribeGpsLogistica({cidade,minutos:60,intervaloMs:10000},w=>setWorkers(w as GpsWorker[]));
+    const u2=subscribeTarefas({cidade,status:['pendente','em_andamento'],limit:200},t=>setTarefas(t as TarefaLogistica[]));
     return()=>{u1();u2();};
   },[cidade]);
 
   useEffect(()=>{
     if(!sel){setHist([]);return;}
-
-    if (gpsProviderSupabase()) {
-      fetchGpsHist(sel.uid, 8).then(pts => setHist(pts)).catch(() => {});
-      return;
-    }
-
-    // Firestore fallback
-    const since=Timestamp.fromMillis(Date.now()-8*60*60000);
-    getDocs(query(collection(db,'gps_logistica_hist'),where('uid','==',sel.uid),where('criadoEm','>=',since),orderBy('criadoEm','asc'),limit(200))).then(s=>setHist(s.docs.map(d=>d.data()))).catch(()=>{});
+    fetchGpsHistSupa(sel.uid, 8).then(pts => setHist(pts)).catch(() => {});
   },[sel]);
 
   const filtrados=useMemo(()=>workers.filter(w=>!busca||(w.nome||'').toLowerCase().includes(busca.toLowerCase())).sort((a,b)=>mAtras(a.atualizadoEm)-mAtras(b.atualizadoEm)),[workers,busca]);
@@ -1040,7 +998,7 @@ function AbaOperadores({usuario,cidade}:AbaProps){
               </div>
               <div style={{...S.card(),marginTop:10}}>
                 <div style={S.sec}>{pick(TR.atribuirTarefa)}</div>
-                {semResp.slice(0,4).map(t=><div key={t.id} style={{...S.card(),marginBottom:6}}><div style={{fontSize:11,fontWeight:600,color:T.yellowl}}>{t.tipo}</div><div style={{fontSize:11,color:T.dim,marginBottom:6}}>{t.endereco||t.titulo||''}</div><button onClick={async()=>{await updateDoc(doc(db,'tarefas_logistica',t.id),{responsavelId:sel.uid,responsavelNome:sel.nome||sel.uid,status:'em_andamento',atualizadoEm:serverTimestamp()});toast(`${pick(TR.atribuidoA)} ${sel.nome||sel.uid}`);}} style={{...S.btnG(T.blueg),padding:'5px 10px',fontSize:11}}>{pick(TR.atribuir)}</button></div>)}
+                {semResp.slice(0,4).map(t=><div key={t.id} style={{...S.card(),marginBottom:6}}><div style={{fontSize:11,fontWeight:600,color:T.yellowl}}>{t.tipo}</div><div style={{fontSize:11,color:T.dim,marginBottom:6}}>{t.endereco||t.titulo||''}</div><button onClick={async()=>{await updateTarefa(t.id,{responsavelId:sel.uid,responsavelNome:sel.nome||sel.uid,status:'em_andamento'});toast(`${pick(TR.atribuidoA)} ${sel.nome||sel.uid}`);}} style={{...S.btnG(T.blueg),padding:'5px 10px',fontSize:11}}>{pick(TR.atribuir)}</button></div>)}
                 {semResp.length===0&&<div style={{fontSize:12,color:T.green}}>{pick(TR.semTarefasSemResp)}</div>}
               </div>
             </>
@@ -1052,7 +1010,7 @@ function AbaOperadores({usuario,cidade}:AbaProps){
                   <div style={{fontSize:11,fontWeight:600,color:T.yellowl}}>{t.tipo}</div>
                   <div style={{fontSize:11,color:T.dim}}>{t.endereco||t.titulo||''}</div>
                   {m&&<div style={{fontSize:10,color:T.green,marginTop:4}}>{pick(TR.sugerido)} {m.nome||m.uid.slice(-6)} ({distKm(t.lat||0,t.lng||0,m.lat,m.lng).toFixed(1)}km)</div>}
-                  {m&&<button style={{...S.btnG(T.blueg),marginTop:6,fontSize:11,padding:'4px 10px'}} onClick={async()=>{await updateDoc(doc(db,'tarefas_logistica',t.id),{responsavelId:m.uid,responsavelNome:m.nome||m.uid,status:'em_andamento',atualizadoEm:serverTimestamp()});toast(`${pick(TR.atribuidoA)} ${m.nome||m.uid}`);}}>{pick(TR.atribuir)}</button>}
+                  {m&&<button style={{...S.btnG(T.blueg),marginTop:6,fontSize:11,padding:'4px 10px'}} onClick={async()=>{await updateTarefa(t.id,{responsavelId:m.uid,responsavelNome:m.nome||m.uid,status:'em_andamento'});toast(`${pick(TR.atribuidoA)} ${m.nome||m.uid}`);}}>{pick(TR.atribuir)}</button>}
                 </div>
               );})}
               {semResp.length===0&&<div style={{fontSize:12,color:T.green}}>{pick(TR.semTarefasSemResp)}</div>}
@@ -1081,8 +1039,8 @@ function AbaSlots({usuario,cidade}:AbaProps){
   const [sf,setSf]=useState({turno:'T1',horaIni:'07:00',horaFim:'15:00',zona:'',tipo:'Scout',qtdPessoas:2,dataSlot:'',confMin:120,reabrMin:90});
 
   useEffect(()=>{
-    const u1=onSnapshot(qCidade('slots',cidade,orderBy('criadoEm','desc'),limit(150)),s=>setSlots(s.docs.map(d=>({id:d.id,...d.data()} as Slot))));
-    const u2=onSnapshot(collection(db,'slot_aceites'),s=>setAceites(s.docs.map(d=>({id:d.id,...d.data()} as SlotAceite))));
+    const u1=subscribeSlotsGestor({cidade,limit:150},s=>setSlots(s as Slot[]));
+    const u2=subscribeAceites(a=>setAceites(a as SlotAceite[]));
     navigator.geolocation?.getCurrentPosition(pos=>{
       fetch(`https://api.open-meteo.com/v1/forecast?latitude=${pos.coords.latitude}&longitude=${pos.coords.longitude}&current_weather=true&forecast_days=2&hourly=precipitation_probability`)
         .then(r=>r.json()).then(data=>{const w=data.current_weather;const am=data.hourly?.precipitation_probability?.slice(24,48)||[];const chuva=am.some((p:number)=>p>60);const em:Record<number,string>={0:'☀️',1:'🌤',2:'⛅',3:'☁️',61:'🌧',95:'⛈'};setClima({temp:Math.round(w.temperature),descricao:chuva?'Chuva amanhã':'OK para amanhã',emoji:chuva?'🌧':em[w.weathercode]||'☀️',chuva});}).catch(()=>{});
@@ -1109,14 +1067,14 @@ function AbaSlots({usuario,cidade}:AbaProps){
     const dataStr=loteForm.dataAlvo==='hoje'?hoje():amanha();
     const hor:Record<string,{ini:string;fim:string}>={T1:{ini:loteForm.T1ini,fim:loteForm.T1fim},T2:{ini:loteForm.T2ini,fim:loteForm.T2fim},T0:{ini:loteForm.T0ini,fim:loteForm.T0fim}};
     let n=0;
-    for(const turno of loteForm.turnos){for(const tipo of loteForm.tipos){await addDoc(collection(db,'slots'),{turno,turnoLabel:`${turno} — ${hor[turno].ini} às ${hor[turno].fim}`,horaIni:hor[turno].ini,horaFim:hor[turno].fim,zona:loteForm.zona,tipo,qtdPessoas:loteForm.qtd,status:'Aberto',dataSlot:dataStr,cidade:cidadeSlot,confirmacaoMin:loteForm.confMin,reaberturaSemConfMin:loteForm.reabrMin,criadoEm:serverTimestamp(),criadoPorId:usuario.uid,criadoPorNome:usuario.nome});n++;}}
+    for(const turno of loteForm.turnos){for(const tipo of loteForm.tipos){await criarSlot({turno,turnoLabel:`${turno} — ${hor[turno].ini} às ${hor[turno].fim}`,horaIni:hor[turno].ini,horaFim:hor[turno].fim,zona:loteForm.zona,tipo,qtdPessoas:loteForm.qtd,status:'Aberto',dataSlot:dataStr,cidade:cidadeSlot,confMin:loteForm.confMin,reabrMin:loteForm.reabrMin,criadoPorId:usuario.uid,criadoPorNome:usuario.nome} as Record<string, unknown>);n++;}}
     toast(`${n} ${pick(TR.slotsCriados)} ${cidadeSlot}`);setSalvando(false);setLote(false);
   };
 
-  const criarSlot=async()=>{
+  const criarSlotLocal=async()=>{
     if(!sf.zona||!sf.dataSlot){toast(pick(TR.preenchaZonaData),'erro');return;}
     setSalvando(true);
-    await addDoc(collection(db,'slots'),{...sf,status:'Aberto',cidade:cidadeSlot,turnoLabel:`${sf.turno} — ${sf.horaIni} às ${sf.horaFim}`,confirmacaoMin:sf.confMin,reaberturaSemConfMin:sf.reabrMin,criadoEm:serverTimestamp(),criadoPorId:usuario.uid,criadoPorNome:usuario.nome});
+    await criarSlot({...sf,status:'Aberto',cidade:cidadeSlot,turnoLabel:`${sf.turno} — ${sf.horaIni} às ${sf.horaFim}`,criadoPorId:usuario.uid,criadoPorNome:usuario.nome} as Record<string, unknown>);
     toast(pick(TR.slotCriado));setSalvando(false);setModal(false);
   };
 
@@ -1159,12 +1117,12 @@ function AbaSlots({usuario,cidade}:AbaProps){
             <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:8}}>
               <div style={{flex:1}}><span style={{...S.chip(T.purple),marginRight:6}}>{sl.turno}</span><span style={{...S.chip(T.bluel),marginRight:6}}>{sl.horaIni}–{sl.horaFim}</span><span style={{...S.chip(sl.tipo==='Charger'?T.yellow:T.green),marginRight:6}}>{sl.tipo||'—'}</span><b style={{color:T.txt}}>{sl.zona}</b></div>
               <span style={S.chip(slAb>0?T.yellow:T.green)}>{slAb>0?`${slAb} ${pick(TR.vagasLabel)}`:pick(TR.completo)}</span>
-              <button onClick={async()=>{if(window.confirm(pick(TR.excluir)))await deleteDoc(doc(db,'slots',sl.id));}} style={{...S.btn(T.red,true),padding:'3px 7px',fontSize:11}}>🗑</button>
+              <button onClick={async()=>{if(window.confirm(pick(TR.excluir)))await deleteSlot(sl.id);}} style={{...S.btn(T.red,true),padding:'3px 7px',fontSize:11}}>🗑</button>
             </div>
             {slAc.length===0?<div style={{fontSize:11,color:T.dim}}>{pick(TR.semAceites)}</div>:(
               <table style={{...S.table,fontSize:11}}>
                 <thead><tr>{[pick(TR.nome),pick(TR.status),pick(TR.colAceitoEm),pick(TR.colAcao)].map(h=><th key={h} style={{...S.th,fontSize:9}}>{h}</th>)}</tr></thead>
-                <tbody>{slAc.map(a=><tr key={a.id}><td style={S.td}>{a.nome}</td><td style={S.td}><span style={S.chip(scor(a.status))}>{a.status}</span></td><td style={{...S.td,fontSize:10,color:T.dim}}>{fmtTs(a.aceitoEm,true)}</td><td style={S.td}><select value={a.status} onChange={async e=>{await updateDoc(doc(db,'slot_aceites',a.id),{status:e.target.value});toast(`→ ${e.target.value}`);}} style={{...S.inp,marginBottom:0,padding:'3px 6px',width:'auto',fontSize:11}}>{['Pendente','Iniciou','Atrasado','Faltou','Veio','Desistiu'].map(s=><option key={s} value={s}>{s}</option>)}</select></td></tr>)}</tbody>
+                <tbody>{slAc.map(a=><tr key={a.id}><td style={S.td}>{a.nome}</td><td style={S.td}><span style={S.chip(scor(a.status))}>{a.status}</span></td><td style={{...S.td,fontSize:10,color:T.dim}}>{fmtTs(a.aceitoEm,true)}</td><td style={S.td}><select value={a.status} onChange={async e=>{await updateAceiteStatus(a.id,e.target.value);toast(`→ ${e.target.value}`);}} style={{...S.inp,marginBottom:0,padding:'3px 6px',width:'auto',fontSize:11}}>{['Pendente','Iniciou','Atrasado','Faltou','Veio','Desistiu'].map(s=><option key={s} value={s}>{s}</option>)}</select></td></tr>)}</tbody>
               </table>
             )}
           </div>
@@ -1210,7 +1168,7 @@ function AbaSlots({usuario,cidade}:AbaProps){
             <label style={S.lbl}>{pick(TR.zonaObrig)}</label><input value={sf.zona} onChange={e=>setSf(f=>({...f,zona:e.target.value}))} style={S.inp}/>
             <label style={S.lbl}>{pick(TR.dataObrig)}</label><input type="date" onChange={e=>setSf(f=>({...f,dataSlot:new Date(e.target.value+'T12:00:00').toLocaleDateString('pt-BR')}))} style={S.inp}/>
             <label style={S.lbl}>{pick(TR.colVagas)}</label><input type="number" min={1} max={20} value={sf.qtdPessoas} onChange={e=>setSf(f=>({...f,qtdPessoas:parseInt(e.target.value)||1}))} style={S.inp}/>
-            <button onClick={criarSlot} disabled={salvando} style={{...S.btnG('linear-gradient(135deg,#10b981,#059669)'),width:'100%',marginTop:4}}>{salvando?pick(TR.criando):pick(TR.criarSlotBtn)}</button>
+            <button onClick={criarSlotLocal} disabled={salvando} style={{...S.btnG('linear-gradient(135deg,#10b981,#059669)'),width:'100%',marginTop:4}}>{salvando?pick(TR.criando):pick(TR.criarSlotBtn)}</button>
           </div>
         </div>
       </div>}
@@ -1231,9 +1189,8 @@ function AbaTarefas({usuario,cidade}:AbaProps){
   const [sel,setSel]=useState<TarefaLogistica|null>(null);
 
   useEffect(()=>{
-    const u1=onSnapshot(qCidade('tarefas_logistica',cidade,orderBy('criadoEm','desc'),limit(400)),s=>setTarefas(s.docs.map(d=>({id:d.id,...d.data()} as TarefaLogistica))));
-    const since=Timestamp.fromMillis(Date.now()-30*60000);
-    const u2=onSnapshot(qCidade('gps_logistica',cidade,where('criadoEm','>=',since)),s=>setWorkers(s.docs.map(d=>({uid:d.id,...d.data()} as GpsWorker))));
+    const u1=subscribeTarefas({cidade,limit:400},t=>setTarefas(t as TarefaLogistica[]));
+    const u2=subscribeGpsLogistica({cidade,minutos:30},w=>setWorkers(w as GpsWorker[]));
     return()=>{u1();u2();};
   },[cidade]);
 
@@ -1276,7 +1233,7 @@ function AbaTarefas({usuario,cidade}:AbaProps){
                 <td style={{...S.td,fontSize:11}}>{fmtTs(t.criadoEm,true)}</td>
                 <td style={S.td}><div style={{display:'flex',gap:4}}>
                   <button onClick={()=>setSel(t)} style={{...S.btn(T.bluel,true),padding:'3px 8px',fontSize:11}}>✏</button>
-                  {t.status!=='cancelada'&&t.status!=='concluida'&&<button onClick={async()=>{await updateDoc(doc(db,'tarefas_logistica',t.id),{status:'cancelada',atualizadoEm:serverTimestamp()});toast(pick(TR.cancelada));}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>✕</button>}
+                  {t.status!=='cancelada'&&t.status!=='concluida'&&<button onClick={async()=>{await updateTarefa(t.id,{status:'cancelada'});toast(pick(TR.cancelada));}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>✕</button>}
                 </div></td>
               </tr>
             ))}
@@ -1292,7 +1249,7 @@ function AbaTarefas({usuario,cidade}:AbaProps){
             {workers.map(w=>(
               <div key={w.uid} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:`1px solid ${T.bdr2}`}}>
                 <div style={{flex:1}}><div style={{fontWeight:600,fontSize:12}}>{w.nome||w.uid.slice(-8)}</div><div style={{fontSize:10,color:T.dim}}>{mAtras(w.atualizadoEm)}min{sel.lat&&sel.lng&&w.lat&&w.lng&&` · ${distKm(sel.lat,sel.lng,w.lat,w.lng).toFixed(1)}km`}</div></div>
-                <button onClick={async()=>{await updateDoc(doc(db,'tarefas_logistica',sel.id),{responsavelId:w.uid,responsavelNome:w.nome||w.uid,status:'em_andamento',atualizadoEm:serverTimestamp()});toast(`${pick(TR.atribuidoA)} ${w.nome||w.uid}`);setSel(null);}} style={{...S.btnG(T.blueg),fontSize:11}}>{pick(TR.atribuir)}</button>
+                <button onClick={async()=>{await updateTarefa(sel.id,{responsavelId:w.uid,responsavelNome:w.nome||w.uid,status:'em_andamento'});toast(`${pick(TR.atribuidoA)} ${w.nome||w.uid}`);setSel(null);}} style={{...S.btnG(T.blueg),fontSize:11}}>{pick(TR.atribuir)}</button>
               </div>
             ))}
           </div>
@@ -1320,25 +1277,20 @@ function AbaDesempenho({cidade}:AbaProps){
 
   const carregar=useCallback(async()=>{
     setLoading(true);
+    const ts=await fetchTarefas({cidade,status:['concluida'],limit:1000});
     const ini=dataIni?new Date(dataIni+'T00:00:00'):new Date(Date.now()-7*86400000);
     const fim=dataFim?new Date(dataFim+'T23:59:59'):new Date();
-    const q=qCidade('tarefas_logistica',cidade,where('status','==','concluida'),where('criadoEm','>=',Timestamp.fromDate(ini)),where('criadoEm','<=',Timestamp.fromDate(fim)),limit(1000));
-    const snap=await getDocs(q);
-    const ts=snap.docs.map(d=>({id:d.id,...d.data()} as TarefaLogistica));
+    const filtered=ts.filter((t:any)=>{const d=new Date(t.criadoEm);return d>=ini&&d<=fim;});
     const mapa:Record<string,{nome:string;dias:Record<string,{mov:number;bat:number}>}>={};
-    ts.forEach(t=>{if(!t.responsavelId)return;if(!mapa[t.responsavelId])mapa[t.responsavelId]={nome:t.responsavelNome||t.responsavelId,dias:{}};const dia=t.criadoEm?.toDate?.()?.toLocaleDateString('pt-BR')||'?';if(!mapa[t.responsavelId].dias[dia])mapa[t.responsavelId].dias[dia]={mov:0,bat:0};if(t.tipo==='CARGA_BATERIA')mapa[t.responsavelId].dias[dia].bat++;else mapa[t.responsavelId].dias[dia].mov++;});
+    filtered.forEach((t:any)=>{if(!t.responsavelId)return;if(!mapa[t.responsavelId])mapa[t.responsavelId]={nome:t.responsavelNome||t.responsavelId,dias:{}};const dia=new Date(t.criadoEm).toLocaleDateString('pt-BR');if(!mapa[t.responsavelId].dias[dia])mapa[t.responsavelId].dias[dia]={mov:0,bat:0};if(t.tipo==='CARGA_BATERIA')mapa[t.responsavelId].dias[dia].bat++;else mapa[t.responsavelId].dias[dia].mov++;});
     setDados(Object.entries(mapa).map(([uid,v])=>({uid,nome:v.nome,totalMov:Object.values(v.dias).reduce((s,d)=>s+d.mov,0),totalBat:Object.values(v.dias).reduce((s,d)=>s+d.bat,0),dias:v.dias})).sort((a,b)=>(b.totalMov+b.totalBat)-(a.totalMov+a.totalBat)));
     setLoading(false);
   },[cidade,dataIni,dataFim]);
 
   useEffect(()=>{carregar();},[carregar]);
   useEffect(()=>{
-    const u=onSnapshot(qCidade('eficiencias_logistica',cidade,orderBy('criadoEm','desc'),limit(300)),s=>setEfics(s.docs.map(d=>({id:d.id,...d.data()} as Eficiencia))));
-    if (usuariosReadSupabase()) {
-      fetchUsuarios().then(users=>setOpers(users.map(u=>({uid:u.uid,nome:u.nome||u.uid})).slice(0,80)));
-    } else {
-      getDocs(collection(db,'usuarios')).then(s=>setOpers(s.docs.map(d=>({uid:d.id,nome:(d.data() as any).nome||d.id})).slice(0,80)));
-    }
+    const u=subscribeEficiencias(cidade,e=>setEfics(e as Eficiencia[]));
+    fetchUsuarios().then(users=>setOpers(users.map((u:any)=>({uid:u.uid,nome:u.nome||u.uid})).slice(0,80)));
     return u;
   },[cidade]);
 
@@ -1348,7 +1300,7 @@ function AbaDesempenho({cidade}:AbaProps){
 
   const expXLSX=async()=>{const XLSX=await loadXLSX();const rows=dados.map((p,i)=>({'#':i+1,[pick(TR.nome)]:p.nome,[pick(TR.colMovs)]:p.totalMov,[pick(TR.colBaterias)]:p.totalBat,[pick(TR.kpiTotal)]:p.totalMov+p.totalBat,[pick(TR.cidadeCol)]:cidade||pick(TR.todasLabel)}));const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,pick(TR.abaDesempenho).replace(/^[^\w]+/,''));XLSX.writeFile(wb,`desempenho_${cidade||'all'}_${new Date().toISOString().slice(0,10)}.xlsx`);toast(pick(TR.xlsxExportado));};
   const expPDF=async()=>{const JsPDF=await loadJsPDF();const pdf=new JsPDF();pdf.setFontSize(14);pdf.text(`${pick(TR.rankingDesemp)} — ${cidade||pick(TR.todasLabel)}`,14,15);pdf.setFontSize(9);dados.forEach((p,i)=>pdf.text(`${i+1}. ${p.nome} — ${p.totalMov+p.totalBat} ${pick(TR.kpiTotal).toLowerCase()}`,14,25+i*7));pdf.save(`desempenho_${new Date().toISOString().slice(0,10)}.pdf`);toast(pick(TR.pdfExportado));};
-  const salvarEf=async()=>{if(!ef.nome||!ef.data){toast(pick(TR.nomeDataObrig),'erro');return;}await addDoc(collection(db,'eficiencias_logistica'),{...ef,cidade:cidade||'SP',criadoEm:serverTimestamp()});toast(pick(TR.registrado));setModal(false);setEf({uid:'',nome:'',data:'',cidade:cidade||'',movimentacoes:0,baterias:0,obs:''}); };
+  const salvarEf=async()=>{if(!ef.nome||!ef.data){toast(pick(TR.nomeDataObrig),'erro');return;}await criarEficiencia({...ef,cidade:cidade||'SP'});toast(pick(TR.registrado));setModal(false);setEf({uid:'',nome:'',data:'',cidade:cidade||'',movimentacoes:0,baterias:0,obs:''}); };
 
   return(
     <div>
@@ -1434,7 +1386,7 @@ function AbaMEIs({cidade}:AbaProps){
   const [salvando,setSalvando]=useState(false);
 
   useEffect(()=>{
-    const u=onSnapshot(qCidade('meis',cidade),s=>setLista(s.docs.map(d=>({id:d.id,...d.data()} as MEI))));
+    const u=subscribeMeis(cidade,m=>setLista(m as MEI[]));
     return u;
   },[cidade]);
 
@@ -1444,8 +1396,8 @@ function AbaMEIs({cidade}:AbaProps){
   const salvar=async()=>{
     if(!form.nome?.trim()||!form.cnpj?.trim()){toast(pick(TR.nomeCnpjObrig),'erro');return;}
     setSalvando(true);
-    const p:any={...form,cidade:cidade||'SP',suspensoInicio:suspForm.ativo?suspForm.inicio:'',suspensoAte:suspForm.ativo?suspForm.ate:'',motivoSuspensao:suspForm.ativo?suspForm.motivo:'',atualizadoEm:serverTimestamp()};
-    try{if(edit?.id){await updateDoc(doc(db,'meis',edit.id),p);toast(pick(TR.meiAtualizado));}else{await addDoc(collection(db,'meis'),{...p,criadoEm:serverTimestamp()});toast(pick(TR.meiCadastrado));}setModal(false);}
+    const p:any={...form,cidade:cidade||'SP',suspensoInicio:suspForm.ativo?suspForm.inicio:'',suspensoAte:suspForm.ativo?suspForm.ate:'',motivoSuspensao:suspForm.ativo?suspForm.motivo:''};
+    try{await upsertMei(p,edit?.id);toast(edit?pick(TR.meiAtualizado):pick(TR.meiCadastrado));setModal(false);}
     catch(e:any){toast(e.message,'erro');}finally{setSalvando(false);}
   };
 
@@ -1472,7 +1424,7 @@ function AbaMEIs({cidade}:AbaProps){
                 <td style={{...S.td,fontSize:11,color:T.dim}}>{m.cidade||cidade||'—'}</td>
                 <td style={S.td}><div style={{display:'flex',gap:4}}>
                   <button onClick={()=>{setEdit(m);setForm({...m});setSuspForm({ativo:!!(m.suspensoAte),inicio:m.suspensoInicio||'',ate:m.suspensoAte||'',motivo:m.motivoSuspensao||''});setModal(true);}} style={{...S.btn(T.bluel,true),padding:'3px 8px',fontSize:11}}>✏</button>
-                  <button onClick={async()=>{if(m.id&&window.confirm(`${pick(TR.removerNome)} ${m.nome}?`)){await deleteDoc(doc(db,'meis',m.id));toast(pick(TR.removido));}}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
+                  <button onClick={async()=>{if(m.id&&window.confirm(`${pick(TR.removerNome)} ${m.nome}?`)){await deleteMei(m.id);toast(pick(TR.removido));}}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
                 </div></td>
               </tr>
             );})}
@@ -1521,14 +1473,11 @@ function AbaCLT({cidade}:AbaProps){
   const [salvando,setSalvando]=useState(false);
 
   useEffect(()=>{
-    if (usuariosReadSupabase()) {
-      let vivo=true;
-      const carregar=()=>fetchUsuarios({ role_in: ['campo','logistica','charger','scalt','promotor'] }).then(users=>{ if(vivo) setLista(users.map(u=>({...u,id:u.uid}))); });
-      carregar();
-      const iv=setInterval(carregar,30000);
-      return()=>{vivo=false;clearInterval(iv);};
-    }
-    const u=onSnapshot(collection(db,'usuarios'),s=>setLista(s.docs.map(d=>({id:d.id,...d.data()})).filter((f:any)=>['campo','logistica','charger','scalt','promotor'].includes(f.role||''))));return u;
+    let vivo=true;
+    const carregar=()=>fetchUsuarios({ role_in: ['campo','logistica','charger','scalt','promotor'] }).then(users=>{ if(vivo) setLista(users.map((u:any)=>({...u,id:u.uid}))); });
+    carregar();
+    const iv=setInterval(carregar,30000);
+    return()=>{vivo=false;clearInterval(iv);};
   },[]);
   const listaCidade = cidade ? lista.filter((f:any)=>!f.cidade||f.cidade===cidade) : lista;
   const filtrados=useMemo(()=>listaCidade.filter(f=>(filtroSt==='TODOS'||f.status===filtroSt)&&(!busca||f.nome?.toLowerCase().includes(busca.toLowerCase())||(f.cpf||'').includes(busca))),[listaCidade,busca,filtroSt]);
@@ -1537,7 +1486,7 @@ function AbaCLT({cidade}:AbaProps){
   const salvar=async()=>{
     if(!form.nome?.trim()||!form.cpf?.trim()){toast(pick(TR.nomeCpfObrig),'erro');return;}
     setSalvando(true);
-    try{if(edit?.id){await updateDoc(doc(db,'usuarios',edit.id),{...form,atualizadoEm:serverTimestamp()});toast(pick(TR.atualizado));}else{await addDoc(collection(db,'usuarios'),{...form,cidade:cidade||'SP',role:'campo',criadoEm:serverTimestamp()});toast(pick(TR.cadastrado));}setModal(false);}
+    try{await upsertUsuario(edit?.id?{...form}:{...form,cidade:cidade||'SP',role:'campo'},edit?.id);toast(edit?pick(TR.atualizado):pick(TR.cadastrado));setModal(false);}
     catch(e:any){toast(e.message,'erro');}finally{setSalvando(false);}
   };
 
@@ -1565,7 +1514,7 @@ function AbaCLT({cidade}:AbaProps){
                 <td style={S.td}><span style={S.chip(stCor(f.status||'ATIVO'))}>{f.status||'—'}</span></td><td style={S.td}>{f.diaFolga||'—'}</td>
                 <td style={S.td}><div style={{display:'flex',gap:4}}>
                   <button onClick={()=>{setEdit(f);setForm({...f});setModal(true);}} style={{...S.btn(T.bluel,true),padding:'3px 8px',fontSize:11}}>✏</button>
-                  <button onClick={async()=>{if(f.id&&window.confirm(`${pick(TR.removerNome)} ${f.nome}?`)){await deleteDoc(doc(db,'usuarios',f.id));toast(pick(TR.removido));}}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
+                  <button onClick={async()=>{if(f.id&&window.confirm(`${pick(TR.removerNome)} ${f.nome}?`)){await deleteUsuario(f.id);toast(pick(TR.removido));}}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
                 </div></td>
               </tr>
             ))}
@@ -1606,10 +1555,8 @@ function AbaInventario({cidade}:AbaProps){
   const [edit,    setEdit   ]=useState<Inventario|null>(null);
   const [form,    setForm   ]=useState<Partial<Inventario>>({tipo:'armario',nome:'',status:'ATIVO',zona:'',identificador:'',observacao:''});
   const [salvando,setSalvando]=useState(false);
-  const col=`inventario_${tipo}`;
-
   useEffect(()=>{
-    const u=onSnapshot(qCidade(col,cidade),s=>setLista(s.docs.map(d=>({id:d.id,...d.data()} as Inventario))));return u;
+    const u=subscribeInventario(tipo,cidade,i=>setLista(i as Inventario[]));return u;
   },[tipo,cidade]);
 
   const tipos=[{k:'armario',l:pick(TR.invArmarios),e:'🔋'},{k:'patinete',l:pick(TR.invPatinetes),e:'🛴'},{k:'carro',l:pick(TR.invCarros),e:'🚗'},{k:'suporte',l:pick(TR.invSuportes),e:'🧰'}] as {k:Inventario['tipo'];l:string;e:string}[];
@@ -1618,8 +1565,8 @@ function AbaInventario({cidade}:AbaProps){
   const salvar=async()=>{
     if(!form.nome?.trim()){toast(pick(TR.nomeObrigInv),'erro');return;}
     setSalvando(true);
-    const p={...form,tipo,cidade:cidade||'SP',atualizadoEm:serverTimestamp()};
-    try{if(edit?.id){await updateDoc(doc(db,col,edit.id),p);toast(pick(TR.atualizado));}else{await addDoc(collection(db,col),{...p,criadoEm:serverTimestamp()});toast(pick(TR.adicionado));}setModal(false);}
+    const p={...form,tipo,cidade:cidade||'SP'};
+    try{await upsertInventario(p,edit?.id);toast(edit?pick(TR.atualizado):pick(TR.adicionado));setModal(false);}
     catch(e:any){toast(e.message,'erro');}finally{setSalvando(false);}
   };
 
@@ -1641,7 +1588,7 @@ function AbaInventario({cidade}:AbaProps){
               <tr key={item.id}><td style={{...S.td,fontWeight:600}}>{item.nome}</td><td style={{...S.td,fontFamily:'monospace',fontSize:11}}>{item.identificador||'—'}</td><td style={S.td}>{item.zona||'—'}</td><td style={S.td}><span style={S.chip(stCor(item.status))}>{item.status}</span></td><td style={{...S.td,fontSize:11,color:T.dim,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis'}}>{item.observacao||'—'}</td>
               <td style={S.td}><div style={{display:'flex',gap:4}}>
                 <button onClick={()=>{setEdit(item);setForm({...item});setModal(true);}} style={{...S.btn(T.bluel,true),padding:'3px 8px',fontSize:11}}>✏</button>
-                <button onClick={async()=>{if(item.id&&window.confirm(pick(TR.remover)))await deleteDoc(doc(db,col,item.id));}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
+                <button onClick={async()=>{if(item.id&&window.confirm(pick(TR.remover)))await deleteInventario(item.id);}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
               </div></td></tr>
             ))}
           </tbody>
@@ -1680,15 +1627,13 @@ function AbaTelegram({usuario,cidade}:AbaProps){
   const [cargoFiltro,setCargoFiltro]=useState('todos');
 
   useEffect(()=>{
-    const u1=onSnapshot(qCidade('slots',cidade,orderBy('criadoEm','desc'),limit(100)),s=>setSlots(s.docs.map(d=>({id:d.id,...d.data()} as Slot)).filter(sl=>sl.dataSlot===hoje())));
-    const u2=onSnapshot(collection(db,'slot_aceites'),s=>setAceites(s.docs.map(d=>({id:d.id,...d.data()} as SlotAceite))));
-    const u3=onSnapshot(qCidade('tarefas_logistica',cidade,where('status','in',['pendente','em_andamento']),limit(100)),s=>setTarefas(s.docs.map(d=>({id:d.id,...d.data()} as TarefaLogistica))));
-    const since=Timestamp.fromMillis(Date.now()-30*60000);
-    const u4=onSnapshot(qCidade('gps_logistica',cidade,where('criadoEm','>=',since)),s=>setWorkers(s.docs.map(d=>({uid:d.id,...d.data()} as GpsWorker))));
+    const u1=subscribeSlotsGestor({cidade,limit:100},s=>setSlots((s as Slot[]).filter(sl=>sl.dataSlot===hoje())));
+    const u2=subscribeAceites(a=>setAceites(a as SlotAceite[]));
+    const u3=subscribeTarefas({cidade,status:['pendente','em_andamento'],limit:100},t=>setTarefas(t as TarefaLogistica[]));
+    const u4=subscribeGpsLogistica({cidade,minutos:30},w=>setWorkers(w as GpsWorker[]));
     // Grupos Telegram da cidade
-    getDoc(doc(db,'telegram_config','cidades')).then(d=>{
-      if(d.exists()){const data=d.data();const cidadeKey=cidade||'global';const cfg=data[cidadeKey];if(cfg?.grupos){const gs:TelegramGrupo[]=Object.entries(cfg.grupos).map(([tipo,g]:any)=>({...g,cidade:cidadeKey,tipos:[tipo]}));setGrupos(gs);}}
-    }).catch(()=>{});
+    const cidadeKey=cidade||'global';
+    fetchTelegramGrupos(cidadeKey).then(gs=>setGrupos(gs as TelegramGrupo[])).catch(()=>{});
     return()=>{u1();u2();u3();u4();};
   },[cidade]);
 
@@ -1821,13 +1766,8 @@ function AbaAlertas({cidade}:AbaProps){
 
   useEffect(()=>{
     setLoading(true);
-    const q = cidade
-      ? query(collection(db,'monitor_alertas'),where('cidade','==',cidade),orderBy('ts','desc'),limit(100))
-      : query(collection(db,'monitor_alertas'),orderBy('ts','desc'),limit(100));
-    const u=onSnapshot(q,s=>{
-      setLista(s.docs.map(d=>({id:d.id,...d.data()} as MonitorAlerta)));
-      setLoading(false);
-    },()=>setLoading(false));
+    fetchAlertas(cidade).then(a=>{setLista(a as MonitorAlerta[]);setLoading(false);}).catch(()=>setLoading(false));
+    const u=subscribeAlertas(cidade,a=>{setLista(a as MonitorAlerta[]);setLoading(false);},15000);
     return u;
   },[cidade]);
 
@@ -1912,21 +1852,13 @@ function AbaConfig({cidade,isAdmin}:AbaProps){
 
   useEffect(()=>{
     const cidadeKey=cidade||'global';
-    getDoc(doc(db,'config_logistica',cidadeKey)).then(d=>{if(d.exists())setCfg(prev=>({...prev,...(d.data() as ConfigGlobal)}));}).catch(()=>{});
-    getDoc(doc(db,'telegram_config','cidades')).then(d=>{if(d.exists()){const data=d.data();const gs:TelegramGrupo[]=Object.entries(data[cidadeKey]?.grupos||{}).map(([tipo,g]:any)=>({...g,cidade:cidadeKey,tipos:[tipo]}));setTgGrupos(gs);}}).catch(()=>{});
+    fetchConfigLogistica(cidadeKey).then(d=>{if(d)setCfg(prev=>({...prev,...(d as ConfigGlobal)}));}).catch(()=>{});
+    fetchTelegramGrupos(cidadeKey).then(gs=>setTgGrupos(gs as TelegramGrupo[])).catch(()=>{});
     if(isAdmin){
-      if (usuariosReadSupabase()) {
-        fetchUsuarios().then(users=>{
-          setTodosUsers(users as any[]);
-          setGestoresLog(users.filter(u=>['gestor','supergestor','logistica'].includes(u.role)).map(u=>({uid:u.uid,nome:u.nome||'',...u})));
-        });
-      } else {
-        getDocs(collection(db,'usuarios')).then(s=>{
-          const users=s.docs.map(d=>({uid:d.id,...d.data()}));
-          setTodosUsers(users as any[]);
-          setGestoresLog((users as any[]).filter(u=>['gestor','supergestor','logistica'].includes((u as any).role)).map(u=>({uid:(u as any).uid,nome:(u as any).nome||'',...(u as any)})));
-        });
-      }
+      fetchUsuarios().then(users=>{
+        setTodosUsers(users as any[]);
+        setGestoresLog(users.filter((u:any)=>['gestor','supergestor','logistica'].includes(u.role)).map((u:any)=>({uid:u.uid,nome:u.nome||'',...u})));
+      });
     }
   },[cidade,isAdmin]);
 
@@ -1934,7 +1866,7 @@ function AbaConfig({cidade,isAdmin}:AbaProps){
     setSalvando(true);
     try{
       const cidadeKey=cidade||'global';
-      await setDoc(doc(db,'config_logistica',cidadeKey),{...cfg,atualizadoEm:serverTimestamp()});
+      await salvarConfigLogistica(cidadeKey,cfg as unknown as Record<string, unknown>);
       toast(`${pick(TR.configSalva)}${cidade?` — ${cidade}`:''}`)
     }catch(e:any){toast(e.message,'erro');}finally{setSalvando(false);}
   };
@@ -1943,10 +1875,10 @@ function AbaConfig({cidade,isAdmin}:AbaProps){
     if(!gf.chatId||!gf.nome){toast(pick(TR.chatIdObrig),'erro');return;}
     const cidadeKey=cidade||'global';
     const tipoKey=(gf.tipos?.[0]||'geral').toLowerCase();
-    await setDoc(doc(db,'telegram_config','cidades'),{[cidadeKey]:{grupos:{[tipoKey]:{chatId:gf.chatId,nome:gf.nome,topicos:gf.topicos||{}}}}},{merge:true});
+    await salvarTelegramGrupo(cidadeKey,tipoKey,{chatId:gf.chatId,nome:gf.nome,topicos:gf.topicos||{}});
     toast(pick(TR.grupoSalvo));setNovoGrupo(false);setGf({chatId:'',nome:'',tipos:['Scout','Charger'],topicos:{}});
     // recarregar grupos
-    getDoc(doc(db,'telegram_config','cidades')).then(d=>{if(d.exists()){const data=d.data();const gs:TelegramGrupo[]=Object.entries(data[cidadeKey]?.grupos||{}).map(([tipo,g]:any)=>({...g,cidade:cidadeKey,tipos:[tipo]}));setTgGrupos(gs);}}).catch(()=>{});
+    fetchTelegramGrupos(cidadeKey).then(gs=>setTgGrupos(gs as TelegramGrupo[])).catch(()=>{});
   };
 
   const N=({label,field,min,max,step=1}:{label:string;field:keyof ConfigGlobal;min:number;max:number;step?:number})=>(
@@ -2086,21 +2018,11 @@ function AbaGoJetConfig({ cidade, isAdmin }: AbaProps) {
 
   useEffect(() => {
     if (!cidade) return;
-    getDoc(doc(db, 'gojet_config', cidade)).then(snap => {
-      if (snap.exists()) setCfg({ ...CFG_PADRAO, ...snap.data() });
+    fetchGojetConfig(cidade).then(data => {
+      if (data) setCfg({ ...CFG_PADRAO, ...data });
     });
-    // Info do snapshot mais recente
-    Promise.all([
-      getDoc(doc(db, 'gojet_snapshots', `latest_${cidade}`))
-        .then(s => s.exists() ? s : getDoc(doc(db, 'gojet_snapshots', 'latest'))),
-      getDoc(doc(db, 'gojet_snapshots', `bikes_latest_${cidade}`))
-        .then(s => s.exists() ? s : getDoc(doc(db, 'gojet_snapshots', 'bikes_latest'))),
-    ]).then(([pSnap, bSnap]) => {
-      const total = pSnap.exists() ? (pSnap.data()?.total ?? (pSnap.data()?.parkings ?? []).length) : 0;
-      const bikes = bSnap.exists() ? (bSnap.data()?.total ?? (bSnap.data()?.bikes ?? []).length) : 0;
-      const ts = pSnap.exists() ? (pSnap.data()?.savedAt?.toMillis?.() ?? pSnap.data()?.atualizadoEm?.toMillis?.() ?? null) : null;
-      const idade = ts ? Math.round((Date.now() - ts) / 60000) : null;
-      setSnapInfo({ total, bikes, idade });
+    fetchGojetSnapInfo(cidade).then(info => {
+      if (info) setSnapInfo(info);
     }).catch(() => {});
   }, [cidade]);
 
@@ -2110,8 +2032,7 @@ function AbaGoJetConfig({ cidade, isAdmin }: AbaProps) {
     if (!cidade) return;
     setBusy(true); setMsg('');
     try {
-      await setDoc(doc(db, 'gojet_config', cidade), cfg, { merge: true });
-      salvarGojetConfigSupabase(cidade, cfg.cityId || '', cfg.ativo ?? true, cfg as unknown as Record<string, unknown>).catch(() => {});
+      await salvarGojetConfig(cidade, cfg as unknown as Record<string, unknown>);
       setMsg(pick(TR.configGoJetSalva));
       setTimeout(() => setMsg(''), 3000);
     } catch (e: any) { setMsg(pick(TR.erroPrefix) + ' ' + e.message); }

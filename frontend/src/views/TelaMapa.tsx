@@ -1,17 +1,13 @@
 ﻿// TelaMapa.tsx — Main map component extracted from App.tsx
 import { useState, useEffect, useRef, useCallback, CSSProperties, startTransition } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  collection, query, where, getDocs, addDoc, updateDoc, deleteDoc,
-  doc, setDoc, onSnapshot, orderBy, getDoc
-} from 'firebase/firestore';
-import { auth, db, fnGerarCroqui, fnGerarStreetView, fnAnalisarCalcada, fnBuscarPOIs } from '../lib/firebase';
-import { guardProviderSupabase, carregarOcorrenciasSupabase } from '../lib/ocorrencias-supabase';
+import { auth, fnGerarCroqui, fnGerarStreetView, fnAnalisarCalcada, fnBuscarPOIs } from '../lib/firebase';
+import { carregarOcorrenciasSupabase } from '../lib/ocorrencias-supabase';
 import L from 'leaflet';
 import { uploadComRetry } from '../lib/uploadUtils';
 import { comprimirImagem, capturarFotoNativa } from '../lib/imageUtils';
 import { isAndroidNative } from '../lib/gps-native';
-import { mapaProviderSupabase, carregarEstacoesSupabase, carregarZonasSupabase } from '../lib/estacoes-supabase';
+import { carregarEstacoesSupabase, carregarZonasSupabase } from '../lib/estacoes-supabase';
 import { supabase } from '../lib/supabase';
 import ZonasManager from '../ZonasManager';
 import { useCidadesExpansao, CidadeExpansaoModal, STATUS_META, type CidadeExpansao } from '../CidadesExpansao';
@@ -86,26 +82,25 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
           vapidKey: import.meta.env.VITE_FIREBASE_VAPID_KEY,
         });
         if (token) {
-          const { doc: fDoc, setDoc: fSetDoc } = await import('firebase/firestore');
-          await fSetDoc(fDoc(db, 'fcm_tokens', usuario.uid), {
-            token, uid: usuario.uid, plataforma: 'web',
-            atualizadoEm: new Date().toISOString(),
-          });
+          await supabase.from('fcm_tokens').upsert({
+            uid: usuario.uid, token, plataforma: 'web',
+            atualizado_em: new Date().toISOString(),
+          }, { onConflict: 'uid' });
         }
       } catch { /* FCM não disponível no browser atual */ }
     })();
   }, [usuario?.uid]);
 
-  // Notificações em tempo real (últimas 50)
+  // Notificações — Supabase
   useEffect(() => {
-    // Sem orderBy para evitar permission-denied (sem índice criado)
-    return onSnapshot(collection(db,'notificacoes_app'), snap => {
-      const sorted = snap.docs
-        .map(d => ({ id:d.id, ...d.data() } as any))
-        .sort((a:any,b:any) => (b.ts||0) - (a.ts||0))
-        .slice(0, 50);
-      setNotifList(sorted);
-    });
+    supabase.from('notificacoes_app').select('*').order('ts', { ascending: false }).limit(50)
+      .then(({ data }) => { if (data) setNotifList(data as any); });
+    const chan = supabase.channel('notif-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notificacoes_app' }, () => {
+        supabase.from('notificacoes_app').select('*').order('ts', { ascending: false }).limit(50)
+          .then(({ data }) => { if (data) setNotifList(data as any); });
+      }).subscribe();
+    return () => { supabase.removeChannel(chan); };
   }, []);
 
   const mapRef      = useRef<HTMLDivElement>(null);
@@ -281,20 +276,11 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
       const roubos = filtradas.filter(d => d.tipo === 'Roubo').length;
       setKpis(prev => ({ ...prev, ocAbertas: abertas.length, procurando, roubos }));
     };
-    // Fase 2 / Onda B — leitura do Supabase atrás de flag (read-only).
-    if (guardProviderSupabase()) {
-      let vivo = true;
-      carregarOcorrenciasSupabase({ limit: 5000 })
-        .then(rows => { if (vivo) processar(rows); })
-        .catch(err => console.warn('[KPI ocorrencias] Supabase', err));
-      return () => { vivo = false; };
-    }
-    const unsub = onSnapshot(
-      collection(db, 'ocorrencias'),
-      snap => processar(snap.docs.map(d => d.data())),
-      err => console.warn('[KPI ocorrencias]', err.code, err.message)
-    );
-    return () => unsub();
+    let vivo = true;
+    carregarOcorrenciasSupabase({ limit: 5000 })
+      .then(rows => { if (vivo) processar(rows); })
+      .catch(err => console.warn('[KPI ocorrencias] Supabase', err));
+    return () => { vivo = false; };
   }, [isGestorApp, cidade]);
 
   // Pins de ocorrências: apenas quando GuardOverlay está aberto (gerenciado pelo próprio componente)
@@ -493,9 +479,8 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
               showToast('Foto com medidas salva!', 'success');
               return;
             }
-            // Fallback Firestore
-            const { doc: fsDoc, updateDoc, collection: col } = await import('firebase/firestore');
-            await updateDoc(fsDoc(col(db, 'estacoes'), id), { 'imagens.foto': url });
+            // Fallback Supabase
+            await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(`id.eq.${id},firebase_id.eq.${id}`);
             updateLocal(id, url);
             showToast('Foto com medidas salva!', 'success');
           } catch (err: any) {
@@ -587,71 +572,24 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
     if (coords) map.setView(coords, 13);
   }, [cidade]);
 
-  // Firestore — carrega estações das cidades selecionadas
+  // Carrega estações das cidades selecionadas (Supabase)
   useEffect(() => {
     if (!cidades.length) { setEstacoes([]); return; }
 
-    const unsubs: (() => void)[] = [];
     const porCidade: Record<string, Estacao[]> = {};
     let cancelled = false;
     const merge = () => { if (!cancelled) setEstacoes(Object.values(porCidade).flat()); };
 
-    // Raio de busca por coordenadas quando nome não bate (~50km)
-    const dentroRaio = (lat: number, lng: number, cLat: number, cLng: number) => {
-      const dlat = lat - cLat, dlng = lng - cLng;
-      return (dlat * dlat + dlng * dlng) < 0.25; // ~0.5 grau ~ 50km
-    };
-
     cidades.forEach(c => {
       const cTrim = c.trim();
-      // Fase 2 (dual-run, atrás de flag): lê estações do Supabase. Sem realtime no piloto
-      // (carga única por cidade). Flag off → caminho Firestore original abaixo.
-      if (mapaProviderSupabase()) {
-        carregarEstacoesSupabase(cTrim).then(rows => {
-          if (cancelled) return;
-          porCidade[cTrim] = rows as Estacao[];
-          merge();
-        }).catch(e => console.warn('[estacoes-supabase] falha ao carregar', cTrim, e?.message));
-        return;
-      }
-      const q = query(collection(db, 'estacoes'), where('cidade', '==', cTrim));
-      const unsub = onSnapshot(q, snap => {
-        if (snap.docs.length > 0) {
-          porCidade[cTrim] = snap.docs.map(d => ({ id: d.id, ...d.data() } as Estacao));
-          merge();
-        } else {
-          // Fallback: busca por coordenadas geográficas da cidade
-          const coords = COORDS_CIDADES[cTrim];
-          if (coords) {
-            const [cLat, cLng] = coords;
-            getDocs(collection(db, 'estacoes')).then(allSnap => {
-              if (cancelled) return;
-              const match = allSnap.docs.filter(d => {
-                const { lat, lng } = d.data();
-                return dentroRaio(Number(lat || 0), Number(lng || 0), cLat, cLng);
-              });
-              porCidade[cTrim] = match.map(d => ({ id: d.id, ...d.data() } as Estacao));
-              merge();
-            }).catch(() => {});
-          } else {
-            // Sem coordenadas: filtra por nome parcial
-            getDocs(collection(db, 'estacoes')).then(allSnap => {
-              if (cancelled) return;
-              const cLow = cTrim.toLowerCase();
-              const match = allSnap.docs.filter(d => {
-                const v = (d.data().cidade || '').toLowerCase();
-                return v.includes(cLow) || cLow.includes(v);
-              });
-              porCidade[cTrim] = match.map(d => ({ id: d.id, ...d.data() } as Estacao));
-              merge();
-            }).catch(() => {});
-          }
-        }
-      });
-      unsubs.push(unsub);
+      carregarEstacoesSupabase(cTrim).then(rows => {
+        if (cancelled) return;
+        porCidade[cTrim] = rows as Estacao[];
+        merge();
+      }).catch(e => console.warn('[estacoes-supabase] falha ao carregar', cTrim, e?.message));
     });
 
-    return () => { cancelled = true; unsubs.forEach(u => u()); };
+    return () => { cancelled = true; };
   }, [JSON.stringify(cidades)]);
 
 
@@ -792,11 +730,8 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
     const layer = L.layerGroup().addTo(map);
     poligonosLayerRef.current = layer;
 
-    (mapaProviderSupabase()
-      // Fase 2: zonas do Supabase (mesmo flag das estações). Fake-snapshot p/ não mudar o downstream.
-      ? carregarZonasSupabase(cidades).then(rows => ({ docs: rows.map((r: any) => ({ id: r.id, data: () => r })) }))
-      : getDocs(query(collection(db, 'poligonos'), where('cidade', 'in', cidades.slice(0,10))))
-    ).then((snap: any) => {
+    carregarZonasSupabase(cidades).then(rows => ({ docs: rows.map((r: any) => ({ id: r.id, data: () => r })) }))
+    .then((snap: any) => {
       // Filtra ativo no cliente para incluir zonas sem campo ativo (legado)
       const activeDocs = { docs: snap.docs.filter((d: any) => d.data().ativo !== false) };
       return activeDocs;
@@ -903,31 +838,29 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
     }).catch(() => {});
 
     // Handlers para botões no popup
-    (window as any)._editZona = (id: string) => {
-      getDocs(query(collection(db, 'poligonos'), where('cidade', 'in', cidades.slice(0,10)))).then(snap => {
-        const d = snap.docs.find(x => x.id === id);
-        if (d) setZonaEditando({ id: d.id, ...d.data() });
-      });
+    (window as any)._editZona = async (id: string) => {
+      const { data } = await supabase.from('poligonos').select('*').or(`id.eq.${id},firebase_id.eq.${id}`).limit(1).single();
+      if (data) setZonaEditando(data);
     };
     (window as any)._deleteZona = async (id: string, nome: string) => {
       if (!confirm('Excluir zona "' + nome + '"?')) return;
-      const { doc: fDoc, deleteDoc: fDel } = await import('firebase/firestore');
-      await fDel(fDoc(db, 'poligonos', id));
+      const { error } = await supabase.from('poligonos').delete().or(`id.eq.${id},firebase_id.eq.${id}`);
+      if (error) throw error;
       showToast('Zona excluída', 'success');
       setPoligonosOn(false); setTimeout(() => setPoligonosOn(true), 100);
     };
   }, [poligonosOn, cidade]);
 
-  // Pinos de cidade no mapa mundial — busca cidades reais do Firestore
+  // Pinos de cidade no mapa mundial — busca cidades reais do Supabase
   const cidadePinsRef  = useRef<L.LayerGroup | null>(null);
   const [cidadesReais, setCidadesReais] = useState<{cidade: string; count: number; lat: number; lng: number; pais: string}[]>([]);
   const [modoCluster, setModoCluster] = useState(true); // true=cluster por cidade, false=pins individuais
   const [ocorrCidades, setOcorrCidades] = useState<{cidade:string;count:number;lat:number;lng:number;tipos:Record<string,number>}[]>([]);
   const ocorrCidadesRef = useRef<L.LayerGroup|null>(null);
 
-  // Busca cidades com estações — Supabase (primário) + Firestore (fallback/merge)
+  // Busca cidades com estações — Supabase
   const paisesDoUsuario = usuario.paises || ['BR'];
-  useEffect(() => {
+  useEffect(() => { (async () => {
     const userIsAdmin = ['admin','gestor'].includes(usuario.role);
     const buildMapa = (mapa: Record<string, {lats: number[]; lngs: number[]; count: number; pais: string}>, rows: {cidade:string;lat:number;lng:number;pais?:string}[]) => {
       for (const r of rows) {
@@ -970,19 +903,9 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
       }
     })().catch((e) => { console.error('[TelaMapa] Supabase catch:', e); });
 
-    // Firestore: cidades legadas (merge)
-    const fbProm = getDocs(collection(db, 'estacoes')).then(snap => {
-      const rows = snap.docs.map(d => {
-        const dd = d.data();
-        return { cidade: dd.cidade, lat: dd.lat as number, lng: dd.lng as number, pais: dd.pais };
-      });
-      buildMapa(mapa, rows);
-    }).catch(() => {});
-
-    Promise.all([supaProm, fbProm]).then(() => {
-      setCidadesReais(mapaToLista(mapa));
-    });
-  }, [pais]);
+    await supaProm;
+    setCidadesReais(mapaToLista(mapa));
+  })(); }, [pais]);
 
   useEffect(() => {
     const map = leafletRef.current;
@@ -1672,9 +1595,8 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
       if (!e) return;
       if (!confirm(t('popup.deleteConfirm', { codigo: e.codigo }))) return;
       try {
-        const { doc, deleteDoc } = await import('firebase/firestore');
-        await deleteDoc(doc(db, 'estacoes', id));
-        supabase.from('estacoes').delete().or(`id.eq.${id},firebase_id.eq.${id}`).then(() => {}, () => {});
+        const { error } = await supabase.from('estacoes').delete().or(`id.eq.${id},firebase_id.eq.${id}`);
+        if (error) throw error;
         setEstacoes(prev => prev.filter((x: any) => x.id !== id));
         leafletRef.current?.closePopup();
         showToast(t('popup.deleted'), 'success');
@@ -1740,8 +1662,8 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         map.off('click', (window as any).__reposHandler);
         (window as any).__reposHandler = null;
         try {
-          const { doc: fsDoc, updateDoc } = await import('firebase/firestore');
-          await updateDoc(fsDoc(db, 'estacoes', codigo), { lat: ev.latlng.lat, lng: ev.latlng.lng });
+          const { error } = await supabase.from('estacoes').update({ lat: ev.latlng.lat, lng: ev.latlng.lng }).or(`codigo.eq.${codigo},firebase_id.eq.${codigo}`);
+          if (error) throw error;
           setEstacoes((prev: any[]) => prev.map((s: any) =>
             s.codigo === codigo ? { ...s, lat: ev.latlng.lat, lng: ev.latlng.lng } : s
           ));
@@ -1871,100 +1793,75 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
   }, [showPOILayer, poiLayerData, poiTiposAtivos]);
 
 
-     const salvarEstacao = useCallback(async (dados: Record<string, unknown>) => {                                                    
-       try {                                                                                                                          
-         const { doc, updateDoc, collection: col, query: fsQ, where: fsW, getDocs, addDoc } = await import('firebase/firestore');     
-                                                                                                                                      
-         if (dados.codigo) {                                                                                                          
-           // ── MODO EDIÇÃO ──────────────────────────────────────────────                                                           
-           const { id, tipo, status, larguraFaixa, observacoes, privado, nomeConcorrente, lat, lng, cidade, bairro, endereco,         
-      consultor, fotoUrl } = dados as any;                                                                                             
-                                                                                                                                      
-           const patch: Record<string, any> = {                                                                                       
-            tipo, status, lat, lng, cidade, bairro, endereco,                                                                        
-            consultor: consultor || null,                                                                                            
-            ...(larguraFaixa != null ? { larguraFaixa } : {}),                                                                       
-            ...(observacoes        ? { observacoes }        : {}),                                                                   
-            ...(privado            ? { privado }            : {}),                                                                   
-            ...(nomeConcorrente    ? { nomeConcorrente }    : {}),                                                                   
-            ...(fotoUrl ? { 'imagens.foto': fotoUrl } : {}), // ✅ Salva no caminho correto                                           
-            ultimoEditor: usuario.uid,                                                                                               
-            ultimoEditorNome: (usuario as any).nome || usuario.email,                                                                
-            atualizadoEm: new Date().toISOString()                                                                                   
-          };                                                                                                                         
-                                                                                                                                     
-          let updated = false;                                                                                                       
-          // 1. Tenta pelo docId real                                                                                                
-          if (id) {                                                                                                                  
-            try {                                                                                                                    
-              await updateDoc(doc(db, 'estacoes', id), patch);                                                                       
-              updated = true;                                                                                                        
-            } catch (e) { console.error("Erro updateDoc ID:", e); }                                                                  
-          }                                                                                                                          
-                                                                                                                                     
-          // 2. Fallback pelo codigo (se o ID falhar)                                                                                
-          if (!updated) {                                                                                                            
-            const snap = await getDocs(fsQ(col(db, 'estacoes'), fsW('codigo', '==', dados.codigo)));                                 
-            if (!snap.empty) {                                                                                                       
-              await updateDoc(snap.docs[0].ref, patch);                                                                              
-              updated = true;                                                                                                        
-            }                                                                                                                        
-          }                                                                                                                          
-                                                                                                                                    
-          if (!updated) throw new Error('Documento não encontrado: ' + dados.codigo);                                                
-                                                                                                                                     
-          // ✅ Atualiza o estado local para o mapa refletir a mudança na hora                                                        
-          setEstacoes(prev => prev.map(e => e.codigo === dados.codigo ? { ...e, ...patch, imagens: { ...e.imagens, foto: fotoUrl ||  
-      e.imagens?.foto } } : e));                                                                                                       
-                                                                                                                                     
-          showToast('Estação atualizada!', 'success');                                                                               
-     // Dentro de salvarEstacao, no bloco do else (Nova Estação):                                       
-     } else {                                                                                           
-       // ── NOVA ESTAÇÃO ─────────────────────────────────────────────                                 
-       const { addDoc, collection: col } = await import('firebase/firestore');                          
-                                                                                                        
-       const cidadeAbrev = ((dados.cidade as string) || 'SP').toUpperCase().slice(0, 2);                
-       const ts = Date.now().toString().slice(-6);                                                      
-       const codigoGerado = `${cidadeAbrev}-${ts}`;                                                     
-       const cidadeNorm = ((dados.cidade as string) || '').trim();                                      
-                                                                                                       
-      // Criamos uma cópia dos dados e REMOVEMOS o id para não dar erro de undefined                   
-      const dadosParaSalvar = { ...dados };                                                            
-      delete dadosParaSalvar.id; // ✅ Remove o campo id que está vindo como undefined                  
-                                                                                                       
-      const novaEstacao = {                                                                            
-        ...dadosParaSalvar,                                                                            
-        cidade:        cidadeNorm,                                                                     
-       codigo:        codigoGerado,                                                                   
-        status:        (dados.status as string)  || 'NEGOCIACAO',                                      
-        tipo:          (dados.tipo as string)    || 'PUBLICA',                                         
-        criadoEm:      new Date().toISOString(),   
-        criadoPor:     usuario.uid,                                                                    
-        criadoPorNome: (usuario as any).nome || usuario.email,                                         
-        imagens: dados.fotoUrl ? { foto: dados.fotoUrl } : {}                                          
-      };                                                                                               
-                                                                                                       
-      const docRef = await addDoc(col(db, 'estacoes'), novaEstacao);                                   
-                                                                                                       
-      setEstacoes((prev: any[]) => [...prev, { id: docRef.id, ...novaEstacao }]);                      
-      showToast('Estação adicionada!', 'success');                                                     
-    }                                                                                                  
-                                                                                                                            
-        setDrawerAberto(false); setPinLatLng(null); setEstacaoEdit(null);                                                            
-      } catch(e: unknown) {                                                                                                          
-        showToast(e instanceof Error ? e.message : 'Erro ao salvar', 'error');                                                       
-      }                                                                                                                              
-    }, [usuario, db, showToast]);                                                                                                    
+    const salvarEstacao = useCallback(async (dados: Record<string, unknown>) => {
+      try {
+        if (dados.codigo) {
+          // ── MODO EDIÇÃO ──
+          const { id, tipo, status, larguraFaixa, observacoes, privado, nomeConcorrente, lat, lng, cidade, bairro, endereco,
+            consultor, fotoUrl } = dados as any;
+
+          const patch: Record<string, any> = {
+            tipo, status, lat, lng, cidade, bairro, endereco,
+            consultor: consultor || null,
+            ...(larguraFaixa != null ? { larguraFaixa } : {}),
+            ...(observacoes        ? { observacoes }        : {}),
+            ...(privado            ? { privado }            : {}),
+            ...(nomeConcorrente    ? { nomeConcorrente }    : {}),
+            ...(fotoUrl ? { imagens: { foto: fotoUrl } } : {}),
+            ultimoEditor: usuario.uid,
+            ultimoEditorNome: (usuario as any).nome || usuario.email,
+            atualizadoEm: new Date().toISOString()
+          };
+
+          const { error } = await supabase.from('estacoes').update(patch).or(`id.eq.${id},firebase_id.eq.${id},codigo.eq.${dados.codigo}`);
+          if (error) throw error;
+
+          setEstacoes(prev => prev.map(e => e.codigo === dados.codigo ? { ...e, ...patch, imagens: { ...e.imagens, foto: fotoUrl || e.imagens?.foto } } : e));
+          showToast('Estação atualizada!', 'success');
+        } else {
+          // ── NOVA ESTAÇÃO ──
+          const cidadeAbrev = ((dados.cidade as string) || 'SP').toUpperCase().slice(0, 2);
+          const ts = Date.now().toString().slice(-6);
+          const codigoGerado = `${cidadeAbrev}-${ts}`;
+          const cidadeNorm = ((dados.cidade as string) || '').trim();
+
+          const dadosParaSalvar = { ...dados };
+          delete dadosParaSalvar.id;
+
+          const novaEstacao = {
+            ...dadosParaSalvar,
+            cidade:        cidadeNorm,
+            codigo:        codigoGerado,
+            status:        (dados.status as string)  || 'NEGOCIACAO',
+            tipo:          (dados.tipo as string)    || 'PUBLICA',
+            criadoEm:      new Date().toISOString(),
+            criadoPor:     usuario.uid,
+            criadoPorNome: (usuario as any).nome || usuario.email,
+            imagens: dados.fotoUrl ? { foto: dados.fotoUrl } : {}
+          };
+
+          const { data, error } = await supabase.from('estacoes').insert(novaEstacao).select('id').single();
+          if (error) throw error;
+
+          setEstacoes((prev: any[]) => [...prev, { id: data.id, ...novaEstacao }]);
+          showToast('Estação adicionada!', 'success');
+        }
+
+        setDrawerAberto(false); setPinLatLng(null); setEstacaoEdit(null);
+      } catch(e: unknown) {
+        showToast(e instanceof Error ? e.message : 'Erro ao salvar', 'error');
+      }
+    }, [usuario, showToast]);                                                                                                    
 
 
   // Edita zona existente
   const editarZona = async (id: string, dados: Record<string,unknown>) => {
     try {
-      const { doc, updateDoc } = await import('firebase/firestore');
-      await updateDoc(doc(db, 'poligonos', id), {
+      const { error } = await supabase.from('poligonos').update({
         ...dados,
-        atualizadoEm: new Date()
-      });
+        atualizadoEm: new Date().toISOString()
+      }).or(`id.eq.${id},firebase_id.eq.${id}`);
+      if (error) throw error;
       setZonaEditando(null);
       setPoligonosOn(false); setTimeout(() => setPoligonosOn(true), 150);
     } catch(e: unknown) {
@@ -1975,8 +1872,8 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
   // Exclui zona
   const excluirZona = async (id: string) => {
     try {
-      const { doc, deleteDoc } = await import('firebase/firestore');
-      await deleteDoc(doc(db, 'poligonos', id));
+      const { error } = await supabase.from('poligonos').delete().or(`id.eq.${id},firebase_id.eq.${id}`);
+      if (error) throw error;
       setZonaEditando(null);
       if (poligonosOn) { setPoligonosOn(false); setTimeout(() => setPoligonosOn(true), 100); }
     } catch(e: unknown) {
@@ -1987,14 +1884,14 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
   // Salva zona no Firestore
   const salvarZona = async (zona: Record<string,unknown>) => {
     try {
-      const { doc, setDoc } = await import('firebase/firestore');
       const id = 'ZONA-' + Date.now();
-      await setDoc(doc(db, 'poligonos', id), {
+      const { error } = await supabase.from('poligonos').insert({
         ...zona,
         id,
-        criadoEm:     new Date(),
-        atualizadoEm: new Date()
+        criadoEm:     new Date().toISOString(),
+        atualizadoEm: new Date().toISOString()
       });
+      if (error) throw error;
       setZonaForm(null);
       // Limpa layer temporário
       if (zonaTempLayer.current) zonaTempLayer.current.clearLayers();
@@ -3121,8 +3018,9 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                       try {
                         const comp = await comprimir(file);
                         const url = await uploadComRetry(comp, 'estacoes/fotos/' + id + '_' + Date.now() + '.jpg');
-                        const { doc: fsDoc, updateDoc } = await import('firebase/firestore');
-                        await updateDoc(fsDoc(db, 'estacoes', id), { 'imagens.foto': url });
+                        await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(`id.eq.${id},firebase_id.eq.${id}`);
+                        const est = estacoesRef.current.find((x: any) => x.id === id);
+                        if (est) (est as any).imagens = { ...((est as any).imagens || {}), foto: url };
                         showToast('Foto salva!', 'success');
                       } catch (err:any) { showToast('Erro: ' + err.message, 'error'); }
                       setFotoCapturaCtx(null);
@@ -3137,8 +3035,9 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                     try {
                       const comp = await comprimir(file);
                       const url = await uploadComRetry(comp, 'estacoes/fotos/' + id + '_' + Date.now() + '.jpg');
-                      const { doc: fsDoc, updateDoc } = await import('firebase/firestore');
-                      await updateDoc(fsDoc(db, 'estacoes', id), { 'imagens.foto': url });
+                      await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(`id.eq.${id},firebase_id.eq.${id}`);
+                      const est = estacoesRef.current.find((x: any) => x.id === id);
+                      if (est) (est as any).imagens = { ...((est as any).imagens || {}), foto: url };
                       showToast('Foto salva!', 'success');
                     } catch (err:any) { showToast('Erro: ' + err.message, 'error'); }
                     setFotoCapturaCtx(null);
@@ -3155,8 +3054,9 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                     try {
                       const comp = await comprimir(file);
                       const url = await uploadComRetry(comp, 'estacoes/fotos/' + id + '_' + Date.now() + '.jpg');
-                      const { doc: fsDoc, updateDoc } = await import('firebase/firestore');
-                      await updateDoc(fsDoc(db, 'estacoes', id), { 'imagens.foto': url });
+                      await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(`id.eq.${id},firebase_id.eq.${id}`);
+                      const est = estacoesRef.current.find((x: any) => x.id === id);
+                      if (est) (est as any).imagens = { ...((est as any).imagens || {}), foto: url };
                       showToast('Foto salva!', 'success');
                     } catch (err:any) { showToast('Erro: ' + err.message, 'error'); }
                     setFotoCapturaCtx(null);

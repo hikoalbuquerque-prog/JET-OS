@@ -131,17 +131,7 @@ async function getTgConfig() {
         }
     }
     catch { /* fallback */ }
-    try {
-        // Fallback Firestore
-        const snap = await db.collection('telegram_config').doc('global').get();
-        if (!snap.exists)
-            return null;
-        const d = snap.data();
-        return { token: d.botToken ?? '', chatIds: d.chatIds ?? d.cidades ?? {} };
-    }
-    catch {
-        return null;
-    }
+    return null;
 }
 // Busca chatId para a cidade — fallback para o chatId global
 async function getChatId(cidade) {
@@ -206,21 +196,13 @@ exports.verificarChegadaPonto = (0, firestore_1.onDocumentCreated)({ document: '
                 if (velocidadeMs > TELEPORTE_VEL_MS) {
                     // Verifica cooldown no doc do usuário
                     const opRef = db.collection('usuarios').doc(uid);
-                    // Supabase-first
                     let opData = {};
                     try {
                         const sbUser = await (0, supabase_rest_1.supabaseGetOne)('usuarios', `select=*&id=eq.${encodeURIComponent(uid)}`);
-                        if (sbUser) {
-                            opData = sbUser;
-                        }
-                        else {
-                            const opSnap = await opRef.get();
-                            opData = opSnap.data() ?? {};
-                        }
+                        opData = sbUser ?? {};
                     }
-                    catch {
-                        const opSnap = await opRef.get();
-                        opData = opSnap.data() ?? {};
+                    catch (e) {
+                        functions.logger.warn('[gps-alertas] Supabase usuarios falhou:', e);
                     }
                     const ultimoAlerta = opData.alertaTeleporteEm?.toMillis?.() ?? 0;
                     const agora = Date.now();
@@ -230,23 +212,12 @@ exports.verificarChegadaPonto = (0, firestore_1.onDocumentCreated)({ document: '
                         const segundos = Math.round(deltaMs / 1000);
                         const nome = opData.nome ?? opData.email ?? uid;
                         const mapsLink = `https://www.google.com/maps?q=${lat},${lng}`;
-                        // Grava alerta
-                        await db.collection('monitor_alertas').add({
-                            tipo: 'teleporte',
-                            uid,
-                            nome,
-                            lat,
-                            lng,
-                            velocidadeKmh,
-                            distanciaM,
-                            ts: admin.firestore.FieldValue.serverTimestamp(),
-                        });
-                        // Dual-write to Supabase
+                        // Grava alerta no Supabase
                         (0, supabase_rest_1.supabaseInsert)('monitor_alertas', {
                             tipo: 'teleporte', uid, nome, lat, lng,
                             velocidade_kmh: velocidadeKmh, distancia_m: distanciaM,
                             ts: new Date().toISOString(),
-                        }).catch(() => { });
+                        }).catch((e) => { functions.logger.warn('[gps-alertas] Supabase insert monitor_alertas falhou:', e); });
                         // Marca o ponto GPS como teleporte
                         if (event.data?.ref) {
                             await event.data.ref.update({ isTeleporte: true });
@@ -282,21 +253,13 @@ exports.verificarChegadaPonto = (0, firestore_1.onDocumentCreated)({ document: '
     try {
         const GEOFENCE_COOLDOWN_MS = 15 * 60 * 1000; // cooldown 15 min por uid
         const opRef = db.collection('usuarios').doc(uid);
-        // Supabase-first
         let opData = {};
         try {
             const sbUser = await (0, supabase_rest_1.supabaseGetOne)('usuarios', `select=*&id=eq.${encodeURIComponent(uid)}`);
-            if (sbUser) {
-                opData = sbUser;
-            }
-            else {
-                const opSnap = await opRef.get();
-                opData = opSnap.data() ?? {};
-            }
+            opData = sbUser ?? {};
         }
-        catch {
-            const opSnap = await opRef.get();
-            opData = opSnap.data() ?? {};
+        catch (e) {
+            functions.logger.warn('[gps-alertas] Supabase usuarios falhou:', e);
         }
         const nome = opData.nome ?? opData.email ?? uid;
         // Determina quais zonas estão atribuídas ao usuário
@@ -319,16 +282,9 @@ exports.verificarChegadaPonto = (0, firestore_1.onDocumentCreated)({ document: '
             if (sbZonas && sbZonas.length > 0) {
                 zonasComPoligono = sbZonas.filter((z) => z.poligono);
             }
-            else {
-                // Fallback Firestore
-                const zonaSnaps = await Promise.all(zonaIds.map(id => db.collection('poligonos').doc(id).get()));
-                zonasComPoligono = zonaSnaps.filter(s => s.exists).map(s => ({ id: s.id, ...(s.data()) }));
-            }
         }
-        catch {
-            // Fallback Firestore
-            const zonaSnaps = await Promise.all(zonaIds.map(id => db.collection('poligonos').doc(id).get()));
-            zonasComPoligono = zonaSnaps.filter(s => s.exists).map(s => ({ id: s.id, ...(s.data()) }));
+        catch (e) {
+            functions.logger.error('[gps-alertas] Supabase zonas falhou:', e);
         }
         if (zonasComPoligono.length === 0)
             return;
@@ -340,21 +296,11 @@ exports.verificarChegadaPonto = (0, firestore_1.onDocumentCreated)({ document: '
             if (agora - ultimoAlerta >= GEOFENCE_COOLDOWN_MS) {
                 const nomesZonas = zonasComPoligono.map(z => z.nome ?? z.id);
                 const mapsLink = `https://www.google.com/maps?q=${lat},${lng}`;
-                // Grava alerta
-                await db.collection('monitor_alertas').add({
-                    tipo: 'fora_zona',
-                    uid,
-                    nome,
-                    lat,
-                    lng,
-                    zonas: nomesZonas,
-                    ts: admin.firestore.FieldValue.serverTimestamp(),
-                });
-                // Dual-write to Supabase
+                // Grava alerta no Supabase
                 (0, supabase_rest_1.supabaseInsert)('monitor_alertas', {
                     tipo: 'fora_zona', uid, nome, lat, lng,
                     zonas: nomesZonas, ts: new Date().toISOString(),
-                }).catch(() => { });
+                }).catch((e) => { functions.logger.warn('[gps-alertas] Supabase insert monitor_alertas falhou:', e); });
                 // Envia Telegram
                 const tgCfg = await getTgConfig();
                 if (tgCfg?.token) {
@@ -398,19 +344,9 @@ exports.verificarAtrasos = (0, scheduler_1.onSchedule)({
         if (sbCfg?.valor) {
             cfgData = sbCfg.valor;
         }
-        else {
-            const cfgSnap = await db.collection('monitor_config').doc('gps').get();
-            cfgData = cfgSnap.data() ?? {};
-        }
     }
     catch (e) {
-        try {
-            const cfgSnap = await db.collection('monitor_config').doc('gps').get();
-            cfgData = cfgSnap.data() ?? {};
-        }
-        catch (e2) {
-            functions.logger.warn('[verificarAtrasos] Falha ao carregar monitor_config/gps, usando defaults:', e2);
-        }
+        functions.logger.warn('[verificarAtrasos] Falha ao carregar monitor_config/gps, usando defaults:', e);
     }
     let CFG = { ...DEFAULT_CFG, ...cfgData };
     const tgCfg = await getTgConfig();
@@ -601,20 +537,12 @@ exports.verificarAtrasos = (0, scheduler_1.onSchedule)({
                 `🔑 Slot: ${info.slotId.slice(-6)}`,
                 `📱 Verificar se o app está aberto e com localização ativada`,
             ].join('\n'));
-            await db.collection('monitor_alertas').add({
-                tipo: 'gps_ausente_slot',
-                uid,
-                nome: info.nome,
-                cidade: info.cidade,
-                minSem,
-                ts: admin.firestore.FieldValue.serverTimestamp(),
-            });
-            // Dual-write to Supabase
+            // Write to Supabase
             (0, supabase_rest_1.supabaseInsert)('monitor_alertas', {
                 tipo: 'gps_ausente_slot', uid, nome: info.nome,
                 cidade: info.cidade, min_sem: minSem,
                 ts: new Date().toISOString(),
-            }).catch(() => { });
+            }).catch((e) => { functions.logger.warn('[gps-alertas] Supabase insert monitor_alertas falhou:', e); });
             await opRef.update({
                 alertaGPSSlotEm: admin.firestore.FieldValue.serverTimestamp(),
             });
@@ -656,21 +584,11 @@ exports.alertarMockGPS = (0, https_1.onCall)({ region: 'southamerica-east1', max
             ].join('\n'));
         }
     }
-    // 4. Grava em monitor_alertas
-    await db.collection('monitor_alertas').add({
-        tipo: 'mock_gps',
-        uid,
-        nome,
-        lat,
-        lng,
-        capturedAt: capturedAt ?? null,
-        ts: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    // Dual-write to Supabase
-    (0, supabase_rest_1.supabaseInsert)('monitor_alertas', {
+    // 4. Grava em monitor_alertas (Supabase)
+    await (0, supabase_rest_1.supabaseInsert)('monitor_alertas', {
         tipo: 'mock_gps', uid, nome, lat, lng,
         captured_at: capturedAt ?? null, ts: new Date().toISOString(),
-    }).catch(() => { });
+    });
     functions.logger.warn(`[alertarMockGPS] Mock GPS detectado para ${nome} (${uid}) em lat=${lat} lng=${lng}`);
     return { ok: true };
 });

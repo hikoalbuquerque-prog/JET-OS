@@ -1,11 +1,10 @@
 // frontend/src/lib/bugReport.ts
-// Canal de report de bug/erro → Firestore (coleção bug_reports).
+// Canal de report de bug/erro → Supabase (tabela bug_reports).
 //   - Report MANUAL: botão "Reportar problema" (ver components/BugReportButton).
 //   - Captura AUTOMÁTICA: erros não-tratados (window.error / unhandledrejection).
 // Gestão lê em components/BugReportsPanel. Sem Telegram/e-mail (decisão do produto).
 
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
-import { db, auth } from './firebase';
+import { auth } from './firebase';
 import { supabase } from './supabase';
 
 export const APP_VERSAO = '1.0.0'; // manter alinhado com frontend/package.json
@@ -44,24 +43,9 @@ export async function enviarBugReport(input: BugReportInput, user?: BugUserCtx):
   if (!uid) throw new Error('Faça login para enviar um report.');
   const ctx = coletarContexto();
   const criadoEmTs = Date.now();
-  const docRef = await addDoc(collection(db, 'bug_reports'), {
-    uid,
-    nome:         user?.nome ?? auth.currentUser?.displayName ?? '',
-    email:        user?.email ?? auth.currentUser?.email ?? '',
-    role:         user?.role ?? '',
-    tipoCadastro: user?.tipoCadastro ?? '',
-    tipo:         input.tipo,
-    descricao:    (input.descricao || '').slice(0, 4000),
-    fotoUrl:      input.fotoUrl ?? null,
-    erro:         input.erro ?? null,
-    status:       'aberto',
-    contexto:     ctx,
-    criadoEm:     serverTimestamp(),
-    criadoEmTs:   criadoEmTs,
-  });
-  // dual-write Supabase
-  supabase.from('bug_reports').upsert({
-    id: docRef.id, uid,
+  const id = crypto.randomUUID();
+  const { error } = await supabase.from('bug_reports').upsert({
+    id, uid,
     nome: user?.nome ?? auth.currentUser?.displayName ?? '',
     email: user?.email ?? auth.currentUser?.email ?? '',
     role: user?.role ?? '',
@@ -73,11 +57,12 @@ export async function enviarBugReport(input: BugReportInput, user?: BugUserCtx):
     status: 'aberto',
     contexto: ctx,
     criado_em_ts: criadoEmTs,
-  }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[bugReport] upsert bug_reports:', error.message); });
+  }, { onConflict: 'id' });
+  if (error) console.error('[bugReport] upsert bug_reports:', error.message);
 }
 
 // ─── Captura automática de erros não-tratados ────────────────────────────────
-// Throttle + dedupe para não inundar o Firestore (e nunca lançar erro próprio).
+// Throttle + dedupe para não inundar o Supabase (e nunca lançar erro próprio).
 
 let instalado = false;
 const vistos = new Set<string>();

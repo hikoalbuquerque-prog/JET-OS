@@ -1,6 +1,6 @@
 // frontend/src/components/GoJetCidadesPanel.tsx
 // Painel admin para configurar quais cidades têm integração GoJet.
-// Salva em Firestore: gojet_config/{cidade} = { cityId, nome, ativo }
+// Salva em Supabase: gojet_config
 //
 // Uso no DashboardManager (aba configurações):
 //   import GoJetCidadesPanel from './components/GoJetCidadesPanel';
@@ -8,11 +8,8 @@
 
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  collection, doc, getDocs, setDoc, deleteDoc, onSnapshot,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { gojetProviderSupabase, onGojetConfigChange, salvarGojetConfigSupabase, removerGojetConfigSupabase } from '../lib/gojet-config-supabase';
+import { onGojetConfigChange, salvarGojetConfigSupabase, removerGojetConfigSupabase } from '../lib/gojet-config-supabase';
+import { supabase } from '../lib/supabase';
 
 const T = {
   cidadesGoJet:       { pt: '🗺 Cidades GoJet',                                    en: '🗺 GoJet Cities',                                          es: '🗺 Ciudades GoJet',                                       ru: '🗺 Города GoJet' },
@@ -24,7 +21,7 @@ const T = {
   selecionarCidade:   { pt: '— Selecionar cidade —',                               en: '— Select city —',                                          es: '— Seleccionar ciudad —',                                  ru: '— Выбрать город —' },
   digitarManual:      { pt: '✏️ Digitar manualmente...',                           en: '✏️ Enter manually...',                                     es: '✏️ Escribir manualmente...',                              ru: '✏️ Ввести вручную...' },
   exRecife:           { pt: 'Ex: Recife',                                          en: 'E.g.: Recife',                                             es: 'Ej.: Recife',                                             ru: 'Напр.: Recife' },
-  digiteNomeExato:    { pt: 'Digite o nome da cidade exatamente como no Firestore', en: 'Enter the city name exactly as in Firestore',             es: 'Escriba el nombre de la ciudad exactamente como en Firestore', ru: 'Введите название города точно как в Firestore' },
+  digiteNomeExato:    { pt: 'Digite o nome da cidade exatamente como cadastrada',   en: 'Enter the city name exactly as registered',              es: 'Escriba el nombre de la ciudad exactamente como registrada',  ru: 'Введите название города точно как зарегистрировано' },
   cityIdGoJet:        { pt: 'City ID (GoJet)',                                     en: 'City ID (GoJet)',                                          es: 'City ID (GoJet)',                                         ru: 'City ID (GoJet)' },
   exCityId:           { pt: 'Ex: 669f89ebd06775867c31b984',                        en: 'E.g.: 669f89ebd06775867c31b984',                           es: 'Ej.: 669f89ebd06775867c31b984',                           ru: 'Напр.: 669f89ebd06775867c31b984' },
   dicaCityId:         { pt: '💡 Abrir map.gojet.app → selecionar cidade → copiar o ?cid= da URL', en: '💡 Open map.gojet.app → select city → copy the ?cid= from the URL', es: '💡 Abrir map.gojet.app → seleccionar ciudad → copiar el ?cid= de la URL', ru: '💡 Откройте map.gojet.app → выберите город → скопируйте ?cid= из URL' },
@@ -55,48 +52,39 @@ export default function GoJetCidadesPanel() {
   const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
   const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
 
-  const [cidades,          setCidades]          = useState<GoJetCidade[]>([]);
-  const [cidadesFirestore, setCidadesFirestore] = useState<string[]>([]);
-  const [loading,          setLoading]          = useState(true);
-  const [editando,         setEditando]         = useState<GoJetCidade | null>(null);
-  const [nova,             setNova]             = useState(false);
-  const [form,             setForm]             = useState({ nome: '', cityId: '', ativo: true });
-  const [salvando,         setSalvando]         = useState(false);
-  const [erro,             setErro]             = useState('');
+  const [cidades,           setCidades]           = useState<GoJetCidade[]>([]);
+  const [cidadesDisponiveis, setCidadesDisponiveis] = useState<string[]>([]);
+  const [loading,           setLoading]           = useState(true);
+  const [editando,          setEditando]          = useState<GoJetCidade | null>(null);
+  const [nova,              setNova]              = useState(false);
+  const [form,              setForm]              = useState({ nome: '', cityId: '', ativo: true });
+  const [salvando,          setSalvando]          = useState(false);
+  const [erro,              setErro]              = useState('');
 
-  // Carrega cidades disponíveis do Firestore (estações cadastradas)
+  // Carrega cidades disponíveis do Supabase (estações cadastradas)
   useEffect(() => {
-    getDocs(collection(db, 'estacoes')).then(snap => {
+    supabase.from('estacoes_geo').select('cidade').then(({ data }) => {
       const set = new Set<string>();
-      snap.docs.forEach(d => {
-        const c = d.data().cidade;
+      (data ?? []).forEach((r: any) => {
+        const c = r.cidade;
         if (c && typeof c === 'string') set.add(c.trim());
       });
-      setCidadesFirestore(Array.from(set).sort());
-    }).catch(() => {});
+      setCidadesDisponiveis(Array.from(set).sort());
+    });
   }, []);
 
   useEffect(() => {
-    // Onda H: leitura do Supabase (flag-based) ou Firestore
-    if (gojetProviderSupabase()) {
-      return onGojetConfigChange(lista => {
-        setCidades(lista);
-        setLoading(false);
-      });
-    }
-    const unsub = onSnapshot(collection(db, 'gojet_config'), snap => {
-      const lista = snap.docs.map(d => ({ id: d.id, ...d.data() } as GoJetCidade));
+    return onGojetConfigChange(lista => {
       setCidades(lista);
       setLoading(false);
 
       // Seed inicial se vazio
-      if (snap.empty) {
+      if (lista.length === 0) {
         Promise.all(SEED.map(s =>
-          setDoc(doc(db, 'gojet_config', s.nome), s)
+          salvarGojetConfigSupabase(s.nome, s.cityId, s.ativo)
         )).catch(() => {});
       }
     });
-    return unsub;
   }, []);
 
   const salvar = async () => {
@@ -109,8 +97,7 @@ export default function GoJetCidadesPanel() {
     try {
       const nome = form.nome.trim();
       const cityId = form.cityId.trim();
-      await setDoc(doc(db, 'gojet_config', nome), { cityId, nome, ativo: form.ativo });
-      salvarGojetConfigSupabase(nome, cityId, form.ativo).catch(() => {});
+      await salvarGojetConfigSupabase(nome, cityId, form.ativo);
       setNova(false);
       setEditando(null);
       setForm({ nome: '', cityId: '', ativo: true });
@@ -123,13 +110,11 @@ export default function GoJetCidadesPanel() {
 
   const remover = async (id: string) => {
     if (!confirm(`${pick(T.confirmRemover)} ${id}?`)) return;
-    await deleteDoc(doc(db, 'gojet_config', id));
-    removerGojetConfigSupabase(id).catch(() => {});
+    await removerGojetConfigSupabase(id);
   };
 
   const toggleAtivo = async (c: GoJetCidade) => {
-    await setDoc(doc(db, 'gojet_config', c.id), { ...c, ativo: !c.ativo });
-    salvarGojetConfigSupabase(c.id, c.cityId, !c.ativo).catch(() => {});
+    await salvarGojetConfigSupabase(c.id, c.cityId, !c.ativo);
   };
 
   const iniciarEditar = (c: GoJetCidade) => {
@@ -227,7 +212,7 @@ export default function GoJetCidadesPanel() {
             <div style={{ ...S.inp, color: 'rgba(255,255,255,.4)', cursor: 'not-allowed' }}>
               {form.nome}
             </div>
-          ) : cidadesFirestore.length > 0 ? (
+          ) : cidadesDisponiveis.length > 0 ? (
             // Dropdown com cidades que têm estações
             <select
               style={{ ...S.inp, cursor: 'pointer' }}
@@ -235,7 +220,7 @@ export default function GoJetCidadesPanel() {
               onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
             >
               <option value="">{pick(T.selecionarCidade)}</option>
-              {cidadesFirestore
+              {cidadesDisponiveis
                 .filter(c => !cidades.find(gc => gc.nome === c)) // esconde já configuradas
                 .map(c => (
                   <option key={c} value={c}>{c}</option>

@@ -161,31 +161,23 @@ async function _gerarTarefasMonitor(parkings: GoJetParking[], turno: 'T0' | 'T1'
   let estacoesData: any[] = [];
   try {
     const sbEstacoes = await supabaseGet<any>('estacoes', 'select=*&tipo_monitor=in.(M1,M2,M3)');
-    if (sbEstacoes && sbEstacoes.length > 0) {
-      estacoesData = sbEstacoes.map((r: any) => ({
-        id: r.id,
-        nome: r.nome,
-        codigo: r.codigo,
-        lat: r.lat,
-        lng: r.lng,
-        cidade: r.cidade,
-        pais: r.pais,
-        tipoMonitor: r.tipo_monitor,
-        monitorConfig: r.monitor_config ?? {},
-        gojetParkingId: r.gojet_parking_id,
-        endereco: r.endereco,
-      }));
-    } else {
-      // Fallback Firestore
-      const estacoesSnap = await db.collection('estacoes').where('tipoMonitor', 'in', ['M1', 'M2', 'M3']).get();
-      if (estacoesSnap.empty) return;
-      estacoesData = estacoesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    }
+    if (!sbEstacoes || sbEstacoes.length === 0) return;
+    estacoesData = sbEstacoes.map((r: any) => ({
+      id: r.id,
+      nome: r.nome,
+      codigo: r.codigo,
+      lat: r.lat,
+      lng: r.lng,
+      cidade: r.cidade,
+      pais: r.pais,
+      tipoMonitor: r.tipo_monitor,
+      monitorConfig: r.monitor_config ?? {},
+      gojetParkingId: r.gojet_parking_id,
+      endereco: r.endereco,
+    }));
   } catch (e) {
-    console.warn('[tarefasMonitor] Supabase estacoes falhou, fallback Firestore:', e);
-    const estacoesSnap = await db.collection('estacoes').where('tipoMonitor', 'in', ['M1', 'M2', 'M3']).get();
-    if (estacoesSnap.empty) return;
-    estacoesData = estacoesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    console.error('[tarefasMonitor] Supabase estacoes falhou:', e);
+    throw e;
   }
 
   if (estacoesData.length === 0) return;
@@ -320,14 +312,10 @@ async function _gerarSlots(cfg: SlotConfigGlobal, statsZonas: Record<string, Zon
     const sbOverrides = await supabaseGetOne<any>('app_settings', 'select=valor&chave=eq.slot_config_overrides');
     if (sbOverrides?.valor) {
       overrides = sbOverrides.valor;
-    } else {
-      const overridesSnap = await db.collection('slot_config').doc('overrides').get();
-      overrides = overridesSnap.exists ? overridesSnap.data()! : {};
     }
   } catch (e) {
-    console.warn('[gerarSlots] Supabase overrides falhou, fallback Firestore:', e);
-    const overridesSnap = await db.collection('slot_config').doc('overrides').get();
-    overrides = overridesSnap.exists ? overridesSnap.data()! : {};
+    console.error('[gerarSlots] Supabase overrides falhou:', e);
+    throw e;
   }
 
   const turnoMap: Record<string, { inicio: string; fim: string }> = {
@@ -438,7 +426,7 @@ export const limpezaSnapshots = onSchedule(
 export const gerarSlotsAutomatico = onRequest(async (req, res) => {
   const secret = req.headers['x-n8n-secret'];
 
-  // Supabase-first for slot_config global
+  // Supabase-only for slot_config global
   let cfg: SlotConfigGlobal | null = null;
   try {
     const sbCfg = await supabaseGetOne<any>('app_settings', 'select=valor&chave=eq.slot_config_global');
@@ -446,13 +434,9 @@ export const gerarSlotsAutomatico = onRequest(async (req, res) => {
       cfg = sbCfg.valor as SlotConfigGlobal;
     }
   } catch (e) {
-    console.warn('[gerarSlotsAutomatico] Supabase cfg falhou, fallback Firestore:', e);
+    console.error('[gerarSlotsAutomatico] Supabase cfg falhou:', e);
   }
-  if (!cfg) {
-    const cfgSnap = await db.collection('slot_config').doc('global').get();
-    if (!cfgSnap.exists) { res.status(400).json({ erro: 'sem config' }); return; }
-    cfg = cfgSnap.data() as SlotConfigGlobal;
-  }
+  if (!cfg) { res.status(400).json({ erro: 'sem config' }); return; }
 
   if (secret !== cfg.webhookSecret) { res.status(401).json({ erro: 'não autorizado' }); return; }
 
@@ -467,7 +451,7 @@ export const gerarSlotsAutomatico = onRequest(async (req, res) => {
 export const gerarTarefasMonitor = onRequest(async (req, res) => {
   const secret = req.headers['x-n8n-secret'];
 
-  // Supabase-first for slot_config global
+  // Supabase-only for slot_config global
   let cfg: any = null;
   try {
     const sbCfg = await supabaseGetOne<any>('app_settings', 'select=valor&chave=eq.slot_config_global');
@@ -475,13 +459,9 @@ export const gerarTarefasMonitor = onRequest(async (req, res) => {
       cfg = sbCfg.valor;
     }
   } catch (e) {
-    console.warn('[gerarTarefasMonitor] Supabase cfg falhou, fallback Firestore:', e);
+    console.error('[gerarTarefasMonitor] Supabase cfg falhou:', e);
   }
-  if (!cfg) {
-    const cfgSnap = await db.collection('slot_config').doc('global').get();
-    if (!cfgSnap.exists) { res.status(400).json({ erro: 'sem config' }); return; }
-    cfg = cfgSnap.data();
-  }
+  if (!cfg) { res.status(400).json({ erro: 'sem config' }); return; }
 
   if (secret !== cfg.webhookSecret) { res.status(401).json({ erro: 'não autorizado' }); return; }
 

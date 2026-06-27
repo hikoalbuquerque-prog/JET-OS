@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { db, auth } from './lib/firebase';
-import { logisticaProviderSupabase, carregarSolicitacoesPendentesSupabase, logisticaWriteSupabase, atualizarSolicitacaoSupabase } from './lib/onda-b-supabase';
-import { usuariosWriteSupabase, escreverUsuarioSupabase, usuariosReadSupabase, fetchUsuarios } from './lib/usuarios-supabase';
+import { auth } from './lib/firebase';
+import { carregarSolicitacoesPendentesSupabase, atualizarSolicitacaoSupabase } from './lib/onda-b-supabase';
+import { escreverUsuarioSupabase, fetchUsuarios } from './lib/usuarios-supabase';
+import { carregarCidadesSupabase } from './lib/estacoes-supabase';
 
 // ── i18n: padrão TermosUsoGate (objeto T com { pt, en, es, ru }, sem chaves json) ──
 type Lang = 'pt' | 'en' | 'es' | 'ru';
@@ -295,17 +295,11 @@ export default function UsuariosManager({
   const [selecionadosLote, setSelecionadosLote] = useState<Set<string>>(new Set());
   const [aprovandoLote, setAprovandoLote] = useState(false);
 
-  // Carrega cidades reais que têm estações no Firestore
+  // Carrega cidades reais que têm estações (Supabase)
   useEffect(() => {
     (async () => {
       try {
-        const snap = await getDocs(collection(db, 'estacoes'));
-        const set = new Set<string>();
-        snap.docs.forEach(d => {
-          const c = d.data().cidade;
-          if (c && typeof c === 'string') set.add(c.trim());
-        });
-        const lista = Array.from(set).sort();
+        const lista = await carregarCidadesSupabase();
         if (lista.length > 0) setCidadesReais(lista);
       } catch {
         // mantém CIDADES_FALLBACK
@@ -316,21 +310,7 @@ export default function UsuariosManager({
   useEffect(() => {
     const carregarSolicitacoes = async () => {
       try {
-        // Fase 2 / Onda B menores — leitura do Supabase atrás de flag (read-only).
-        if (logisticaProviderSupabase()) {
-          const dados = await carregarSolicitacoesPendentesSupabase() as SolicitacaoPrestador[];
-          setSolicitacoes(dados);
-          return;
-        }
-        const q = query(
-          collection(db, 'solicitacoes_prestadores'),
-          where('status', '==', 'pendente')
-        );
-        const snap = await getDocs(q);
-        const dados = snap.docs.map(d => ({
-          id: d.id,
-          ...d.data()
-        })) as SolicitacaoPrestador[];
+        const dados = await carregarSolicitacoesPendentesSupabase() as SolicitacaoPrestador[];
         setSolicitacoes(dados);
       } catch (err) {
         console.error('Erro carregando solicitações:', err);
@@ -349,22 +329,9 @@ export default function UsuariosManager({
       try {
         // gestor_seg só vê guards; outros gestores veem todos
         const rolesGuard = ['guard', 'gestor_seg', 'campo', 'logistica', 'promotor', 'viewer'];
-        if (usuariosReadSupabase()) {
-          const filtros = roleAtual === 'gestor_seg' ? { role_in: rolesGuard } : undefined;
-          const dados = await fetchUsuarios(filtros);
-          setUsuarios(dados.map(d => ({ ...d, id: d.uid })) as UsuarioAtivo[]);
-        } else {
-          const q = roleAtual === 'gestor_seg'
-            ? query(collection(db, 'usuarios'), where('role', 'in', rolesGuard))
-            : query(collection(db, 'usuarios'));
-          const snap = await getDocs(q);
-          const dados = snap.docs.map(d => ({
-            id: d.id,
-            uid: d.id,
-            ...d.data()
-          })) as UsuarioAtivo[];
-          setUsuarios(dados);
-        }
+        const filtros = roleAtual === 'gestor_seg' ? { role_in: rolesGuard } : undefined;
+        const dados = await fetchUsuarios(filtros);
+        setUsuarios(dados.map(d => ({ ...d, id: d.uid })) as UsuarioAtivo[]);
       } catch (err) {
         console.error('Erro carregando usuários:', err);
       }
@@ -387,17 +354,16 @@ export default function UsuariosManager({
   const aprovar = async (req: SolicitacaoPrestador) => {
     setAprovando(true);
     try {
-      await updateDoc(doc(db, 'solicitacoes_prestadores', req.id), {
+      await atualizarSolicitacaoSupabase(req.id, {
         status: 'aprovado',
-        data_resposta: new Date(),
+        data_resposta: new Date().toISOString(),
         respondido_por: auth.currentUser?.uid,
         roleAtribuido: roleAprovacao,
       });
-      if (logisticaWriteSupabase()) atualizarSolicitacaoSupabase(req.id, { status: 'aprovado', data_resposta: new Date().toISOString(), respondido_por: auth.currentUser?.uid }).catch(err => console.error('[log-write] solicitacao update:', err));
 
-      await updateDoc(doc(db, 'usuarios', req.uid), {
-        role:               roleAprovacao,
-        cidadesPermitidas:  cidadesAprovacao,
+      await escreverUsuarioSupabase(req.uid, {
+        role: roleAprovacao,
+        cidadesPermitidas: cidadesAprovacao,
         cidadesGerenciaLog: roleAprovacao === 'logistica' ? cidadesAprovacao : [],
         cargoPrestador: req.cargo,
         tipoCadastro: 'prestador',
@@ -410,10 +376,6 @@ export default function UsuariosManager({
         telegram: req.telegram,
         ativo: true,
       });
-      if (usuariosWriteSupabase()) escreverUsuarioSupabase(req.uid, {
-        role: roleAprovacao, cidadesPermitidas: cidadesAprovacao, cargoPrestador: req.cargo,
-        cidade: cidadesAprovacao[0] ?? req.cidade, ativo: true,
-      }).catch(err => console.error('[usuarios-write] aprovar Supabase:', err));
 
       const fns = getFunctions(undefined, 'southamerica-east1');
       await httpsCallable(fns, 'notificarAprovacaoPrestador')({ uid: req.uid, aprovado: true }).catch(() => {});
@@ -436,13 +398,12 @@ export default function UsuariosManager({
 
     setAprovando(true);
     try {
-      await updateDoc(doc(db, 'solicitacoes_prestadores', req.id), {
+      await atualizarSolicitacaoSupabase(req.id, {
         status: 'rejeitado',
-        data_resposta: new Date(),
+        data_resposta: new Date().toISOString(),
         respondido_por: auth.currentUser?.uid,
-        motivo_rejeicao: motivo
+        motivo_rejeicao: motivo,
       });
-      if (logisticaWriteSupabase()) atualizarSolicitacaoSupabase(req.id, { status: 'rejeitado', data_resposta: new Date().toISOString(), respondido_por: auth.currentUser?.uid }).catch(err => console.error('[log-write] solicitacao update:', err));
 
       const fns = getFunctions(undefined, 'southamerica-east1');
       await httpsCallable(fns, 'notificarAprovacaoPrestador')({ uid: req.uid, aprovado: false, motivo }).catch(() => {});
@@ -477,12 +438,13 @@ export default function UsuariosManager({
       const req = solicitacoes.find(s => s.id === id);
       if (!req) continue;
       try {
-        await updateDoc(doc(db, 'solicitacoes_prestadores', id), {
-          status: 'aprovado', data_resposta: new Date(),
+        await atualizarSolicitacaoSupabase(id, {
+          status: 'aprovado', data_resposta: new Date().toISOString(),
           respondido_por: auth.currentUser?.uid, roleAtribuido: roleAprovacao,
         });
-        await updateDoc(doc(db, 'usuarios', req.uid), {
+        await escreverUsuarioSupabase(req.uid, {
           role: roleAprovacao, cidadesPermitidas: cidadesAprovacao,
+          cidadesGerenciaLog: roleAprovacao === 'logistica' ? cidadesAprovacao : [],
           cargoPrestador: req.cargo, tipoCadastro: 'prestador',
           statusPrestador: 'ativo', cpf_cnpj: req.cpf_cnpj,
           pix_chave: req.pix_chave, pix_tipo: req.pix_tipo,
@@ -502,15 +464,12 @@ export default function UsuariosManager({
   const salvarPermissoesCidades = async (usuario: UsuarioAtivo) => {
     setSalvando(true);
     try {
-      await updateDoc(doc(db, 'usuarios', usuario.uid), {
+      await escreverUsuarioSupabase(usuario.uid, {
         cidadesPermitidas:  usuario.cidadesPermitidas  || [],
         cidadesGerenciaLog: usuario.cidadesGerenciaLog || [],
         role:               usuario.role,
         ativo:              true,
       });
-      if (usuariosWriteSupabase()) escreverUsuarioSupabase(usuario.uid, {
-        cidadesPermitidas: usuario.cidadesPermitidas || [], role: usuario.role, ativo: true,
-      }).catch(err => console.error('[usuarios-write] permissoes Supabase:', err));
       showMsg(pick(T.msgPermissoesSalvas));
       setUsuarioSelecionado(null);
     } catch (err) {

@@ -1,42 +1,8 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.gerarCroqui = gerarCroqui;
 exports.gerarCroquisLote = gerarCroquisLote;
 // src/croquis/index.ts — Geração de croquis via Google Slides API
-const admin = __importStar(require("firebase-admin"));
 const utils_1 = require("../utils");
 const supabase_rest_1 = require("../lib/supabase-rest");
 const TEMPLATE_PUBLICO_BR = '1i0Za1wf1rK_W3-HLFQ6X2xZwoC7aaEZ_9tjpC0v6120';
@@ -197,10 +163,7 @@ async function gerarCroqui(estacaoId, uid, email) {
     }
     catch { /* fallback to Firestore */ }
     if (!e) {
-        const snap = await (0, utils_1.db)().collection('estacoes').doc(estacaoId).get();
-        if (!snap.exists)
-            return (0, utils_1.erroResponse)('Estação não encontrada.');
-        e = { id: snap.id, ...snap.data() };
+        return (0, utils_1.erroResponse)('Estação não encontrada no Supabase.');
     }
     if (!e.lat || !e.lng)
         return (0, utils_1.erroResponse)('Estação sem coordenadas.');
@@ -241,18 +204,13 @@ async function gerarCroqui(estacaoId, uid, email) {
         const pdfUrl = `https://drive.google.com/file/d/${pdfId}/view`;
         // Remove Slides temporário
         await drive.files.delete({ fileId: copiaId }).catch(() => { });
-        // Atualiza estação (Firestore + dual-write Supabase)
-        await (0, utils_1.db)().collection('estacoes').doc(estacaoId).update({
-            'imagens.croqui': pdfUrl,
-            croquiStatus: 'OK',
-            croquiGeradoEm: admin.firestore.FieldValue.serverTimestamp()
-        });
-        (0, supabase_rest_1.supabaseUpsert)('estacoes', {
+        // Atualiza estação no Supabase
+        await (0, supabase_rest_1.supabaseUpsert)('estacoes', {
             firebase_id: estacaoId,
             imagens: { croqui: pdfUrl },
             croqui_status: 'OK',
             croqui_gerado_em: new Date().toISOString(),
-        }, 'firebase_id').catch(() => { });
+        }, 'firebase_id');
         await (0, utils_1.logEvento)({
             tipo: 'CROQUI_GERADO', uid, email,
             descricao: `Croqui: ${e.codigo}`,
@@ -263,11 +221,7 @@ async function gerarCroqui(estacaoId, uid, email) {
     catch (err) {
         // Remove cópia em caso de erro
         await drive.files.delete({ fileId: copiaId }).catch(() => { });
-        await (0, utils_1.db)().collection('estacoes').doc(estacaoId).update({
-            croquiStatus: 'ERRO',
-            croquiUltimoErro: err.message
-        });
-        (0, supabase_rest_1.supabaseUpsert)('estacoes', {
+        await (0, supabase_rest_1.supabaseUpsert)('estacoes', {
             firebase_id: estacaoId,
             croqui_status: 'ERRO',
             croqui_ultimo_erro: err.message,
@@ -286,20 +240,10 @@ async function gerarCroquisLote(cidade, pais, loteSize, uid, email) {
                 .filter((r) => !r.croqui_status || r.croqui_status === 'PENDENTE' || r.croqui_status === 'ERRO')
                 .map((r) => ({ id: r.firebase_id || r.id, data: () => r }));
         }
-        else {
-            throw new Error('fallback');
-        }
     }
-    catch {
-        const snapSem = await (0, utils_1.db)().collection('estacoes')
-            .where('pais', '==', pais)
-            .where('cidade', '==', cidade)
-            .get();
-        todasSemCroqui = snapSem.docs
-            .filter((d) => {
-            const data = d.data();
-            return !data.croquiStatus || data.croquiStatus === 'PENDENTE' || data.croquiStatus === 'ERRO';
-        });
+    catch (e) {
+        console.error('[CroquisLote] Supabase estacoes falhou:', e);
+        throw e;
     }
     const semCroqui = todasSemCroqui.slice(0, loteSize);
     const totalRestantes = todasSemCroqui.length;

@@ -128,19 +128,8 @@ async function gerarTarefasDeSnapshot(opts = {}) {
             }
         }
         catch (e) {
-            v2_1.logger.warn('[gerarTarefas] Supabase parkings read failed, trying Firestore:', e);
+            v2_1.logger.warn('[gerarTarefas] Supabase parkings read failed:', e);
         }
-    }
-    // Fallback: Firestore gojet_snapshots/latest
-    if (parkings.length === 0) {
-        const snapshotDoc = await db.collection('gojet_snapshots').doc('latest').get();
-        if (!snapshotDoc.exists) {
-            return { criadas: 0, puladas: 0, erros: 0, detalhes: ['Snapshot não encontrado'] };
-        }
-        const snap = snapshotDoc.data();
-        parkings = snap.parkings ?? [];
-        const atualizadoEm = snap.atualizadoEm;
-        idadeMin = atualizadoEm ? (Date.now() - atualizadoEm.toMillis()) / 60000 : 999;
     }
     if (parkings.length === 0) {
         return { criadas: 0, puladas: 0, erros: 0, detalhes: ['Snapshot não encontrado'] };
@@ -245,16 +234,10 @@ exports.gerarTarefasGoJetFn = https.onCall({ region: 'southamerica-east1', maxIn
     if (!request.auth) {
         throw new https.HttpsError('unauthenticated', 'Não autenticado');
     }
-    // Verificar role — Supabase-first com fallback Firestore
+    // Verificar role — Supabase-only
     let role = '';
     const sbUser = await (0, supabase_rest_1.supabaseGetOne)('usuarios', `select=role&id=eq.${encodeURIComponent(request.auth.uid)}`);
-    if (sbUser) {
-        role = sbUser.role ?? '';
-    }
-    else {
-        const userDoc = await db.collection('usuarios').doc(request.auth.uid).get();
-        role = userDoc.data()?.role ?? '';
-    }
+    role = sbUser?.role ?? '';
     if (!['admin', 'gestor', 'gestor_log', 'supergestor'].includes(role)) {
         throw new https.HttpsError('permission-denied', 'Sem permissão');
     }
@@ -286,14 +269,9 @@ exports.gerarTarefasAgendado = scheduler.onSchedule({
             }
             catch { /* fallback */ }
         }
-        // Fallback Firestore
+        // Default fallback if Supabase returns empty
         if (cidades.length === 0) {
-            const gojetConfig = await db.collection('gojet_config')
-                .where('ativo', '==', true)
-                .get();
-            cidades = gojetConfig.empty
-                ? [{ nome: 'São Paulo', pais: 'BR' }]
-                : gojetConfig.docs.map(d => ({ nome: d.data().nome, pais: d.data().pais ?? 'BR' }));
+            cidades = [{ nome: 'São Paulo', pais: 'BR' }];
         }
         for (const cidade of cidades) {
             const result = await gerarTarefasDeSnapshot({
@@ -381,14 +359,8 @@ function isBikeOperacional(b) {
 }
 async function getBotTokenLocal() {
     try {
-        // Supabase-first
         const supa = await (0, config_supabase_1.getAppSetting)('telegram');
-        const supaToken = String(supa?.bot_token || supa?.botToken || '').trim();
-        if (supaToken)
-            return supaToken;
-        // Fallback Firestore
-        const snap = await db.collection('telegram_config').doc('global').get();
-        return snap.data()?.botToken ?? '';
+        return String(supa?.bot_token || supa?.botToken || '').trim();
     }
     catch {
         return '';
@@ -424,12 +396,7 @@ async function getClimaStatus(cidade) {
     try {
         // Supabase-first
         const supa = await (0, config_supabase_1.getAppSetting)('clima');
-        let apiKey = String(supa?.openweather_api_key || supa?.openweatherApiKey || '').trim();
-        // Fallback Firestore
-        if (!apiKey) {
-            const cfgSnap = await db.collection('app_config').doc('clima').get();
-            apiKey = cfgSnap.data()?.openweatherApiKey ?? '';
-        }
+        const apiKey = String(supa?.openweather_api_key || supa?.openweatherApiKey || '').trim();
         if (!apiKey)
             return 'ok';
         const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(cidade)}&appid=${apiKey}`);
@@ -473,20 +440,9 @@ async function encontrarWorkersProximos(cidade, tipoSlot, lat, lng, qtd = 1) {
         // Supabase-first
         const cargos = tipoSlot === 'charger' ? 'charger' : 'scalt,scout';
         const sbWorkers = await (0, supabase_rest_1.supabaseGet)('usuarios', `select=id,nome,lat,lng,slot_atual_id&tipo_cadastro=eq.prestador&status_prestador=eq.ativo&cidade=eq.${encodeURIComponent(cidade)}&cargo_prestador=in.(${cargos})`);
-        let disponiveis = [];
-        if (sbWorkers && sbWorkers.length > 0) {
-            disponiveis = sbWorkers.filter(u => !u.slot_atual_id).map(u => ({ uid: u.id, nome: u.nome, lat: u.lat, lng: u.lng }));
-        }
-        else {
-            // Fallback Firestore
-            const snap = await db.collection('usuarios')
-                .where('tipoCadastro', '==', 'prestador')
-                .where('statusPrestador', '==', 'ativo')
-                .where('cidade', '==', cidade)
-                .where('cargoPrestador', 'in', tipoSlot === 'charger' ? ['charger'] : ['scalt', 'scout'])
-                .get();
-            disponiveis = snap.docs.map(d => ({ uid: d.id, ...d.data() })).filter((u) => !u.slotAtualId);
-        }
+        const disponiveis = (sbWorkers ?? [])
+            .filter(u => !u.slot_atual_id)
+            .map(u => ({ uid: u.id, nome: u.nome, lat: u.lat, lng: u.lng }));
         if (disponiveis.length === 0)
             return [];
         return disponiveis
@@ -636,14 +592,6 @@ async function executarMotorSlots() {
             autoAssign: r.auto_assign, sensibilidadeClima: r.sensibilidade_clima, notificarGestor: r.notificar_gestor,
         }));
     }
-    else {
-        const configSnap = await db.collection('config_auto_slots').where('ativo', '==', true).get();
-        if (configSnap.empty) {
-            v2_1.logger.info('[motor-slots] Nenhuma zona configurada');
-            return;
-        }
-        configs = configSnap.docs.map(d => d.data());
-    }
     if (configs.length === 0) {
         v2_1.logger.info('[motor-slots] Nenhuma zona configurada');
         return;
@@ -701,23 +649,8 @@ async function executarMotorSlots() {
                 }
             }
             catch (e) {
-                v2_1.logger.warn('[motor-slots] Supabase parkings/bikes failed, trying Firestore:', e);
+                v2_1.logger.warn('[motor-slots] Supabase parkings/bikes failed:', e);
             }
-        }
-        // Fallback: Firestore gojet_snapshots
-        if (parkings.length === 0) {
-            const [snapDoc, bikesDoc] = await Promise.all([
-                db.collection('gojet_snapshots').doc('latest').get(),
-                db.collection('gojet_snapshots').doc('bikes_latest').get(),
-            ]);
-            if (!snapDoc.exists)
-                continue;
-            const snapData = snapDoc.data();
-            const bikesData = bikesDoc.exists ? bikesDoc.data() : snapData;
-            parkings = snapData.parkings ?? [];
-            bikes = bikesData.bikes ?? snapData.bikes ?? [];
-            const tsSnap = snapData.savedAt ?? snapData.atualizadoEm;
-            idadeMin = tsSnap ? (Date.now() - tsSnap.toMillis()) / 60000 : 999;
         }
         if (parkings.length === 0)
             continue;
@@ -738,11 +671,7 @@ async function executarMotorSlots() {
                 diretoriaChatId = dir[0]?.chatId ?? '';
             }
         }
-        catch { /* fallback */ }
-        if (!diretoriaChatId) {
-            const telegramCfgSnap = await db.collection('telegram_config').doc('global').get();
-            diretoriaChatId = telegramCfgSnap.data()?.diretoria?.[0]?.chatId ?? '';
-        }
+        catch { /* ignore */ }
         // 5. Processar cada zona configurada
         for (const cfg of cfgs) {
             try {
@@ -940,23 +869,14 @@ async function executarMotorSlots() {
                     // Gravar alerta de bateria crítica no histórico + push FCM para gestores da cidade
                     const criticas = patinetesAlvo.filter(b => (b.battery_percent ?? 1) < 0.10);
                     if (criticas.length > 0) {
-                        await db.collection('monitor_alertas').add({
-                            tipo: 'bateria_critica',
-                            cidade,
-                            zona: cfg.zonaNome,
-                            qtdBikes: criticas.length,
-                            batMinPct: Math.round(Math.min(...criticas.map(b => b.battery_percent ?? 0)) * 100),
-                            slotId: slotId ?? null,
-                            ts: admin.firestore.FieldValue.serverTimestamp(),
-                        });
-                        // Dual-write: Supabase
+                        // Write to Supabase
                         (0, supabase_rest_1.supabaseInsert)('monitor_alertas', {
                             tipo: 'bateria_critica', cidade, zona: cfg.zonaNome,
                             qtd_bikes: criticas.length,
                             bat_min_pct: Math.round(Math.min(...criticas.map(b => b.battery_percent ?? 0)) * 100),
                             slot_id: slotId ?? null,
                             ts: new Date().toISOString(),
-                        }).catch(() => { });
+                        }).catch((e) => { v2_1.logger.warn('[monitor-alertas] Supabase insert failed:', e); });
                         // Push FCM para gestores logística da cidade
                         try {
                             const gestoresSnap = await db.collection('usuarios')
@@ -1018,16 +938,10 @@ exports.gerarSlotsInteligenteFn = scheduler.onSchedule({ schedule: '*/15 * * * *
 exports.gerarSlotsManualFn = https.onCall({ region: 'southamerica-east1', maxInstances: 10 }, async (request) => {
     if (!request.auth)
         throw new https.HttpsError('unauthenticated', 'Não autenticado');
-    // Role check — Supabase-first com fallback Firestore
+    // Role check — Supabase-only
     let roleManual = '';
     const sbUserManual = await (0, supabase_rest_1.supabaseGetOne)('usuarios', `select=role&id=eq.${encodeURIComponent(request.auth.uid)}`);
-    if (sbUserManual) {
-        roleManual = sbUserManual.role ?? '';
-    }
-    else {
-        const userDoc = await db.collection('usuarios').doc(request.auth.uid).get();
-        roleManual = userDoc.data()?.role ?? '';
-    }
+    roleManual = sbUserManual?.role ?? '';
     if (!['admin', 'gestor', 'gestor_log', 'supergestor'].includes(roleManual))
         throw new https.HttpsError('permission-denied', 'Sem permissão');
     await executarMotorSlots();
@@ -1041,7 +955,7 @@ exports.escalarSlotsSLA = scheduler.onSchedule({ schedule: '*/5 * * * *', timeZo
             .where('status', '==', 'aberto')
             .get();
         const botToken = await getBotTokenLocal();
-        // telegram_config — Supabase-first com fallback Firestore
+        // telegram_config — Supabase-only
         let diretoriaChatId = '';
         try {
             const sbTgCfg = await (0, supabase_rest_1.supabaseGetOne)('telegram_config', 'select=*&id=eq.global');
@@ -1051,10 +965,6 @@ exports.escalarSlotsSLA = scheduler.onSchedule({ schedule: '*/5 * * * *', timeZo
             }
         }
         catch { /* ignore */ }
-        if (!diretoriaChatId) {
-            const telegramCfgSnap = await db.collection('telegram_config').doc('global').get();
-            diretoriaChatId = telegramCfgSnap.data()?.diretoria?.[0]?.chatId ?? '';
-        }
         const batch = db.batch();
         let escalados = 0;
         for (const slotDoc of snap.docs) {
@@ -1102,17 +1012,9 @@ exports.notificarTurnoFn = firestore.onDocumentCreated({ document: 'turnos/{turn
             return;
         // Notifica todos os gestores da cidade — Supabase-first
         const sbGestores = await (0, supabase_rest_1.supabaseGet)('usuarios', `select=id,telegram_chat_id&cidade=eq.${encodeURIComponent(cidade)}&role=in.(admin,gestor,gestor_log,supergestor)`);
-        let chatIds = [];
-        if (sbGestores && sbGestores.length > 0) {
-            chatIds = sbGestores.map(u => u.telegram_chat_id).filter(Boolean);
-        }
-        else {
-            const gestoresSnap = await db.collection('usuarios')
-                .where('cidade', '==', cidade)
-                .where('role', 'in', ['admin', 'gestor', 'gestor_log', 'supergestor'])
-                .get();
-            chatIds = gestoresSnap.docs.map(d => d.data().telegramChatId).filter(Boolean);
-        }
+        const chatIds = (sbGestores ?? [])
+            .map(u => u.telegram_chat_id)
+            .filter(Boolean);
         await Promise.allSettled(chatIds.map(chatId => sendTelegramLocal(botToken, chatId, msg)));
         v2_1.logger.info(`[notificarTurno] ${acao} de ${nome} (${cidade}) notificado para ${chatIds.length} gestores`);
     }
