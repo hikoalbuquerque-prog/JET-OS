@@ -136,18 +136,21 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-firebase': [
-            'firebase/app',
-            'firebase/auth',
-            'firebase/firestore',
-            'firebase/storage',
-            'firebase/messaging',
-          ],
-          'vendor-supabase': ['@supabase/supabase-js'],
-          'vendor-map': ['maplibre-gl'],
-          'vendor-deckgl': ['deck.gl', '@deck.gl/mapbox', '@deck.gl/aggregation-layers'],
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react-dom') || id.includes('react-router-dom'))
+              return 'vendor-react';
+            if (id.includes('firebase/'))
+              return 'vendor-firebase';
+            if (id.includes('@supabase/'))
+              return 'vendor-supabase';
+            if (id.includes('maplibre-gl'))
+              return 'vendor-map';
+            if (id.includes('deck.gl') || id.includes('@deck.gl'))
+              return 'vendor-deckgl';
+            if (id.includes('heic2any'))
+              return 'heic2any';
+          }
         },
       },
     },
