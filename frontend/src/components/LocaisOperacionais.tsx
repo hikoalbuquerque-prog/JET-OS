@@ -9,6 +9,17 @@ import {
   doc, onSnapshot, query, where, serverTimestamp
 } from 'firebase/firestore';
 import { comprimirImagem } from '../lib/imageUtils';
+import { supabase } from '../lib/supabase';
+
+// Flag dual-run: localStorage.setItem('jet_locais_provider','supabase') liga Supabase
+const locaisProviderSupabase = (): boolean => {
+  try {
+    const v = localStorage.getItem('jet_locais_provider');
+    if (v === 'supabase') return true;
+    if (v === 'firebase') return false;
+  } catch {}
+  return (import.meta.env.VITE_LOCAIS_PROVIDER as string) !== 'firebase';
+};
 
 // ── I18N (padrão objeto T, sem json) ─────────────────────────────
 type Lang = 'pt' | 'en' | 'es' | 'ru';
@@ -118,6 +129,43 @@ export function useLocaisOperacionais(cidade: string, pais: string) {
 
   useEffect(() => {
     if (!cidade) return;
+
+    if (locaisProviderSupabase()) {
+      // ── Supabase: polling via locais_geo view ──
+      let cancelled = false;
+      const fetchLocais = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('locais_geo')
+            .select('*')
+            .eq('cidade', cidade)
+            .eq('pais', pais);
+          if (error) throw error;
+          if (!cancelled && data) {
+            setLocais(data.map((r: any) => ({
+              id: r.firebase_id ?? r.id,
+              tipo: r.tipo ?? 'BASE_CARGA',
+              nome: r.nome ?? '',
+              endereco: '',
+              lat: r.lat ?? 0,
+              lng: r.lng ?? 0,
+              cidade: r.cidade ?? '',
+              pais: r.pais ?? 'BR',
+              obs: r.obs ?? '',
+              ativo: true,
+              criadoEm: r.criado_em,
+            } as LocalOperacional)));
+          }
+        } catch (e) {
+          console.error('[LocaisOp] supabase fetch error:', e);
+        }
+      };
+      fetchLocais();
+      const timer = setInterval(fetchLocais, 15_000);
+      return () => { cancelled = true; clearInterval(timer); };
+    }
+
+    // ── Firestore (fallback) ──
     const q = query(
       collection(db, 'locais_operacionais'),
       where('cidade', '==', cidade),

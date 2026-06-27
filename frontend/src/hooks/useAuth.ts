@@ -95,6 +95,24 @@ function _start() {
       _set({ user: null, usuario: null, loading: false, erro: null });
     }
   });
+
+  // Recuperação de sessão ao retornar ao app (tab oculta, tela bloqueada, app minimizado).
+  // autoRefreshToken cuida do refresh periódico, mas o timer pode parar quando a tab fica
+  // inativa. Ao voltar, forçamos getSession() que dispara refresh se o access_token expirou.
+  // Se o refresh_token também estiver inválido, onAuthStateChange recebe session=null e
+  // o usuário é redirecionado ao login automaticamente.
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && _state.user) {
+        supabase.auth.getSession().then(({ data }) => {
+          if (!data?.session) {
+            console.warn('[auth] sessão perdida ao retornar — forçando re-login');
+            // onAuthStateChange já vai disparar com session=null
+          }
+        }).catch(() => { /* rede indisponível — tenta no próximo resume */ });
+      }
+    });
+  }
 }
 
 function useGlobalAuth(): AuthState {
@@ -123,14 +141,28 @@ async function login(email: string, senha: string) {
     // 2. Sessão A (JS) — auth-login faz migração preguiçosa Firebase→Supabase
     const { data, error } = await supabase.functions.invoke('auth-login', { body: { email, password: senha } });
     if (error) throw new Error(error.message || 'auth-login falhou');
+    const errCode = (data as any)?.error;
+    if (errCode === 'user_not_provisioned') {
+      throw new Error('Usuário não provisionado no Supabase. Contate o administrador.');
+    }
+    if (errCode === 'invalid_credentials') {
+      throw new Error('E-mail ou senha incorretos.');
+    }
+    if (errCode) {
+      throw new Error(`Erro no login: ${errCode} — ${(data as any)?.detail || ''}`);
+    }
     const session = (data as any)?.session;
     if (!session?.access_token || !session?.refresh_token) {
       throw new Error('Sessão não retornada pelo auth-login');
     }
-    await supabase.auth.setSession({
+    const { error: setErr } = await supabase.auth.setSession({
       access_token: session.access_token,
       refresh_token: session.refresh_token,
     });
+    if (setErr) {
+      console.error('[auth] setSession falhou:', setErr.message);
+      throw new Error('Falha ao estabelecer sessão. Tente novamente.');
+    }
     console.log('[auth] login Supabase OK', (data as any)?.migrated ? '(senha migrada)' : '');
 
     // 3. Firebase login (NÃO-FATAL) — mantém sessão p/ Firestore reads residuais
@@ -141,8 +173,9 @@ async function login(email: string, senha: string) {
     } catch { console.warn('[auth] Firebase login fallback falhou (não-fatal)'); }
   } catch (e: any) {
     console.error('[auth] login falhou:', e);
-    _set({ loading: false, erro: 'E-mail ou senha incorretos.' });
-    throw new Error('Login falhou');
+    const msg = e?.message || 'E-mail ou senha incorretos.';
+    _set({ loading: false, erro: msg });
+    throw new Error(msg);
   }
 }
 

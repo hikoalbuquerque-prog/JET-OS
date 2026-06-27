@@ -11,6 +11,17 @@ import {
 } from 'firebase/firestore';
 import L from 'leaflet';
 import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
+
+// Flag dual-run: localStorage.setItem('jet_estacoes_provider','supabase')
+const estacoesProviderSupabase = (): boolean => {
+  try {
+    const v = localStorage.getItem('jet_estacoes_provider');
+    if (v === 'supabase') return true;
+    if (v === 'firebase') return false;
+  } catch {}
+  return (import.meta.env.VITE_ESTACOES_PROVIDER as string) === 'supabase';
+};
 
 const T = {
   statusPlanejado: { pt: 'Planejado', en: 'Planned', es: 'Planeado', ru: 'Запланировано' },
@@ -144,39 +155,69 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
   // Carrega eventos próximos/ativos para a cidade
   useEffect(() => {
     setLoading(true);
-    const agora   = Timestamp.now();
-    const em7dias = Timestamp.fromDate(new Date(Date.now() + 7 * 86400000));
 
-    // Busca eventos: ativos ou planejados nos próximos 7 dias, nesta cidade
-    getDocs(query(
-      collection(db, 'eventos'),
-      where('cidade', '==', cidade),
-    )).then(snap => {
+    const processarLista = (raw: any[], idKey: string) => {
       const now = new Date();
-      const lista: Evento[] = snap.docs
-        .map(d => {
-          const x = d.data();
-          const inicio = (x.inicio as Timestamp)?.toDate?.() ?? new Date(x.inicio ?? 0);
-          const fim    = (x.fim    as Timestamp)?.toDate?.() ?? new Date(x.fim    ?? 0);
+      const lista: Evento[] = raw
+        .map((x: any) => {
+          const inicio = x.inicio instanceof Date ? x.inicio
+            : (x.inicio as Timestamp)?.toDate?.() ?? new Date(x.inicio ?? 0);
+          const fim = x.fim instanceof Date ? x.fim
+            : (x.fim as Timestamp)?.toDate?.() ?? new Date(x.fim ?? 0);
           const status: Evento['status'] = fim < now ? 'encerrado' : inicio <= now ? 'ativo' : 'planejado';
           return {
-            id: d.id,
+            id: x[idKey] ?? x.id,
             nome: x.nome ?? x.name ?? pick(T.eventoSemNome),
             cidade: x.cidade, estado: x.estado, pais: x.pais ?? 'BR',
             inicio, fim, status,
-            pontoGoJetEstacaoId: x.pontoGoJetEstacaoId,
-            pontoGoJetLat:       x.pontoGoJetLat,
-            pontoGoJetLng:       x.pontoGoJetLng,
-            pontoGoJetTarget:    x.pontoGoJetTarget,
-            pontoGoJetRaio:      x.pontoGoJetRaio,
+            pontoGoJetEstacaoId: x.pontoGoJetEstacaoId ?? x.ponto_gojet_estacao_id,
+            pontoGoJetLat:       x.pontoGoJetLat       ?? x.ponto_gojet_lat,
+            pontoGoJetLng:       x.pontoGoJetLng       ?? x.ponto_gojet_lng,
+            pontoGoJetTarget:    x.pontoGoJetTarget    ?? x.ponto_gojet_target,
+            pontoGoJetRaio:      x.pontoGoJetRaio      ?? x.ponto_gojet_raio,
           };
         })
-        // Só mostra não-encerrados + encerrados recentemente (últimas 2h)
         .filter(e => e.status !== 'encerrado' || Date.now() - e.fim.getTime() < 2 * 3600000)
         .sort((a, b) => a.inicio.getTime() - b.inicio.getTime());
       setEventos(lista);
-    }).catch(() => setErro(pick(T.erroCarregar)))
-      .finally(() => setLoading(false));
+    };
+
+    if (estacoesProviderSupabase()) {
+      // ── Supabase ──
+      (async () => {
+        try {
+          const { data, error } = await supabase
+            .from('eventos')
+            .select('*')
+            .eq('cidade', cidade);
+          if (error) throw error;
+          processarLista(
+            (data ?? []).map((r: any) => ({
+              ...r,
+              inicio: r.inicio ? new Date(r.inicio) : new Date(0),
+              fim: r.fim ? new Date(r.fim) : new Date(0),
+            })),
+            'firebase_id',
+          );
+        } catch {
+          setErro(pick(T.erroCarregar));
+        } finally {
+          setLoading(false);
+        }
+      })();
+    } else {
+      // ── Firestore (fallback) ──
+      getDocs(query(
+        collection(db, 'eventos'),
+        where('cidade', '==', cidade),
+      )).then(snap => {
+        processarLista(
+          snap.docs.map(d => ({ ...d.data(), _docId: d.id })),
+          '_docId',
+        );
+      }).catch(() => setErro(pick(T.erroCarregar)))
+        .finally(() => setLoading(false));
+    }
   }, [cidade]);
 
   // Pick-from-map: click no mapa para definir coordenadas

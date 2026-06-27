@@ -2,11 +2,22 @@
 // Para gestores: mostra toast quando worker registra entrada/saída
 // Para workers: mostra status do próprio turno em tempo real
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import {
   collection, query, where, orderBy, limit, onSnapshot,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
+
+// Flag dual-run: localStorage.setItem('jet_turnos_provider','supabase')
+const turnosProviderSupabase = (): boolean => {
+  try {
+    const v = localStorage.getItem('jet_turnos_provider');
+    if (v === 'supabase') return true;
+    if (v === 'firebase') return false;
+  } catch {}
+  return (import.meta.env.VITE_TURNOS_PROVIDER as string) !== 'firebase';
+};
 
 export type TurnoAcao = 'entrada' | 'saida';
 
@@ -30,9 +41,59 @@ interface Props {
 
 /** Hook que escuta a coleção turnos e dispara callback em novos eventos */
 export function useShiftNotifications({ cidade, isGestor, userUid, onEvento }: Props) {
+  const lastSeenRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!cidade) return;
 
+    if (turnosProviderSupabase()) {
+      // ── Supabase: polling a cada 10s ──
+      const mountedAt = new Date().toISOString();
+      let cancelled = false;
+
+      const poll = async () => {
+        try {
+          let q = supabase
+            .from('turnos_logistica')
+            .select('*')
+            .gt('criado_em', mountedAt)
+            .order('criado_em', { ascending: false })
+            .limit(1);
+
+          if (isGestor) {
+            q = q.eq('cidade', cidade);
+          } else {
+            q = q.eq('firebase_uid', userUid);
+          }
+
+          const { data, error } = await q;
+          if (error || cancelled || !data?.length) return;
+
+          const row = data[0];
+          const rowId = row.id ?? row.firebase_id;
+          if (rowId === lastSeenRef.current) return;
+          lastSeenRef.current = rowId;
+
+          onEvento({
+            id: row.firebase_id ?? row.id,
+            uid: row.firebase_uid ?? '',
+            nome: row.nome ?? '',
+            acao: (row.acao === 'inicio' ? 'entrada' : row.acao === 'fim' ? 'saida' : row.acao) as TurnoAcao,
+            funcao: row.funcao ?? '',
+            turno: row.turno ?? '',
+            cidade: row.cidade ?? '',
+            registradoEm: row.criado_em ? { toDate: () => new Date(row.criado_em) } : null,
+          });
+        } catch (e) {
+          console.error('[ShiftNotif] supabase poll error:', e);
+        }
+      };
+
+      const timer = setInterval(poll, 10_000);
+      return () => { cancelled = true; clearInterval(timer); };
+    }
+
+    // ── Firestore (fallback) ──
     // Gestores veem todos da cidade; workers veem só os próprios
     const q = isGestor
       ? query(
