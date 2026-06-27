@@ -165,12 +165,6 @@ async function login(email: string, senha: string) {
     }
     console.log('[auth] login Supabase OK', (data as any)?.migrated ? '(senha migrada)' : '');
 
-    // 3. Firebase login (NÃO-FATAL) — mantém sessão p/ Firestore reads residuais
-    try {
-      const { signInWithEmailAndPassword } = await import('firebase/auth');
-      const { auth: fbAuth } = await import('../lib/firebase');
-      await signInWithEmailAndPassword(fbAuth, email, senha);
-    } catch { console.warn('[auth] Firebase login fallback falhou (não-fatal)'); }
   } catch (e: any) {
     console.error('[auth] login falhou:', e);
     const msg = e?.message || 'E-mail ou senha incorretos.';
@@ -181,11 +175,6 @@ async function login(email: string, senha: string) {
 
 async function logout() {
   await encerrarSessaoSupabase();
-  try {
-    const { signOut } = await import('firebase/auth');
-    const { auth: fbAuth } = await import('../lib/firebase');
-    await signOut(fbAuth);
-  } catch { /* Firebase já deslogado ou não carregou */ }
 }
 
 export const AuthCtx = createContext<AuthContextType>({} as AuthContextType);

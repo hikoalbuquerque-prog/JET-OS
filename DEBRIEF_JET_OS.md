@@ -1,5 +1,5 @@
 # Jet OS Firebase — Master Debrief
-**Atualizado em:** 27/06/2026 (§19.24 Purge firebase.ts zero imports estáticos · §19.23 Triggers→inline + AppShell migrado + deploy total · §19.22 Ondas A-D purge Firestore total · §19.21 Migração 22 coleções · §19.20 Remoção mirrors · §19.19 Dual-write Fase 2 · §19.18 Audit pré-shutdown · §19.17 i18n + POI + deploy)  
+**Atualizado em:** 27/06/2026 (§19.25 Eliminar dynamic imports Firebase · §19.24 Purge firebase.ts zero imports estáticos · §19.23 Triggers→inline + AppShell migrado + deploy total · §19.22 Ondas A-D purge Firestore total · §19.21 Migração 22 coleções · §19.20 Remoção mirrors · §19.19 Dual-write Fase 2 · §19.18 Audit pré-shutdown · §19.17 i18n + POI + deploy)  
 **Projeto:** jet-os-1 | Firebase Hosting + Firestore + Storage + Cloud Functions  
 **Stack:** React + Vite + TypeScript + Leaflet + deck.gl | Node.js 22 Cloud Functions
 
@@ -3260,11 +3260,26 @@ Migrados **todos os 15 arquivos** que importavam de `lib/firebase.ts` ou diretam
 
 **Cloud Functions:** `firebase-admin/auth` para tokens; `firebase-functions/v2/https` para onCall/onRequest. Zero Firestore.
 
+### §19.25 — Eliminar dynamic imports Firebase (Storage, Auth, Functions fallbacks)
+
+- **uploadUtils.ts** — removido fallback Firebase Storage (3 blocos). Supabase-only.
+- **useAuth.ts** — removido Firebase Auth login/logout fallback. Supabase-only.
+- **gps-native.ts** — removido Firebase GPS fallback. Supabase-only.
+- **TarefasLogisticaModule.tsx** — 3 blocos dynamic `firebase/functions` → `getEdgeCallable`
+
+**vendor-firebase chunk: 637 KB → 85 KB** (só FCM messaging resta).
+**Precache total: 6610 KB → 5943 KB** (−667 KB).
+
+Único dynamic import Firebase restante: **TelaMapa.tsx** — `firebase/messaging` (FCM push notifications). Sem alternativa Supabase para web push.
+
+#### 📊 Estado final
+
+**firebase.ts:** existe mas sem nenhum consumer estático. Só carregado se FCM tentar registrar token (lazy, TelaMapa).
+
 **Próximos passos:**
 1. Wiring `notificarTurnoFn` (Supabase DB trigger ou callable)
-2. Eliminar dynamic imports restantes de firebase (migrar FCM, Storage, Auth fallback)
-3. Deletar `firebase.ts` do código
-4. Rotacionar service_role key (exposta em chat) — **SEGURANÇA**
-5. Rotacionar keystore password (mover de build.gradle para keystore.properties)
-6. Desabilitar Firebase Auth
-7. Features: NFS-e, Chat in-app, Guard v2, Slots convergência
+2. Avaliar se FCM pode ser substituído (Web Push API direto?) para deletar firebase.ts
+3. Rotacionar service_role key (exposta em chat) — **SEGURANÇA**
+4. Rotacionar keystore password (mover de build.gradle para keystore.properties)
+5. Desabilitar Firebase Auth
+6. Features: NFS-e, Chat in-app, Guard v2, Slots convergência

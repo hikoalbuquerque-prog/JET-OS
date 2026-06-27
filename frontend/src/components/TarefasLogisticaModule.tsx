@@ -1300,10 +1300,8 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
       });
       // Telegram: notificar novo agente
       try {
-        const { httpsCallable: hc, getFunctions: gf } = await import('firebase/functions');
-        const { getApp: ga } = await import('firebase/app');
-        const fn = hc(gf(ga(), 'southamerica-east1'), 'notificarTarefaAtribuida');
-        await fn({ assigneeUid: ag.uid, tarefaId: tarefa.id, titulo: tarefa.titulo, kind: tarefa.kind, parkingNome: tarefa.parkingNome ?? null, cidade: tarefa.cidade }).catch(() => {});
+        const edge = (await import('../lib/edge-functions')).getEdgeCallable('notificarTarefaAtribuida');
+        if (edge) await edge()({ data: { assigneeUid: ag.uid, tarefaId: tarefa.id, titulo: tarefa.titulo, kind: tarefa.kind, parkingNome: tarefa.parkingNome ?? null, cidade: tarefa.cidade } }).catch(() => {});
       } catch { /* best-effort */ }
       setOk(`${pick(T.okReatribuido)} ${ag.nome}`);
       setShowReatrib(false); setNovoAgente('');
@@ -1751,20 +1749,16 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
         try {
           const { data: tokenData } = await supabase.from('fcm_tokens').select('token').eq('uid', assigneeUid).maybeSingle();
           if (tokenData?.token) {
-            const { httpsCallable, getFunctions } = await import('firebase/functions');
-            const { getApp } = await import('firebase/app');
-            const fns = getFunctions(getApp(), 'southamerica-east1');
-            const fn  = httpsCallable(fns, 'notificarTarefaFn');
-            await fn({ tarefaTitulo: titulo, assigneeUid, cidade, fcmToken: tokenData.token }).catch(() => {});
+            const { getEdgeCallable } = await import('../lib/edge-functions');
+            const edge = getEdgeCallable('notificarTarefa');
+            if (edge) await edge()({ data: { tarefaTitulo: titulo, assigneeUid, cidade, fcmToken: tokenData.token } }).catch(() => {});
           }
         } catch { /* best-effort */ }
       }
-      // Telegram: notificar agente atribuído
       try {
-        const { httpsCallable: hc2, getFunctions: gf2 } = await import('firebase/functions');
-        const { getApp: ga2 } = await import('firebase/app');
-        const fn2 = hc2(gf2(ga2(), 'southamerica-east1'), 'notificarTarefaAtribuida');
-        await fn2({ assigneeUid, tarefaId: novaId, titulo: titulo.trim(), kind, parkingNome: parkSel?.nome ?? parkNome ?? null, cidade }).catch(() => {});
+        const { getEdgeCallable } = await import('../lib/edge-functions');
+        const edge = getEdgeCallable('notificarTarefaAtribuida');
+        if (edge) await edge()({ data: { assigneeUid, tarefaId: novaId, titulo: titulo.trim(), kind, parkingNome: parkSel?.nome ?? parkNome ?? null, cidade } }).catch(() => {});
       } catch { /* best-effort */ }
 
       onCriada();

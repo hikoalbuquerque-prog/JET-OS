@@ -108,22 +108,7 @@ export async function iniciarGpsNativo(uid: string, slotId: string | null): Prom
     return;
   }
 
-  // Firebase (fallback)
-  const { auth } = await import('./firebase');
-  const user = auth.currentUser;
-  const refreshToken = (user as any)?.refreshToken as string | undefined;
-  if (!refreshToken) throw new Error('Sem refresh token — usuário não autenticado');
-  await GpsTracker.start({
-    provider: 'firebase',
-    functionUrl: FB_FUNCTION_URL,
-    tokenUrl: `https://securetoken.googleapis.com/v1/token?key=${FB_API_KEY}`,
-    apiKey: FB_API_KEY,
-    refreshToken,
-    uid,
-    slotId,
-    deviceId: dev.deviceId,
-    deviceModel: dev.deviceModel,
-  });
+  throw new Error('GPS provider não configurado — use Supabase');
 }
 
 export async function atualizarSlotNativo(slotId: string | null): Promise<void> {

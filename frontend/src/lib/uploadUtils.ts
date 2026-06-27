@@ -40,40 +40,23 @@ async function uploadSupabase(file: File | Blob, path: string): Promise<string> 
 }
 
 export async function getBytesStorage(path: string): Promise<Uint8Array> {
-  if (storageProviderSupabase()) {
-    const { bucket, key } = resolveBucket(path);
-    const { data, error } = await supabase.storage.from(bucket).download(key);
-    if (error || !data) throw error || new Error('download falhou');
-    return new Uint8Array(await data.arrayBuffer());
-  }
-  const { ref: sRef, getBytes } = await import('firebase/storage');
-  const { storage: fbStorage } = await import('./firebase');
-  return new Uint8Array(await getBytes(sRef(fbStorage, path)));
+  const { bucket, key } = resolveBucket(path);
+  const { data, error } = await supabase.storage.from(bucket).download(key);
+  if (error || !data) throw error || new Error('download falhou');
+  return new Uint8Array(await data.arrayBuffer());
 }
 
 export async function deleteStorage(path: string): Promise<void> {
-  if (storageProviderSupabase()) {
-    const { bucket, key } = resolveBucket(path);
-    const { error } = await supabase.storage.from(bucket).remove([key]);
-    if (error) throw error;
-    return;
-  }
-  const { ref: sRef, deleteObject } = await import('firebase/storage');
-  const { storage: fbStorage } = await import('./firebase');
-  await deleteObject(sRef(fbStorage, path));
+  const { bucket, key } = resolveBucket(path);
+  const { error } = await supabase.storage.from(bucket).remove([key]);
+  if (error) throw error;
 }
 
 export async function uploadComRetry(file: File | Blob, path: string): Promise<string> {
-  const useSupa = storageProviderSupabase();
   let ultimoErro: unknown;
   for (let i = 0; i < TENTATIVAS; i++) {
     try {
-      if (useSupa) return await uploadSupabase(file, path);
-      const { ref: sRef, uploadBytes: ub, getDownloadURL: gdl } = await import('firebase/storage');
-      const { storage: fbStorage } = await import('./firebase');
-      const r = sRef(fbStorage, path);
-      await ub(r, file);
-      return await gdl(r);
+      return await uploadSupabase(file, path);
     } catch (err) {
       ultimoErro = err;
       const wait = BASE_DELAY * Math.pow(2, i);
