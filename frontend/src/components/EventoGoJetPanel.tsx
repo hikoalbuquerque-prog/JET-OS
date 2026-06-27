@@ -20,7 +20,7 @@ const estacoesProviderSupabase = (): boolean => {
     if (v === 'supabase') return true;
     if (v === 'firebase') return false;
   } catch {}
-  return (import.meta.env.VITE_ESTACOES_PROVIDER as string) === 'supabase';
+  return (import.meta.env.VITE_ESTACOES_PROVIDER as string) !== 'firebase';
 };
 
 const T = {
