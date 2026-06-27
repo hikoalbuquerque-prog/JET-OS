@@ -10,7 +10,7 @@ import { supaAdmin } from './lib/supabase-admin';
 const ROLES_GESTORES = ['admin', 'gestor', 'supergestor', 'gestor_log'];
 
 export const notificarGestorNovaSolicitacao = onDocumentCreated(
-  { document: 'solicitacoes_prestadores/{docId}', region: 'southamerica-east1' },
+  { document: 'solicitacoes_prestadores/{docId}', region: 'southamerica-east1', maxInstances: 10 },
   async (event) => {
     try {
       const data = event.data?.data();

@@ -798,6 +798,7 @@ export const enviarRelatorioManual = onCall(
     timeoutSeconds: 120,
     memory: '256MiB',
     region: 'southamerica-east1',
+    maxInstances: 10,
     cors: [
       'https://jet-os-1.web.app',
       'https://jet-os-1.firebaseapp.com',
@@ -816,7 +817,7 @@ export const enviarRelatorioManual = onCall(
 // ─── Schedules ────────────────────────────────────────────────────────
 // Guard semanal — toda segunda às 7h (reporta dom anterior → sab anterior)
 export const relatorioGuardSemanal = onSchedule(
-  { schedule: '0 7 * * 1', timeZone: 'America/Sao_Paulo', memory: '512MiB', timeoutSeconds: 300 },
+  { schedule: '0 7 * * 1', timeZone: 'America/Sao_Paulo', memory: '512MiB', timeoutSeconds: 300, maxInstances: 10 },
   async () => {
     // Calcula dom anterior → sab anterior (semana passada completa)
     const agora   = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));

@@ -159,7 +159,7 @@ export const telegramWebhook = onRequest((req, res) => {
 
 // ─── FUNCTION: validarVinculoTelegram (onCall — chamado pelo app) ─────────────
 
-export const validarVinculoTelegram = onCall({ region:'southamerica-east1', cors:true }, async (request) => {
+export const validarVinculoTelegram = onCall({ region:'southamerica-east1', maxInstances:10, cors:true }, async (request) => {
     if (!request.auth) {
       throw new HttpsError('unauthenticated', 'Autenticação necessária');
     }
@@ -251,7 +251,7 @@ export const validarVinculoTelegram = onCall({ region:'southamerica-east1', cors
 // O app (autenticado) gera um token ligado ao uid e devolve o deep-link
 // t.me/<bot>?start=<token>. O usuário toca → Telegram manda /start <token> →
 // telegramWebhook vincula direto (sem digitar código, sem voltar ao app).
-export const iniciarVinculoTelegram = onCall({ region: 'southamerica-east1', cors: true }, async (request) => {
+export const iniciarVinculoTelegram = onCall({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Autenticação necessária');
   const uid = request.auth.uid;
 
@@ -284,7 +284,7 @@ export const iniciarVinculoTelegram = onCall({ region: 'southamerica-east1', cor
 
 // ─── FUNCTION: notificarAprovacaoPrestador (onCall — chamado pelo app) ────────
 
-export const notificarAprovacaoPrestador = onCall({ region: 'southamerica-east1', cors: true }, async (request) => {
+export const notificarAprovacaoPrestador = onCall({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Autenticação necessária');
   }
@@ -311,7 +311,7 @@ export const notificarAprovacaoPrestador = onCall({ region: 'southamerica-east1'
 
 // ─── FUNCTION: notificarStatusNF (onCall — chamado pelo app) ────────────────
 
-export const notificarStatusNF = onCall({ region: 'southamerica-east1', cors: true }, async (request) => {
+export const notificarStatusNF = onCall({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Autenticação necessária');
   }
@@ -355,7 +355,7 @@ export const notificarStatusNF = onCall({ region: 'southamerica-east1', cors: tr
 
 // ─── FUNCTION: notificarTarefaAtribuida (onCall — chamado pelo app ao atribuir) ─
 
-export const notificarTarefaAtribuida = onCall({ region: 'southamerica-east1', cors: true }, async (request) => {
+export const notificarTarefaAtribuida = onCall({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Autenticação necessária');
 
   const { assigneeUid, titulo, kind, parkingNome, cidade } = request.data as {

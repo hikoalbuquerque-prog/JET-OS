@@ -38,7 +38,7 @@ interface PontoIn {
 }
 
 export const ingestGps = onRequest(
-  { region: 'southamerica-east1', cors: true, memory: '256MiB' },
+  { region: 'southamerica-east1', cors: true, memory: '256MiB', maxInstances: 10 },
   async (req, res) => {
     if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
     if (req.method !== 'POST') { res.status(405).json({ error: 'method_not_allowed' }); return; }

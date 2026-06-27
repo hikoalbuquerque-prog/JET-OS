@@ -6,7 +6,7 @@ const db = admin.firestore();
 
 // ── OPERAÇÕES ─────────────────────────────────────────────────────────────────
 
-export const criarOperacao = onCall({ region:'southamerica-east1', cors:true }, async (request) => {
+export const criarOperacao = onCall({ region:'southamerica-east1', maxInstances:10, cors:true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Não autenticado');
   const { tipo, prioridade, estacaoId, quantidade, dataVencimento, notas } = request.data;
   const docRef = await db.collection('operacoes').add({
@@ -23,7 +23,7 @@ export const criarOperacao = onCall({ region:'southamerica-east1', cors:true }, 
   return { id: docRef.id, message: 'Operação criada com sucesso' };
 });
 
-export const listarOperacoes = onCall({ region:'southamerica-east1', cors:true }, async (request) => {
+export const listarOperacoes = onCall({ region:'southamerica-east1', maxInstances:10, cors:true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Não autenticado');
   const snap = await db.collection('operacoes')
     .where('uid', '==', request.auth.uid)
@@ -32,14 +32,14 @@ export const listarOperacoes = onCall({ region:'southamerica-east1', cors:true }
   return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 });
 
-export const atualizarOperacao = onCall({ region:'southamerica-east1', cors:true }, async (request) => {
+export const atualizarOperacao = onCall({ region:'southamerica-east1', maxInstances:10, cors:true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Não autenticado');
   const { operacaoId, patch } = request.data;
   await db.collection('operacoes').doc(operacaoId).update(patch);
   return { message: 'Operação atualizada com sucesso' };
 });
 
-export const deletarOperacao = onCall({ region:'southamerica-east1', cors:true }, async (request) => {
+export const deletarOperacao = onCall({ region:'southamerica-east1', maxInstances:10, cors:true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Não autenticado');
   const { operacaoId } = request.data;
   await db.collection('operacoes').doc(operacaoId).delete();
@@ -48,7 +48,7 @@ export const deletarOperacao = onCall({ region:'southamerica-east1', cors:true }
 
 // ── ROTAS ─────────────────────────────────────────────────────────────────────
 
-export const gerarRota = onCall({ region:'southamerica-east1', cors:true }, async (request) => {
+export const gerarRota = onCall({ region:'southamerica-east1', maxInstances:10, cors:true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Não autenticado');
   const { operacaoIds } = request.data;
   if (!operacaoIds?.length) throw new HttpsError('invalid-argument', 'Nenhuma operação selecionada');
@@ -81,7 +81,7 @@ export const gerarRota = onCall({ region:'southamerica-east1', cors:true }, asyn
   return { id: rotaRef.id, distanciaTotal, tempoEstimado, message: 'Rota gerada com sucesso' };
 });
 
-export const listarRotas = onCall({ region:'southamerica-east1', cors:true }, async (request) => {
+export const listarRotas = onCall({ region:'southamerica-east1', maxInstances:10, cors:true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Não autenticado');
   const snap = await db.collection('rotas')
     .where('uid', '==', request.auth.uid)
@@ -90,7 +90,7 @@ export const listarRotas = onCall({ region:'southamerica-east1', cors:true }, as
   return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 });
 
-export const atualizarRota = onCall({ region:'southamerica-east1', cors:true }, async (request) => {
+export const atualizarRota = onCall({ region:'southamerica-east1', maxInstances:10, cors:true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Não autenticado');
   const { rotaId, patch } = request.data;
   await db.collection('rotas').doc(rotaId).update(patch);
@@ -99,7 +99,7 @@ export const atualizarRota = onCall({ region:'southamerica-east1', cors:true }, 
 
 // ── SLOTS ─────────────────────────────────────────────────────────────────────
 
-export const criarSlotAuth = onCall({ region:'southamerica-east1', cors:true }, async (request) => {
+export const criarSlotAuth = onCall({ region:'southamerica-east1', maxInstances:10, cors:true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Não autenticado');
   const { tipo, horario, repeticao } = request.data;
   const slotRef = await db.collection('slots').add({
@@ -115,7 +115,7 @@ export const criarSlotAuth = onCall({ region:'southamerica-east1', cors:true }, 
   return { id: slotRef.id, message: 'Slot criado com sucesso' };
 });
 
-export const listarSlotsAuth = onCall({ region:'southamerica-east1', cors:true }, async (request) => {
+export const listarSlotsAuth = onCall({ region:'southamerica-east1', maxInstances:10, cors:true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Não autenticado');
   const snap = await db.collection('slots')
     .where('uid', '==', request.auth.uid)
@@ -125,7 +125,7 @@ export const listarSlotsAuth = onCall({ region:'southamerica-east1', cors:true }
 
 // ── MONITOR ───────────────────────────────────────────────────────────────────
 
-export const obterEstatisticasMonitorAuth = onCall({ region:'southamerica-east1', cors:true }, async (request) => {
+export const obterEstatisticasMonitorAuth = onCall({ region:'southamerica-east1', maxInstances:10, cors:true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Não autenticado');
   const [totalSnap, conclSnap] = await Promise.all([
     db.collection('operacoes').where('uid', '==', request.auth.uid).get(),
@@ -146,7 +146,7 @@ export const obterEstatisticasMonitorAuth = onCall({ region:'southamerica-east1'
 
 // ── USUÁRIO ───────────────────────────────────────────────────────────────────
 
-export const getUsuario = onCall({ region:'southamerica-east1', cors:true }, async (request) => {
+export const getUsuario = onCall({ region:'southamerica-east1', maxInstances:10, cors:true }, async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Não autenticado');
   const userDoc = await db.collection('usuarios').doc(request.auth.uid).get();
   if (!userDoc.exists) throw new HttpsError('not-found', 'Usuário não encontrado');

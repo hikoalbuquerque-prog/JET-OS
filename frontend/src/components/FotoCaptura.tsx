@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { uploadComRetry } from '../lib/uploadUtils';
+import { comprimirImagem } from '../lib/imageUtils';
 
 // i18n: padrão do TermosUsoGate — texto em objetos { pt, en, es, ru }, sem chaves json.
 const T = {
@@ -71,7 +72,8 @@ export function FotoCaptura({ context, origem = 'campo', lat, lng, estacaoId, es
     e.preventDefault();
     setDraggingOver(false);
     if (fase !== 'camera') return;
-    const file = Array.from(e.dataTransfer.files).find(f => f.type.startsWith('image/'));
+    const file = Array.from(e.dataTransfer.files).find(f =>
+      f.type.startsWith('image/') || /\.(heic|heif)$/i.test(f.name));
     if (!file) return;
     setFotoFile(file);
     setPreview(URL.createObjectURL(file));
@@ -126,8 +128,11 @@ export function FotoCaptura({ context, origem = 'campo', lat, lng, estacaoId, es
         ? `estacoes/${estacaoId}/foto/${ts}_campo.jpg`
         : `estacoes/temp/${ts}_novo.jpg`;
 
+      // Compressão HEIC-safe (ver lib/imageUtils). Converte HEIC→JPEG antes de comprimir,
+      // evitando o bug de foto "quebrada" (HEIC enviado como .jpg que o WebView não renderiza).
+      const compressed = await comprimirImagem(fotoFile);
       setProgress(pick(T.enviandoFoto));
-      const url = await uploadComRetry(fotoFile, path);
+      const url = await uploadComRetry(compressed, path);
 
       setFase('done');
       setTimeout(() => {

@@ -5,6 +5,7 @@ import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where } 
 import { db } from '../lib/firebase';
 import L from 'leaflet';
 import { uploadComRetry } from '../lib/uploadUtils';
+import { comprimirImagem } from '../lib/imageUtils';
 import { fnGeocodeForward } from '../lib/firebase';
 import i18n from '../i18n/index';
 import type { Estacao } from '../lib/app-utils';
@@ -125,16 +126,23 @@ export function FotoBotaoDrawer({ lat, lng, onFotoSalva }: {
     }
   };
 
-  // Lê arquivo e converte para base64 imediatamente — antes de qualquer upload
-  const processarArquivo = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result as string;
-      // Mostrar preview com opção de medir ou salvar direto
-      setPreview({ base64, file });
-    };
-    reader.onerror = () => alert('Erro ao ler foto. Tente novamente.');
-    reader.readAsDataURL(file);
+  // Comprime (HEIC-safe) e converte para base64 — antes de qualquer upload.
+  // Converte HEIC→JPEG antes de comprimir, evitando o bug de foto "quebrada"
+  // (HEIC enviado como .jpg que o WebView não renderiza). Ver lib/imageUtils.
+  const processarArquivo = async (file: File) => {
+    try {
+      const compressed = await comprimirImagem(file);
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result as string;
+        setPreview({ base64, file: compressed });
+      };
+      reader.onerror = () => alert('Erro ao ler foto. Tente novamente.');
+      reader.readAsDataURL(compressed);
+    } catch (err) {
+      console.error('[FotoBotao] compressão falhou:', err);
+      alert('Erro ao processar foto. Tente novamente.');
+    }
   };
 
   const btn: React.CSSProperties = {

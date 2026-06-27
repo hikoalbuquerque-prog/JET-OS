@@ -79,7 +79,7 @@ export const healthCheck = onRequest((req, res) => {
 import { gerarCroqui, gerarCroquisLote } from './croquis';
 
 export const gerarCroquiFn = onCall(
-  { timeoutSeconds: 300, memory: '512MiB', region: 'southamerica-east1', cors: true },
+  { timeoutSeconds: 300, memory: '512MiB', region: 'southamerica-east1', maxInstances: 10, cors: true },
   async (request) => {
     if (!request.auth) throw new Error('Não autenticado');
     const { estacaoId } = request.data as { estacaoId: string };
@@ -88,7 +88,7 @@ export const gerarCroquiFn = onCall(
 );
 
 export const gerarCroquisLoteFn = onCall(
-  { timeoutSeconds: 540, memory: '512MiB', region: 'southamerica-east1', cors: true },
+  { timeoutSeconds: 540, memory: '512MiB', region: 'southamerica-east1', maxInstances: 10, cors: true },
   async (request) => {
     if (!request.auth) throw new Error('Não autenticado');
     const { cidade, pais = 'BR', loteSize = 10 } = request.data as { cidade: string; pais?: string; loteSize?: number };
@@ -104,7 +104,7 @@ export const gerarCroquisLoteFn = onCall(
 import { fetchStreetViewCascata } from './streetview';
 
 export const gerarStreetViewFn = onCall(
-  { timeoutSeconds: 120, memory: '256MiB', region: 'southamerica-east1', cors: true },
+  { timeoutSeconds: 120, memory: '256MiB', region: 'southamerica-east1', maxInstances: 10, cors: true },
   async (request) => {
     if (!request.auth) throw new Error('Não autenticado');
     const { lat, lng, codigo } = request.data as { lat: number; lng: number; codigo: string };
@@ -126,7 +126,7 @@ import { gerarRelatorioGuard, enviarRelatorioTelegram } from './relatorio';
 // Diário — 7h, terça a domingo (reporta o dia anterior)
 // Segunda-feira envia o semanal no lugar
 export const relatorioGuardDiarioFn = onSchedule(
-  { schedule: '0 7 * * 2-7', timeZone: 'America/Sao_Paulo', memory: '256MiB', timeoutSeconds: 120 },
+  { schedule: '0 7 * * 2-7', timeZone: 'America/Sao_Paulo', memory: '256MiB', timeoutSeconds: 120, maxInstances: 10 },
   async () => {
     // Reporta o dia anterior
     const ontem = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
@@ -140,7 +140,7 @@ export const relatorioGuardDiarioFn = onSchedule(
 
 // Manual — callable para o botão "Enviar relatório agora" no DashboardManager
 export const relatorioGuardManualFn = onCall(
-  { timeoutSeconds: 180, memory: '256MiB', region: 'southamerica-east1', cors: true },
+  { timeoutSeconds: 180, memory: '256MiB', region: 'southamerica-east1', maxInstances: 10, cors: true },
   async (request) => {
     if (!request.auth) throw new Error('Não autenticado');
     const { dataStr, tipo, periodo, lang } = (request.data || {}) as {
@@ -167,7 +167,7 @@ export const relatorioGuardManualFn = onCall(
 import { aprovarSolicitacao } from './auth/index';
 
 export const aprovarSolicitacaoFn = onCall(
-  { timeoutSeconds: 60, memory: '256MiB', region: 'southamerica-east1', cors: true },
+  { timeoutSeconds: 60, memory: '256MiB', region: 'southamerica-east1', maxInstances: 10, cors: true },
   async (request) => {
     if (!request.auth) throw new Error('Não autenticado');
     const { solicitacaoId, roleOverride } = request.data as { solicitacaoId: string; roleOverride?: string };
@@ -208,7 +208,7 @@ export * from './slots-telegram';     // resumoSlotsTelegram, confirmarSlotsCasc
 // ══════════════════════════════════════════════════════════════════
 
 export const revogarAcesso = onCall(
-  { region: 'southamerica-east1', cors: true },
+  { region: 'southamerica-east1', maxInstances: 10, cors: true },
   async (request) => {
     const callerUid = request.auth?.uid;
     if (!callerUid) throw new Error('Não autenticado');

@@ -10,6 +10,7 @@ import {
   onSnapshot, query, where, serverTimestamp, orderBy,
 } from 'firebase/firestore';
 import { uploadComRetry } from '../lib/uploadUtils';
+import { comprimirImagem } from '../lib/imageUtils';
 
 // ── i18n (padrão TermosUsoGate: objeto { pt, en, es, ru }, sem json) ─────────
 type Lang = 'pt' | 'en' | 'es' | 'ru';
@@ -303,11 +304,18 @@ export function LocalOperacionalModal({
       .then(r => r.json()).then(d => { if (d.display_name) setEndereco(d.display_name); }).catch(() => {});
   }, []);
 
-  const handleFotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Compressão HEIC-safe (ver lib/imageUtils). Converte HEIC→JPEG antes de comprimir,
+  // evitando o bug de foto "quebrada" (HEIC enviado como .jpg que o WebView não renderiza).
+  const handleFotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => { const b64 = ev.target?.result as string; setFoto(b64); setFotoPreview(b64); };
-    reader.readAsDataURL(file);
+    try {
+      const compressed = await comprimirImagem(file);
+      const reader = new FileReader();
+      reader.onload = ev => { const b64 = ev.target?.result as string; setFoto(b64); setFotoPreview(b64); };
+      reader.readAsDataURL(compressed);
+    } catch (err) {
+      console.error('[LocaisFin] compressão falhou:', err);
+    }
   };
 
   const salvar = async () => {

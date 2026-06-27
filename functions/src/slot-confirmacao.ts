@@ -100,7 +100,7 @@ async function getTelegramConfig(cidade: string): Promise<{
 // ─── Função principal: roda a cada 5 minutos ──────────────────────────────────
 
 export const verificarConfirmacoesSlots = functions.scheduler.onSchedule(
-  { schedule: 'every 5 minutes', region: 'southamerica-east1', timeoutSeconds: 120 },
+  { schedule: 'every 5 minutes', region: 'southamerica-east1', timeoutSeconds: 120, maxInstances: 10 },
   async () => {
     const agora = new Date();
     const hoje  = agora.toLocaleDateString('pt-BR');
@@ -288,7 +288,7 @@ function buildMsgUrgente(slot: Slot, naoConfirmaram: SlotAceite[], vagas: number
 // ─── Callable para gestores enviarem confirmações manualmente ─────────────────
 
 export const enviarConfirmacoesManual = functions.https.onCall(
-  { region: 'southamerica-east1' },
+  { region: 'southamerica-east1', maxInstances: 10 },
   async (request) => {
     const { slotId, cidade } = request.data as { slotId: string; cidade: string };
 

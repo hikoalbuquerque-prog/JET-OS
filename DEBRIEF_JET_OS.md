@@ -1,5 +1,5 @@
 # Jet OS Firebase — Master Debrief
-**Atualizado em:** 26/06/2026 (§19.11 Audit Firestore completo + mirrors deployados + roadmap Ondas D-H · Auth flip C.9 + segurança + relatórios Guard + fix mapa país · V2 Features portadas P0-P5 — 18.1 · GPS NATIVO — 10.8 · LGPD — 11 · NFS-e — 13)  
+**Atualizado em:** 26/06/2026 (§19.12 Ondas D-H implementadas — migração Firestore→Supabase completa · §19.11 Audit 35 coleções · mirrors deployados · Auth flip C.9 + segurança · V2 Features P0-P5 — 18.1 · GPS NATIVO — 10.8 · LGPD — 11 · NFS-e — 13)  
 **Projeto:** jet-os-1 | Firebase Hosting + Firestore + Storage + Cloud Functions  
 **Stack:** React + Vite + TypeScript + Leaflet + deck.gl | Node.js 22 Cloud Functions
 
@@ -2793,10 +2793,33 @@ Auditoria de todas as 35 coleções Firestore referenciadas no código (frontend
 | Mortas / cobertas | 10 | 28% |
 | **Total** | **35** | **100%** |
 
-#### Roadmap de cutover sugerido
+#### Roadmap de cutover — ✅ IMPLEMENTADO (26/06/2026)
 
-1. **Onda D — GPS leitura** (2 coleções, 7 arquivos): `gps_logistica` → `gps_locations`, `gps_logistica_hist` → `gps_history`. Dados já no Supabase via `ingest-gps`. Maior impacto (real-time tracking).
-2. **Onda E — Usuarios leitura** (~9 arquivos): trocar `getDocs('usuarios')` por query Supabase. Auth flip já feito.
-3. **Onda F — Config consolidação** (3 coleções → `app_settings`): `config` + `guard_config` + `app_config`.
-4. **Onda G — Tarefas + Telegram** (4 coleções): criar mirrors ou portar escritores de `tarefas`, `tarefas_logistica`, `telegram_config`, `telegram_vinculos`.
+Todas as 5 ondas implementadas em commit `24e7cbb`. 36 arquivos, 4 migrations (0057-0060), ~1516 linhas. Tudo atrás de feature flags com Firestore fallback.
+
+### 19.12 Implementação Ondas D-H (26/06/2026)
+
+| Onda | Scope | Migration | Novos arquivos | Modificados | Status |
+|------|-------|-----------|----------------|-------------|--------|
+| **D — GPS reads** | 5 componentes frontend (LiveTrackingMap, LiveWorkersPanel, GpsRotaPanel, GestorLogisticaPanel, SlotsModule) | 0057 `gps_views` (views PostGIS com lat/lng + firebase_uid join) | `gps-supabase.ts` | 5 | ✅ |
+| **E — Usuarios reads** | 11 componentes, 15 read sites | — | — (expandiu `usuarios-supabase.ts`) | 11 | ✅ |
+| **F — Config** | 4 Cloud Functions (relatorio, relatorios, slots, automacao-tarefas) | 0058 `seed_config` | `config-supabase.ts`, `backfill-config.mjs` | 4 | ✅ |
+| **G — Tarefas/Telegram** | 6 Cloud Functions + mirrors | 0060 `onda_g_telegram_gojet_columns` | `telegram-supabase.ts` | 6 (gps-alertas, slots, relatorios, telegram-vinculo, automacao-tarefas, mirror-tarefas) | ✅ |
+| **H — Mirrors/cleanup** | 3 novos mirrors + 3 frontend GoJet | 0059 `tarefas_firebase_id` + tabela `solicitacoes` | `mirror-tarefas.ts`, `mirror-solicitacoes.ts`, `mirror-gojet-config.ts`, `gojet-config-supabase.ts` | 4 | ✅ |
+
+**Padrões aplicados em todas as ondas:**
+- Feature flag: `localStorage.getItem('jet_*_provider') === 'supabase'` || `import.meta.env.VITE_*_PROVIDER`
+- `onSnapshot` Firestore → `setInterval` polling (10-30s) no Supabase
+- UID mapping: views PostGIS fazem JOIN com `usuarios.firebase_uid` — frontend continua usando Firebase UIDs
+- Functions: Supabase-first com try/catch, Firestore fallback
+- Mirrors: `onDocumentWritten` → PostgREST upsert por `firebase_id`
+
+**Para ativar:** `localStorage.setItem('jet_gps_read_provider', 'supabase')` (e análogo para `usuarios_read`, `gojet`, etc.)
+
+**Próximos passos operacionais:**
+1. Aplicar migrations 0057-0060 no Supabase (`supabase db push`)
+2. Deploy mirrors novos (`firebase deploy --only functions:espelharTarefaSupabase,...`)
+3. Rodar backfill-config.mjs
+4. Testar cada flag individualmente em staging
+5. Flip flags em produção por onda
 5. **Onda H — Limpeza** (6+10 coleções): portar ou desativar `prestadores`, `pontos`, `solicitacoes`, `operacoes`, `rotas`, `eventos`; desligar coleções mortas.

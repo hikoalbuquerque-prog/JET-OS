@@ -272,7 +272,7 @@ async function _gerarTarefasMonitor(parkings: GoJetParking[], turno: 'T0' | 'T1'
 }
 
 export const gerarSlotsAgendado = onSchedule(
-  { schedule: '0 21 * * *', timeZone: 'America/Sao_Paulo', memory: '256MiB', timeoutSeconds: 120, region: 'southamerica-east1' },
+  { schedule: '0 21 * * *', timeZone: 'America/Sao_Paulo', memory: '256MiB', timeoutSeconds: 120, region: 'southamerica-east1', maxInstances: 10 },
   async () => {
     const cfgSnap = await db.collection('slot_config').doc('global').get();
     if (!cfgSnap.exists) { console.warn('[gerarSlots] sem config'); return; }
@@ -376,6 +376,7 @@ export const limpezaSnapshots = onSchedule(
     schedule: '0 3 * * *',
     timeZone: 'America/Sao_Paulo',
     region:   'southamerica-east1',
+    maxInstances: 10,
   },
   async () => {
     const limite = new Date();

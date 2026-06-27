@@ -42,7 +42,7 @@ async function sbDelete(tbl: string, fid: string, tag: string) {
 
 // ── Mirror SOLICITAÇÕES DE ACESSO ───────────────────────────────────────────
 export const espelharSolicitacaoSupabase = onDocumentWritten(
-  { document: 'solicitacoes/{id}', region: 'southamerica-east1' },
+  { document: 'solicitacoes/{id}', region: 'southamerica-east1', maxInstances: 10 },
   async (event) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) return;
     const id = event.params.id;

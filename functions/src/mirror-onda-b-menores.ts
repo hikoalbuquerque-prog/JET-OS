@@ -42,7 +42,7 @@ async function sbDelete(tbl: string, fid: string, tag: string) {
 
 // ── Mirror SOLICITAÇÕES DE PRESTADORES ───────────────────────────────────────
 export const espelharSolicitacaoPrestadorSupabase = onDocumentWritten(
-  { document: 'solicitacoes_prestadores/{id}', region: 'southamerica-east1' },
+  { document: 'solicitacoes_prestadores/{id}', region: 'southamerica-east1', maxInstances: 10 },
   async (event) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) return;
     const id = event.params.id;
@@ -68,7 +68,7 @@ export const espelharSolicitacaoPrestadorSupabase = onDocumentWritten(
 
 // ── Mirror TURNOS LOGÍSTICA (foto de início/fim de turno) ────────────────────
 export const espelharTurnoLogisticaSupabase = onDocumentWritten(
-  { document: 'turnos_logistica/{id}', region: 'southamerica-east1' },
+  { document: 'turnos_logistica/{id}', region: 'southamerica-east1', maxInstances: 10 },
   async (event) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) return;
     const id = event.params.id;

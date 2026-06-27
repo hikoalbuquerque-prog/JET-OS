@@ -340,6 +340,7 @@ export const scraperGoJet = onSchedule(
     region:         'southamerica-east1',
     timeoutSeconds: 540,   // 9min — paginação pode ser lenta
     memory:         '512MiB',
+    maxInstances:   10,
   },
   async () => {
     const db = admin.firestore();
@@ -384,7 +385,7 @@ export const scraperGoJet = onSchedule(
 // ── scraperGoJetManual — callable para botão "Atualizar agora" ───────────────
 
 export const scraperGoJetManual = onCall(
-  { region: 'southamerica-east1', timeoutSeconds: 300, memory: '512MiB' },
+  { region: 'southamerica-east1', timeoutSeconds: 300, memory: '512MiB', maxInstances: 10 },
   async (request) => {
     const { cityId, cidade } = (request.data || {}) as { cityId?: string; cidade?: string };
 

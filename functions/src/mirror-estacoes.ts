@@ -24,7 +24,7 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.trim()) ?
 const pais = (p: unknown): string => (typeof p === 'string' && /^[A-Z]{2}$/.test(p)) ? p : 'BR';
 
 export const espelharEstacaoSupabase = onDocumentWritten(
-  { document: 'estacoes/{id}', region: 'southamerica-east1' },
+  { document: 'estacoes/{id}', region: 'southamerica-east1', maxInstances: 10 },
   async (event) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) return; // migração não cortada ainda
     const id = event.params.id;
@@ -82,7 +82,7 @@ async function sbDelete(tbl: string, fid: string, tag: string) {
 
 // ── Mirror ZONAS (poligonos Firestore → public.zonas) ────────────────────────
 export const espelharZonaSupabase = onDocumentWritten(
-  { document: 'poligonos/{id}', region: 'southamerica-east1' },
+  { document: 'poligonos/{id}', region: 'southamerica-east1', maxInstances: 10 },
   async (event) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) return;
     const id = event.params.id;
@@ -110,7 +110,7 @@ export const espelharZonaSupabase = onDocumentWritten(
 
 // ── Mirror LOCAIS operacionais (Firestore → public.locais_operacionais) ──────
 export const espelharLocalSupabase = onDocumentWritten(
-  { document: 'locais_operacionais/{id}', region: 'southamerica-east1' },
+  { document: 'locais_operacionais/{id}', region: 'southamerica-east1', maxInstances: 10 },
   async (event) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) return;
     const id = event.params.id;

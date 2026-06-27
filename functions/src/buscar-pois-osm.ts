@@ -149,6 +149,7 @@ export const buscarPOIsOSMFn = functions.https.onCall(
     region: 'southamerica-east1',
     timeoutSeconds: 60,
     memory: '256MiB',
+    maxInstances: 10,
   },
   async (request) => {
     const { lat, lng, raio = 2, useGrid = false } = request.data as POIInput;

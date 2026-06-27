@@ -69,7 +69,7 @@ async function resolverUuid(firebaseUid: string): Promise<string | null> {
 //   descricao, dados jsonb, criado_por, atribuido_a, criado_em, atualizado_em
 // + firebase_id text UNIQUE (migration 0059)
 export const espelharTarefaSupabase = onDocumentWritten(
-  { document: 'tarefas/{id}', region: 'southamerica-east1' },
+  { document: 'tarefas/{id}', region: 'southamerica-east1', maxInstances: 10 },
   async (event) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) return;
     const id = event.params.id;
@@ -114,7 +114,7 @@ export const espelharTarefaSupabase = onDocumentWritten(
 //   criado_em, concluido_em, cancelado_em
 // + firebase_id text UNIQUE (migration 0059)
 export const espelharTarefaLogisticaSupabase = onDocumentWritten(
-  { document: 'tarefas_logistica/{id}', region: 'southamerica-east1' },
+  { document: 'tarefas_logistica/{id}', region: 'southamerica-east1', maxInstances: 10 },
   async (event) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) return;
     const id = event.params.id;

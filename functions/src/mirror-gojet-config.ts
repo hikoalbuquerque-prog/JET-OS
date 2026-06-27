@@ -14,7 +14,7 @@ const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE ?? '';
 const HDR = () => ({ apikey: SUPABASE_SERVICE_ROLE, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE}` });
 
 export const espelharGojetConfigSupabase = onDocumentWritten(
-  { document: 'gojet_config/{cidade}', region: 'southamerica-east1' },
+  { document: 'gojet_config/{cidade}', region: 'southamerica-east1', maxInstances: 10 },
   async (event) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) return;
     const cidade = event.params.cidade;

@@ -286,7 +286,7 @@ async function gerarTarefasDeSnapshot(
 // ─── Cloud Function callable (gestor pode acionar manualmente) ───────────────
 
 export const gerarTarefasGoJetFn = https.onCall(
-  { region: 'southamerica-east1' },
+  { region: 'southamerica-east1', maxInstances: 10 },
   async (request) => {
     // Verificar autenticação
     if (!request.auth) {
@@ -314,6 +314,7 @@ export const gerarTarefasAgendado = scheduler.onSchedule(
     schedule: '0 * * * *', // toda hora em ponto
     timeZone: 'America/Sao_Paulo',
     region: 'southamerica-east1',
+    maxInstances: 10,
   },
   async () => {
     try {
@@ -368,7 +369,7 @@ export const gerarTarefasAgendado = scheduler.onSchedule(
 // ─── Cloud Function: notificar agente via Telegram ───────────────────────────
 
 export const notificarTarefaFn = https.onCall(
-  { region: 'southamerica-east1' },
+  { region: 'southamerica-east1', maxInstances: 10 },
   async (request) => {
     if (!request.auth) throw new https.HttpsError('unauthenticated', 'Não autenticado');
 
@@ -1078,7 +1079,7 @@ async function executarMotorSlots(): Promise<void> {
 // ─── Scheduler: roda a cada 15 minutos ───────────────────────────────────────
 
 export const gerarSlotsInteligenteFn = scheduler.onSchedule(
-  { schedule: '*/15 * * * *', timeZone: 'America/Sao_Paulo', region: 'southamerica-east1' },
+  { schedule: '*/15 * * * *', timeZone: 'America/Sao_Paulo', region: 'southamerica-east1', maxInstances: 10 },
   async () => {
     try { await executarMotorSlots(); }
     catch (e) { logger.error('[gerarSlotsAgendado] erro:', e); }
@@ -1088,7 +1089,7 @@ export const gerarSlotsInteligenteFn = scheduler.onSchedule(
 // ─── Callable manual: gestor aciona pelo painel ───────────────────────────────
 
 export const gerarSlotsManualFn = https.onCall(
-  { region: 'southamerica-east1' },
+  { region: 'southamerica-east1', maxInstances: 10 },
   async (request) => {
     if (!request.auth) throw new https.HttpsError('unauthenticated', 'Não autenticado');
     const userDoc = await db.collection('usuarios').doc(request.auth.uid).get();
@@ -1102,7 +1103,7 @@ export const gerarSlotsManualFn = https.onCall(
 // ─── Escalamento SLA: roda a cada 5 minutos ──────────────────────────────────
 
 export const escalarSlotsSLA = scheduler.onSchedule(
-  { schedule: '*/5 * * * *', timeZone: 'America/Sao_Paulo', region: 'southamerica-east1' },
+  { schedule: '*/5 * * * *', timeZone: 'America/Sao_Paulo', region: 'southamerica-east1', maxInstances: 10 },
   async () => {
     try {
       const agora = admin.firestore.Timestamp.now();
@@ -1157,7 +1158,7 @@ export const escalarSlotsSLA = scheduler.onSchedule(
 // ══════════════════════════════════════════════════════════════════════════════
 
 export const notificarTurnoFn = firestore.onDocumentCreated(
-  { document: 'turnos/{turnoId}', region: 'southamerica-east1' },
+  { document: 'turnos/{turnoId}', region: 'southamerica-east1', maxInstances: 10 },
   async (event) => {
     const turno = event.data?.data();
     if (!turno) return;
@@ -1198,7 +1199,7 @@ export const notificarTurnoFn = firestore.onDocumentCreated(
 // ══════════════════════════════════════════════════════════════════════════════
 
 export const salvarHistoricoParking = scheduler.onSchedule(
-  { schedule: '55 23 * * *', timeZone: 'America/Sao_Paulo', region: 'southamerica-east1' },
+  { schedule: '55 23 * * *', timeZone: 'America/Sao_Paulo', region: 'southamerica-east1', maxInstances: 10 },
   async () => {
     try {
       const hoje = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
@@ -1269,7 +1270,7 @@ export const salvarHistoricoParking = scheduler.onSchedule(
 // ══════════════════════════════════════════════════════════════════════════════
 
 export const exportarHistoricoParking = https.onCall(
-  { region: 'southamerica-east1' },
+  { region: 'southamerica-east1', maxInstances: 10 },
   async (request) => {
     if (!request.auth) throw new https.HttpsError('unauthenticated', 'Não autenticado');
     const { cidade, dias = 30 } = request.data ?? {};

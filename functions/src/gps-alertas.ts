@@ -129,7 +129,7 @@ async function getChatId(cidade: string): Promise<string | null> {
 // ─── TRIGGER: novo GPS → verifica chegada ────────────────────────────────────
 
 export const verificarChegadaPonto = onDocumentCreated(
-  { document: 'gps_logistica/{id}', region: 'southamerica-east1' },
+  { document: 'gps_logistica/{id}', region: 'southamerica-east1', maxInstances: 10 },
   async (event) => {
     const gps = event.data?.data();
     if (!gps?.uid || !gps?.lat || !gps?.lng) return;
@@ -359,6 +359,7 @@ export const verificarAtrasos = onSchedule(
     timeZone: 'America/Sao_Paulo',
     region: 'southamerica-east1',
     memory: '256MiB',
+    maxInstances: 10,
   },
   async () => {
     const agora   = Date.now();
@@ -602,7 +603,7 @@ export const verificarAtrasos = onSchedule(
 // ─── Item 5 — callable: alerta de GPS falso (mock) ───────────────────────────
 
 export const alertarMockGPS = onCall(
-  { region: 'southamerica-east1', cors: true },
+  { region: 'southamerica-east1', maxInstances: 10, cors: true },
   async (request) => {
     const { uid, lat, lng, capturedAt } = (request.data ?? {}) as {
       uid: string; lat: number; lng: number; capturedAt: string;

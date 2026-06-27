@@ -66,7 +66,7 @@ function str(...vals: unknown[]): string | null {
 }
 
 export const espelharOcorrenciaSupabase = onDocumentWritten(
-  { document: 'ocorrencias/{id}', region: 'southamerica-east1' },
+  { document: 'ocorrencias/{id}', region: 'southamerica-east1', maxInstances: 10 },
   async (event) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) return; // migração não cortada ainda
     const firebaseDocId = event.params.id;
