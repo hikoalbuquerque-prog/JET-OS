@@ -1148,7 +1148,14 @@
     "viewDoc": "Visualizar",
     "tpu": "TPU",
     "authorization": "Autorização",
-    "notRegistered": "não cadastrado"
+    "notRegistered": "não cadastrado",
+    "croquiConfirm": "Gerar croqui para {{codigo}}?\nIsso pode levar ~30 segundos.",
+    "croquiGenerating": "Gerando croqui...",
+    "croquiDone": "Croqui gerado!",
+    "deleteConfirm": "Excluir estação {{codigo}}?",
+    "deleted": "Estação excluída",
+    "deleteError": "Erro ao excluir",
+    "analyzing": "Analisando..."
   },
   "legend": {
     "pub": "Pública",

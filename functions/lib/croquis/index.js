@@ -38,6 +38,7 @@ exports.gerarCroquisLote = gerarCroquisLote;
 // src/croquis/index.ts — Geração de croquis via Google Slides API
 const admin = __importStar(require("firebase-admin"));
 const utils_1 = require("../utils");
+const supabase_rest_1 = require("../lib/supabase-rest");
 const TEMPLATE_PUBLICO_BR = '1i0Za1wf1rK_W3-HLFQ6X2xZwoC7aaEZ_9tjpC0v6120';
 const TEMPLATE_PRIVADO_BR = '1x4wQ4DuOBQuxZehy5HCL60luET3xRdc9h_EzUv2GINA';
 const PASTA_CROQUIS_ROOT = '1o5V7xBylld1Omn7aLbzw0F3qxGMJt-vw';
@@ -186,10 +187,21 @@ async function salvarPDFnoDrive(drive, buffer, nome, pastaId) {
 }
 // ── FUNÇÃO PRINCIPAL ─────────────────────────────────────────────
 async function gerarCroqui(estacaoId, uid, email) {
-    const snap = await (0, utils_1.db)().collection('estacoes').doc(estacaoId).get();
-    if (!snap.exists)
-        return (0, utils_1.erroResponse)('Estação não encontrada.');
-    const e = { id: snap.id, ...snap.data() };
+    // Supabase-first read with Firestore fallback
+    let e = null;
+    try {
+        const sb = await (0, supabase_rest_1.supabaseGetOne)('estacoes', `id=eq.${estacaoId}&select=*`)
+            ?? await (0, supabase_rest_1.supabaseGetOne)('estacoes', `firebase_id=eq.${estacaoId}&select=*`);
+        if (sb)
+            e = sb;
+    }
+    catch { /* fallback to Firestore */ }
+    if (!e) {
+        const snap = await (0, utils_1.db)().collection('estacoes').doc(estacaoId).get();
+        if (!snap.exists)
+            return (0, utils_1.erroResponse)('Estação não encontrada.');
+        e = { id: snap.id, ...snap.data() };
+    }
     if (!e.lat || !e.lng)
         return (0, utils_1.erroResponse)('Estação sem coordenadas.');
     const isPrivado = e.tipo === 'PRIVADA';
@@ -229,12 +241,18 @@ async function gerarCroqui(estacaoId, uid, email) {
         const pdfUrl = `https://drive.google.com/file/d/${pdfId}/view`;
         // Remove Slides temporário
         await drive.files.delete({ fileId: copiaId }).catch(() => { });
-        // Atualiza estação
+        // Atualiza estação (Firestore + dual-write Supabase)
         await (0, utils_1.db)().collection('estacoes').doc(estacaoId).update({
             'imagens.croqui': pdfUrl,
             croquiStatus: 'OK',
             croquiGeradoEm: admin.firestore.FieldValue.serverTimestamp()
         });
+        (0, supabase_rest_1.supabaseUpsert)('estacoes', {
+            firebase_id: estacaoId,
+            imagens: { croqui: pdfUrl },
+            croqui_status: 'OK',
+            croqui_gerado_em: new Date().toISOString(),
+        }, 'firebase_id').catch(() => { });
         await (0, utils_1.logEvento)({
             tipo: 'CROQUI_GERADO', uid, email,
             descricao: `Croqui: ${e.codigo}`,
@@ -249,21 +267,40 @@ async function gerarCroqui(estacaoId, uid, email) {
             croquiStatus: 'ERRO',
             croquiUltimoErro: err.message
         });
+        (0, supabase_rest_1.supabaseUpsert)('estacoes', {
+            firebase_id: estacaoId,
+            croqui_status: 'ERRO',
+            croqui_ultimo_erro: err.message,
+        }, 'firebase_id').catch(() => { });
         throw err;
     }
 }
 // ── CROQUIS EM LOTE ──────────────────────────────────────────────
 async function gerarCroquisLote(cidade, pais, loteSize, uid, email) {
-    // Busca TODAS as estações da cidade (Firestore não suporta query por campo ausente)
-    const snapSem = await (0, utils_1.db)().collection('estacoes')
-        .where('pais', '==', pais)
-        .where('cidade', '==', cidade)
-        .get();
-    // Filtra em memória: sem croqui ou com erro
-    const todasSemCroqui = snapSem.docs.filter((d) => {
-        const data = d.data();
-        return !data.croquiStatus || data.croquiStatus === 'PENDENTE' || data.croquiStatus === 'ERRO';
-    });
+    // Supabase-first query with Firestore fallback
+    let todasSemCroqui = [];
+    try {
+        const sbRows = await (0, supabase_rest_1.supabaseGet)('estacoes', `pais=eq.${encodeURIComponent(pais)}&cidade=eq.${encodeURIComponent(cidade)}&select=*`);
+        if (sbRows && sbRows.length > 0) {
+            todasSemCroqui = sbRows
+                .filter((r) => !r.croqui_status || r.croqui_status === 'PENDENTE' || r.croqui_status === 'ERRO')
+                .map((r) => ({ id: r.firebase_id || r.id, data: () => r }));
+        }
+        else {
+            throw new Error('fallback');
+        }
+    }
+    catch {
+        const snapSem = await (0, utils_1.db)().collection('estacoes')
+            .where('pais', '==', pais)
+            .where('cidade', '==', cidade)
+            .get();
+        todasSemCroqui = snapSem.docs
+            .filter((d) => {
+            const data = d.data();
+            return !data.croquiStatus || data.croquiStatus === 'PENDENTE' || data.croquiStatus === 'ERRO';
+        });
+    }
     const semCroqui = todasSemCroqui.slice(0, loteSize);
     const totalRestantes = todasSemCroqui.length;
     if (!semCroqui.length) {

@@ -1160,7 +1160,14 @@
     "viewDoc": "View",
     "tpu": "TPU",
     "authorization": "Authorization",
-    "notRegistered": "not registered"
+    "notRegistered": "not registered",
+    "croquiConfirm": "Generate sketch for {{codigo}}?\nThis may take ~30 seconds.",
+    "croquiGenerating": "Generating sketch...",
+    "croquiDone": "Sketch generated!",
+    "deleteConfirm": "Delete station {{codigo}}?",
+    "deleted": "Station deleted",
+    "deleteError": "Error deleting",
+    "analyzing": "Analyzing..."
   },
   "legend": {
     "pub": "Public",

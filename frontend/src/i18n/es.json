@@ -1160,7 +1160,14 @@
     "viewDoc": "Ver",
     "tpu": "TPU",
     "authorization": "Autorización",
-    "notRegistered": "no registrado"
+    "notRegistered": "no registrado",
+    "croquiConfirm": "¿Generar croquis para {{codigo}}?\nEsto puede tardar ~30 segundos.",
+    "croquiGenerating": "Generando croquis...",
+    "croquiDone": "¡Croquis generado!",
+    "deleteConfirm": "¿Eliminar estación {{codigo}}?",
+    "deleted": "Estación eliminada",
+    "deleteError": "Error al eliminar",
+    "analyzing": "Analizando..."
   },
   "legend": {
     "pub": "Pública",

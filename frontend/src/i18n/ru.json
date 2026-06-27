@@ -1160,7 +1160,14 @@
     "viewDoc": "Просмотр",
     "tpu": "TPU",
     "authorization": "Авторизация",
-    "notRegistered": "не зарегистрирован"
+    "notRegistered": "не зарегистрирован",
+    "croquiConfirm": "Сгенерировать эскиз для {{codigo}}?\nЭто может занять ~30 секунд.",
+    "croquiGenerating": "Генерация эскиза...",
+    "croquiDone": "Эскиз сгенерирован!",
+    "deleteConfirm": "Удалить станцию {{codigo}}?",
+    "deleted": "Станция удалена",
+    "deleteError": "Ошибка удаления",
+    "analyzing": "Анализ..."
   },
   "legend": {
     "pub": "Общественная",
