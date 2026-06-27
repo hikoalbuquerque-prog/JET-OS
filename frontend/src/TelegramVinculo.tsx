@@ -15,9 +15,322 @@
 //   - Chat ID manual: cola o Chat ID (obtido em @userinfobot).
 
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './lib/firebase';
+import { usuariosReadSupabase, fetchUsuario } from './lib/usuarios-supabase';
 import { getFunctions, httpsCallable } from 'firebase/functions';
+
+// ─── i18n (pt/en/es/ru) — padrão objeto T + pick, sem json ─────────────────────
+
+const T = {
+  // estado "ok"
+  vinculadoTitulo: {
+    pt: 'Telegram vinculado',
+    en: 'Telegram linked',
+    es: 'Telegram vinculado',
+    ru: 'Telegram привязан',
+  },
+  chatIdLabel: {
+    pt: 'Chat ID:',
+    en: 'Chat ID:',
+    es: 'Chat ID:',
+    ru: 'Chat ID:',
+  },
+  vinculadoDesc: {
+    pt: 'Você receberá notificações de slots, tarefas e alertas diretamente no Telegram.',
+    en: 'You will receive notifications about slots, tasks and alerts directly on Telegram.',
+    es: 'Recibirás notificaciones de turnos, tareas y alertas directamente en Telegram.',
+    ru: 'Вы будете получать уведомления о слотах, задачах и оповещениях прямо в Telegram.',
+  },
+  desvincular: {
+    pt: 'Desvincular',
+    en: 'Unlink',
+    es: 'Desvincular',
+    ru: 'Отвязать',
+  },
+  fechar: {
+    pt: 'Fechar',
+    en: 'Close',
+    es: 'Cerrar',
+    ru: 'Закрыть',
+  },
+  // etapa "codigo"
+  codigoInstrucao1: {
+    pt: 'Envie ',
+    en: 'Send ',
+    es: 'Envía ',
+    ru: 'Отправьте ',
+  },
+  codigoInstrucao2: {
+    pt: ' para {bot} no Telegram. O bot vai responder com um código de 6 dígitos. Digite ele abaixo:',
+    en: ' to {bot} on Telegram. The bot will reply with a 6-digit code. Enter it below:',
+    es: ' a {bot} en Telegram. El bot responderá con un código de 6 dígitos. Ingrésalo abajo:',
+    ru: ' боту {bot} в Telegram. Бот ответит 6-значным кодом. Введите его ниже:',
+  },
+  voltar: {
+    pt: 'Voltar',
+    en: 'Back',
+    es: 'Volver',
+    ru: 'Назад',
+  },
+  verificando: {
+    pt: '⏳ Verificando...',
+    en: '⏳ Verifying...',
+    es: '⏳ Verificando...',
+    ru: '⏳ Проверка...',
+  },
+  confirmar: {
+    pt: 'Confirmar',
+    en: 'Confirm',
+    es: 'Confirmar',
+    ru: 'Подтвердить',
+  },
+  prefiroManual: {
+    pt: 'Prefiro inserir o Chat ID manualmente →',
+    en: 'I prefer to enter the Chat ID manually →',
+    es: 'Prefiero introducir el Chat ID manualmente →',
+    ru: 'Я предпочитаю ввести Chat ID вручную →',
+  },
+  // etapa "manual"
+  manualInstrucao1: {
+    pt: 'Envie uma mensagem para ',
+    en: 'Send a message to ',
+    es: 'Envía un mensaje a ',
+    ru: 'Отправьте сообщение боту ',
+  },
+  manualInstrucao2: {
+    pt: ' no Telegram. Ele vai responder com seu Chat ID. Cole abaixo:',
+    en: ' on Telegram. It will reply with your Chat ID. Paste it below:',
+    es: ' en Telegram. Te responderá con tu Chat ID. Pégalo abajo:',
+    ru: ' в Telegram. Он ответит вашим Chat ID. Вставьте его ниже:',
+  },
+  manualExemplo: {
+    pt: 'Exemplo: 123456789 (só números, pode ser negativo para grupos)',
+    en: 'Example: 123456789 (numbers only, can be negative for groups)',
+    es: 'Ejemplo: 123456789 (solo números, puede ser negativo para grupos)',
+    ru: 'Пример: 123456789 (только цифры, может быть отрицательным для групп)',
+  },
+  salvando: {
+    pt: '⏳ Salvando...',
+    en: '⏳ Saving...',
+    es: '⏳ Guardando...',
+    ru: '⏳ Сохранение...',
+  },
+  salvar: {
+    pt: 'Salvar',
+    en: 'Save',
+    es: 'Guardar',
+    ru: 'Сохранить',
+  },
+  // etapa "instrucoes"
+  instrucoesDescPrestador: {
+    pt: 'slots, tarefas e alertas',
+    en: 'slots, tasks and alerts',
+    es: 'turnos, tareas y alertas',
+    ru: 'слотах, задачах и оповещениях',
+  },
+  instrucoesDescOutro: {
+    pt: 'ocorrências, turnos e relatórios',
+    en: 'incidents, shifts and reports',
+    es: 'incidencias, turnos e informes',
+    ru: 'инцидентах, сменах и отчётах',
+  },
+  instrucoesDesc1: {
+    pt: 'Vincule seu Telegram para receber notificações de ',
+    en: 'Link your Telegram to receive notifications about ',
+    es: 'Vincula tu Telegram para recibir notificaciones de ',
+    ru: 'Привяжите ваш Telegram, чтобы получать уведомления о ',
+  },
+  instrucoesDesc2: {
+    pt: ' direto no app.',
+    en: ' right in the app.',
+    es: ' directamente en la app.',
+    ru: ' прямо в приложении.',
+  },
+  aguardandoTitulo: {
+    pt: 'Aguardando confirmação no Telegram…',
+    en: 'Waiting for confirmation on Telegram…',
+    es: 'Esperando confirmación en Telegram…',
+    ru: 'Ожидание подтверждения в Telegram…',
+  },
+  aguardandoDesc1: {
+    pt: 'Toque em ',
+    en: 'Tap ',
+    es: 'Toca ',
+    ru: 'Нажмите ',
+  },
+  aguardandoIniciar: {
+    pt: 'Iniciar',
+    en: 'Start',
+    es: 'Iniciar',
+    ru: 'Запустить',
+  },
+  aguardandoOu: {
+    pt: ' (ou ',
+    en: ' (or ',
+    es: ' (o ',
+    ru: ' (или ',
+  },
+  aguardandoStart: {
+    pt: 'Start',
+    en: 'Start',
+    es: 'Start',
+    ru: 'Start',
+  },
+  aguardandoDesc2: {
+    pt: ') na conversa que abriu. A vinculação é automática — você não precisa voltar aqui nem digitar nada.',
+    en: ') in the chat that opened. Linking is automatic — you do not need to come back here or type anything.',
+    es: ') en la conversación que se abrió. La vinculación es automática — no necesitas volver aquí ni escribir nada.',
+    ru: ') в открывшемся чате. Привязка происходит автоматически — вам не нужно возвращаться сюда или что-либо вводить.',
+  },
+  cancelar: {
+    pt: 'Cancelar',
+    en: 'Cancel',
+    es: 'Cancelar',
+    ru: 'Отмена',
+  },
+  abrindoTelegram: {
+    pt: '⏳ Abrindo Telegram…',
+    en: '⏳ Opening Telegram…',
+    es: '⏳ Abriendo Telegram…',
+    ru: '⏳ Открытие Telegram…',
+  },
+  vincularUmToque: {
+    pt: '✈️ Vincular com 1 toque',
+    en: '✈️ Link with 1 tap',
+    es: '✈️ Vincular con 1 toque',
+    ru: '✈️ Привязать в 1 касание',
+  },
+  vincularUmToqueDesc1: {
+    pt: 'Abre o ',
+    en: 'Opens ',
+    es: 'Abre ',
+    ru: 'Открывает ',
+  },
+  vincularUmToqueDesc2: {
+    pt: ' no Telegram e vincula sozinho — sem digitar código.',
+    en: ' on Telegram and links automatically — no code needed.',
+    es: ' en Telegram y vincula solo — sin escribir código.',
+    ru: ' в Telegram и привязывает автоматически — без ввода кода.',
+  },
+  usarCodigo: {
+    pt: 'Usar código de 6 dígitos',
+    en: 'Use 6-digit code',
+    es: 'Usar código de 6 dígitos',
+    ru: 'Использовать 6-значный код',
+  },
+  inserirChatId: {
+    pt: 'Inserir Chat ID manualmente',
+    en: 'Enter Chat ID manually',
+    es: 'Introducir Chat ID manualmente',
+    ru: 'Ввести Chat ID вручную',
+  },
+  depois: {
+    pt: 'Depois',
+    en: 'Later',
+    es: 'Después',
+    ru: 'Позже',
+  },
+  // inline / banner / modal
+  inlineVincular: {
+    pt: 'Vincular Telegram',
+    en: 'Link Telegram',
+    es: 'Vincular Telegram',
+    ru: 'Привязать Telegram',
+  },
+  inlineSubtitulo: {
+    pt: 'Receba notificações direto no app',
+    en: 'Get notifications right in the app',
+    es: 'Recibe notificaciones directamente en la app',
+    ru: 'Получайте уведомления прямо в приложении',
+  },
+  bannerTitulo: {
+    pt: 'Vincule seu Telegram ',
+    en: 'Link your Telegram ',
+    es: 'Vincula tu Telegram ',
+    ru: 'Привяжите ваш Telegram ',
+  },
+  bannerSubtitulo: {
+    pt: 'para receber notificações de slots e alertas',
+    en: 'to receive notifications about slots and alerts',
+    es: 'para recibir notificaciones de turnos y alertas',
+    ru: 'чтобы получать уведомления о слотах и оповещениях',
+  },
+  bannerVincular: {
+    pt: 'Vincular',
+    en: 'Link',
+    es: 'Vincular',
+    ru: 'Привязать',
+  },
+  modalTitulo: {
+    pt: '✈️ Vincular Telegram',
+    en: '✈️ Link Telegram',
+    es: '✈️ Vincular Telegram',
+    ru: '✈️ Привязать Telegram',
+  },
+  // mensagens de erro / confirm
+  erroUmToqueIndisponivel: {
+    pt: 'Vínculo 1-toque indisponível (bot não configurado). Use o código.',
+    en: '1-tap linking unavailable (bot not configured). Use the code.',
+    es: 'Vinculación de 1 toque no disponible (bot no configurado). Usa el código.',
+    ru: 'Привязка в 1 касание недоступна (бот не настроен). Используйте код.',
+  },
+  erroIniciarVinculo: {
+    pt: 'Erro ao iniciar vínculo',
+    en: 'Error starting linking',
+    es: 'Error al iniciar la vinculación',
+    ru: 'Ошибка при начале привязки',
+  },
+  erroCodigo6: {
+    pt: 'Código deve ter 6 dígitos',
+    en: 'Code must have 6 digits',
+    es: 'El código debe tener 6 dígitos',
+    ru: 'Код должен состоять из 6 цифр',
+  },
+  erroCodigoInvalido: {
+    pt: 'Código inválido ou expirado',
+    en: 'Invalid or expired code',
+    es: 'Código inválido o expirado',
+    ru: 'Неверный или истёкший код',
+  },
+  erroValidar: {
+    pt: 'Erro ao validar',
+    en: 'Error validating',
+    es: 'Error al validar',
+    ru: 'Ошибка проверки',
+  },
+  erroInformeChatId: {
+    pt: 'Informe o Chat ID',
+    en: 'Enter the Chat ID',
+    es: 'Introduce el Chat ID',
+    ru: 'Введите Chat ID',
+  },
+  erroChatIdInvalido: {
+    pt: 'Chat ID inválido (apenas números, ex: 123456789)',
+    en: 'Invalid Chat ID (numbers only, e.g. 123456789)',
+    es: 'Chat ID inválido (solo números, ej: 123456789)',
+    ru: 'Неверный Chat ID (только цифры, напр.: 123456789)',
+  },
+  erroSalvar: {
+    pt: 'Erro ao salvar',
+    en: 'Error saving',
+    es: 'Error al guardar',
+    ru: 'Ошибка сохранения',
+  },
+  erroGenerico: {
+    pt: 'Erro',
+    en: 'Error',
+    es: 'Error',
+    ru: 'Ошибка',
+  },
+  confirmDesvincular: {
+    pt: 'Desvincular o Telegram? Você não receberá mais notificações.',
+    en: 'Unlink Telegram? You will no longer receive notifications.',
+    es: '¿Desvincular Telegram? Ya no recibirás notificaciones.',
+    ru: 'Отвязать Telegram? Вы больше не будете получать уведомления.',
+  },
+};
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -113,11 +426,19 @@ export function useTelegramVinculado(uid: string) {
 
   useEffect(() => {
     if (!uid) return;
-    getDoc(doc(db, 'usuarios', uid)).then(snap => {
-      const id = snap.data()?.telegramChatId ?? null;
-      setChatId(id);
-      setVinculado(!!id);
-    });
+    if (usuariosReadSupabase()) {
+      fetchUsuario(uid).then(u => {
+        const id = u?.telegramChatId ?? null;
+        setChatId(id);
+        setVinculado(!!id);
+      });
+    } else {
+      getDoc(doc(db, 'usuarios', uid)).then(snap => {
+        const id = snap.data()?.telegramChatId ?? null;
+        setChatId(id);
+        setVinculado(!!id);
+      });
+    }
   }, [uid]);
 
   return { vinculado, chatId };
@@ -126,6 +447,9 @@ export function useTelegramVinculado(uid: string) {
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onVinculado }: Props) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
+  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
   const [etapa, setEtapa] = useState<'instrucoes' | 'codigo' | 'manual' | 'ok'>('instrucoes');
   const [codigo, setCodigo] = useState('');
   const [chatIdManual, setChatIdManual] = useState('');
@@ -143,10 +467,17 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
 
   // Carrega chatId atual + nome real do bot do Firestore
   useEffect(() => {
-    getDoc(doc(db, 'usuarios', usuario.uid)).then(snap => {
-      const id = snap.data()?.telegramChatId;
-      if (id) { setChatIdAtual(id); setEtapa('ok'); }
-    });
+    if (usuariosReadSupabase()) {
+      fetchUsuario(usuario.uid).then(u => {
+        const id = u?.telegramChatId;
+        if (id) { setChatIdAtual(id); setEtapa('ok'); }
+      });
+    } else {
+      getDoc(doc(db, 'usuarios', usuario.uid)).then(snap => {
+        const id = snap.data()?.telegramChatId;
+        if (id) { setChatIdAtual(id); setEtapa('ok'); }
+      });
+    }
     getDoc(doc(db, 'telegram_config', 'global')).then(snap => {
       const username = snap.data()?.botUsername;
       if (username) setNomeBot(username.startsWith('@') ? username : `@${username}`);
@@ -165,7 +496,7 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
       const deepLink = res.data?.deepLink as string;
       if (!deepLink) {
         // bot username não configurado no Firestore → cai pro fluxo de código
-        setErro('Vínculo 1-toque indisponível (bot não configurado). Use o código.');
+        setErro(pick(T.erroUmToqueIndisponivel));
         setEtapa('codigo');
         return;
       }
@@ -177,8 +508,14 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
       pollRef.current = setInterval(async () => {
         tentativas++;
         try {
-          const snap = await getDoc(doc(db, 'usuarios', usuario.uid));
-          const id = snap.data()?.telegramChatId;
+          let id: string | undefined;
+          if (usuariosReadSupabase()) {
+            const u = await fetchUsuario(usuario.uid);
+            id = u?.telegramChatId;
+          } else {
+            const snap = await getDoc(doc(db, 'usuarios', usuario.uid));
+            id = snap.data()?.telegramChatId;
+          }
           if (id) {
             pararPoll();
             setChatIdAtual(id); setAguardando(false); setEtapa('ok');
@@ -188,7 +525,7 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
         if (tentativas >= 50) { pararPoll(); setAguardando(false); } // ~2,5 min
       }, 3000);
     } catch (e: any) {
-      setErro(e.message ?? 'Erro ao iniciar vínculo');
+      setErro(e.message ?? pick(T.erroIniciarVinculo));
     } finally {
       setBusy(false);
     }
@@ -196,7 +533,7 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
 
   // ── Validar código (Cloud Function) ──
   const validarCodigo = async () => {
-    if (codigo.length !== 6) { setErro('Código deve ter 6 dígitos'); return; }
+    if (codigo.length !== 6) { setErro(pick(T.erroCodigo6)); return; }
     setBusy(true);
     setErro('');
     try {
@@ -208,10 +545,10 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
         setEtapa('ok');
         onVinculado?.();
       } else {
-        setErro(result.data?.erro ?? 'Código inválido ou expirado');
+        setErro(result.data?.erro ?? pick(T.erroCodigoInvalido));
       }
     } catch (e: any) {
-      setErro(e.message ?? 'Erro ao validar');
+      setErro(e.message ?? pick(T.erroValidar));
     } finally {
       setBusy(false);
     }
@@ -220,8 +557,8 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
   // ── Salvar Chat ID manual ──
   const salvarManual = async () => {
     const id = chatIdManual.trim();
-    if (!id) { setErro('Informe o Chat ID'); return; }
-    if (!/^-?\d{5,15}$/.test(id)) { setErro('Chat ID inválido (apenas números, ex: 123456789)'); return; }
+    if (!id) { setErro(pick(T.erroInformeChatId)); return; }
+    if (!/^-?\d{5,15}$/.test(id)) { setErro(pick(T.erroChatIdInvalido)); return; }
     setBusy(true);
     setErro('');
     try {
@@ -230,11 +567,21 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
         telegramVinculadoEm: serverTimestamp(),
         telegramModo: 'manual',
       });
+      try {
+        const { usuariosWriteSupabase, escreverUsuarioSupabase } = await import('./lib/usuarios-supabase');
+        if (usuariosWriteSupabase()) {
+          await escreverUsuarioSupabase(usuario.uid, {
+            telegramChatId: id,
+            telegramVinculadoEm: new Date().toISOString(),
+            telegramModo: 'manual',
+          });
+        }
+      } catch (e) { console.warn('[supa] telegram vincular dual-write falhou', e); }
       setChatIdAtual(id);
       setEtapa('ok');
       onVinculado?.();
     } catch (e: any) {
-      setErro(e.message ?? 'Erro ao salvar');
+      setErro(e.message ?? pick(T.erroSalvar));
     } finally {
       setBusy(false);
     }
@@ -242,19 +589,28 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
 
   // ── Desvincular ──
   const desvincular = async () => {
-    if (!window.confirm('Desvincular o Telegram? Você não receberá mais notificações.')) return;
+    if (!window.confirm(pick(T.confirmDesvincular))) return;
     setBusy(true);
     try {
       await updateDoc(doc(db, 'usuarios', usuario.uid), {
         telegramChatId: null,
         telegramVinculadoEm: null,
       });
+      try {
+        const { usuariosWriteSupabase, escreverUsuarioSupabase } = await import('./lib/usuarios-supabase');
+        if (usuariosWriteSupabase()) {
+          await escreverUsuarioSupabase(usuario.uid, {
+            telegramChatId: null,
+            telegramVinculadoEm: null,
+          });
+        }
+      } catch (e) { console.warn('[supa] telegram desvincular dual-write falhou', e); }
       setChatIdAtual(null);
       setCodigo('');
       setChatIdManual('');
       setEtapa('instrucoes');
     } catch (e: any) {
-      setErro(e.message ?? 'Erro');
+      setErro(e.message ?? pick(T.erroGenerico));
     } finally {
       setBusy(false);
     }
@@ -268,21 +624,21 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
         <div style={{ textAlign: 'center', padding: modo === 'inline' ? 0 : 8 }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
           <div style={{ fontSize: 15, fontWeight: 700, color: '#dce8ff', marginBottom: 6 }}>
-            Telegram vinculado
+            {pick(T.vinculadoTitulo)}
           </div>
           <div style={{ fontSize: 12, color: 'rgba(255,255,255,.4)', marginBottom: 16 }}>
-            Chat ID: <code style={{ color: COR_TG }}>{chatIdAtual}</code>
+            {pick(T.chatIdLabel)} <code style={{ color: COR_TG }}>{chatIdAtual}</code>
           </div>
           <div style={{ fontSize: 12, color: 'rgba(255,255,255,.5)', marginBottom: 20, lineHeight: 1.6 }}>
-            Você receberá notificações de slots, tarefas e alertas diretamente no Telegram.
+            {pick(T.vinculadoDesc)}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button style={S.btn('#6b7280', true)} onClick={desvincular} disabled={busy}>
-              Desvincular
+              {pick(T.desvincular)}
             </button>
             {onFechar && (
               <button style={S.btn(COR_TG)} onClick={onFechar}>
-                Fechar
+                {pick(T.fechar)}
               </button>
             )}
           </div>
@@ -294,8 +650,7 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
       return (
         <div>
           <div style={{ fontSize: 13, color: 'rgba(255,255,255,.5)', marginBottom: 16, lineHeight: 1.6 }}>
-            Envie <code style={{ color: COR_TG, background: `${COR_TG}15`, padding: '2px 6px', borderRadius: 4 }}>/start</code> para {nomeBot} no Telegram.
-            O bot vai responder com um código de 6 dígitos. Digite ele abaixo:
+            {pick(T.codigoInstrucao1)}<code style={{ color: COR_TG, background: `${COR_TG}15`, padding: '2px 6px', borderRadius: 4 }}>/start</code>{pick(T.codigoInstrucao2).replace('{bot}', nomeBot)}
           </div>
 
           <div style={{ marginBottom: 16 }}>
@@ -314,10 +669,10 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
 
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <button style={S.btn('#6b7280', true)} onClick={() => { setEtapa('instrucoes'); setErro(''); }}>
-              Voltar
+              {pick(T.voltar)}
             </button>
             <button style={S.btn(COR_TG)} onClick={validarCodigo} disabled={busy || codigo.length !== 6}>
-              {busy ? '⏳ Verificando...' : 'Confirmar'}
+              {busy ? pick(T.verificando) : pick(T.confirmar)}
             </button>
           </div>
 
@@ -325,7 +680,7 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
             style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.3)', fontSize: 12, cursor: 'pointer', padding: 0 }}
             onClick={() => { setEtapa('manual'); setErro(''); }}
           >
-            Prefiro inserir o Chat ID manualmente →
+            {pick(T.prefiroManual)}
           </button>
         </div>
       );
@@ -335,11 +690,10 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
       return (
         <div>
           <div style={{ fontSize: 13, color: 'rgba(255,255,255,.5)', marginBottom: 8, lineHeight: 1.6 }}>
-            Envie uma mensagem para <code style={{ color: COR_TG }}>@userinfobot</code> no Telegram.
-            Ele vai responder com seu Chat ID. Cole abaixo:
+            {pick(T.manualInstrucao1)}<code style={{ color: COR_TG }}>@userinfobot</code>{pick(T.manualInstrucao2)}
           </div>
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,.3)', marginBottom: 14 }}>
-            Exemplo: 123456789 (só números, pode ser negativo para grupos)
+            {pick(T.manualExemplo)}
           </div>
 
           <input
@@ -354,10 +708,10 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
 
           <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
             <button style={S.btn('#6b7280', true)} onClick={() => { setEtapa('instrucoes'); setErro(''); }}>
-              Voltar
+              {pick(T.voltar)}
             </button>
             <button style={S.btn(COR_TG)} onClick={salvarManual} disabled={busy}>
-              {busy ? '⏳ Salvando...' : 'Salvar'}
+              {busy ? pick(T.salvando) : pick(T.salvar)}
             </button>
           </div>
         </div>
@@ -368,23 +722,22 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
     return (
       <div>
         <div style={{ fontSize: 13, color: 'rgba(255,255,255,.5)', marginBottom: 16, lineHeight: 1.6 }}>
-          Vincule seu Telegram para receber notificações de{' '}
-          {isPrestador ? 'slots, tarefas e alertas' : 'ocorrências, turnos e relatórios'}{' '}
-          direto no app.
+          {pick(T.instrucoesDesc1)}
+          {isPrestador ? pick(T.instrucoesDescPrestador) : pick(T.instrucoesDescOutro)}
+          {pick(T.instrucoesDesc2)}
         </div>
 
         {aguardando ? (
           <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
             <div style={{ fontSize: 28, marginBottom: 8 }}>✈️</div>
             <div style={{ fontSize: 13, color: '#dce8ff', fontWeight: 700, marginBottom: 4 }}>
-              Aguardando confirmação no Telegram…
+              {pick(T.aguardandoTitulo)}
             </div>
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,.45)', lineHeight: 1.5, marginBottom: 14 }}>
-              Toque em <b>Iniciar</b> (ou <b>Start</b>) na conversa que abriu. A vinculação é
-              automática — você não precisa voltar aqui nem digitar nada.
+              {pick(T.aguardandoDesc1)}<b>{pick(T.aguardandoIniciar)}</b>{pick(T.aguardandoOu)}<b>{pick(T.aguardandoStart)}</b>{pick(T.aguardandoDesc2)}
             </div>
             <button style={S.btn('#6b7280', true)} onClick={() => { pararPoll(); setAguardando(false); }}>
-              Cancelar
+              {pick(T.cancelar)}
             </button>
           </div>
         ) : (
@@ -393,10 +746,10 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
               style={{ ...S.btn(COR_TG), width: '100%', flex: 'unset', padding: '13px', fontSize: 14 }}
               onClick={vincularUmToque} disabled={busy}
             >
-              {busy ? '⏳ Abrindo Telegram…' : '✈️ Vincular com 1 toque'}
+              {busy ? pick(T.abrindoTelegram) : pick(T.vincularUmToque)}
             </button>
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,.35)', textAlign: 'center', marginTop: 8, lineHeight: 1.5 }}>
-              Abre o {nomeBot} no Telegram e vincula sozinho — sem digitar código.
+              {pick(T.vincularUmToqueDesc1)}{nomeBot}{pick(T.vincularUmToqueDesc2)}
             </div>
           </>
         )}
@@ -409,20 +762,20 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
             style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', fontSize: 12, cursor: 'pointer' }}
             onClick={() => { pararPoll(); setAguardando(false); setErro(''); setEtapa('codigo'); }}
           >
-            Usar código de 6 dígitos
+            {pick(T.usarCodigo)}
           </button>
           <button
             style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.35)', fontSize: 12, cursor: 'pointer' }}
             onClick={() => { pararPoll(); setAguardando(false); setErro(''); setEtapa('manual'); }}
           >
-            Inserir Chat ID manualmente
+            {pick(T.inserirChatId)}
           </button>
         </div>
 
         {onFechar && !aguardando && (
           <div style={{ textAlign: 'center', marginTop: 12 }}>
             <button style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.3)', fontSize: 12, cursor: 'pointer' }} onClick={onFechar}>
-              Depois
+              {pick(T.depois)}
             </button>
           </div>
         )}
@@ -443,11 +796,11 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
           <span style={{ fontSize: 18 }}>✈️</span>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: etapa === 'ok' ? COR_TG : '#dce8ff' }}>
-              {etapa === 'ok' ? 'Telegram vinculado' : 'Vincular Telegram'}
+              {etapa === 'ok' ? pick(T.vinculadoTitulo) : pick(T.inlineVincular)}
             </div>
             {etapa !== 'ok' && (
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,.35)' }}>
-                Receba notificações direto no app
+                {pick(T.inlineSubtitulo)}
               </div>
             )}
           </div>
@@ -464,17 +817,17 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
         <span style={{ fontSize: 20, flexShrink: 0 }}>✈️</span>
         <div style={{ flex: 1 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: COR_TG }}>
-            Vincule seu Telegram{' '}
+            {pick(T.bannerTitulo)}
           </span>
           <span style={{ fontSize: 12, color: 'rgba(255,255,255,.45)' }}>
-            para receber notificações de slots e alertas
+            {pick(T.bannerSubtitulo)}
           </span>
         </div>
         <button
           style={S.btn(COR_TG)}
           onClick={() => setEtapa('codigo')}
         >
-          Vincular
+          {pick(T.bannerVincular)}
         </button>
         {onFechar && (
           <button
@@ -495,7 +848,7 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
         <div style={S.header}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 800, color: COR_TG }}>
-              ✈️ Vincular Telegram
+              {pick(T.modalTitulo)}
             </div>
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,.35)', marginTop: 2 }}>
               {usuario.nome}

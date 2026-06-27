@@ -3,11 +3,52 @@ import { useState } from 'react';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import { auth, db } from '@/lib/firebase';
 
+const T = {
+  subtitle: { pt: 'Cadastro - Sistema de Estações', en: 'Sign Up - Stations System', es: 'Registro - Sistema de Estaciones', ru: 'Регистрация - Система станций' },
+  fillRequired: { pt: 'Preencha todos os campos obrigatórios', en: 'Fill in all required fields', es: 'Complete todos los campos obligatorios', ru: 'Заполните все обязательные поля' },
+  passwordsMismatch: { pt: 'As senhas não coincidem', en: 'Passwords do not match', es: 'Las contraseñas no coinciden', ru: 'Пароли не совпадают' },
+  passwordMin: { pt: 'A senha deve ter no mínimo 6 caracteres', en: 'Password must be at least 6 characters', es: 'La contraseña debe tener al menos 6 caracteres', ru: 'Пароль должен содержать не менее 6 символов' },
+  telegramOnlyNumbers: { pt: 'Telegram ID deve ser apenas números', en: 'Telegram ID must be numbers only', es: 'El Telegram ID debe ser solo números', ru: 'Telegram ID должен содержать только цифры' },
+  signupSuccess: { pt: 'Cadastro realizado com sucesso!', en: 'Sign up completed successfully!', es: '¡Registro realizado con éxito!', ru: 'Регистрация успешно завершена!' },
+  errorSignup: { pt: 'Erro ao cadastrar', en: 'Error signing up', es: 'Error al registrarse', ru: 'Ошибка при регистрации' },
+  emailAlreadyUsed: { pt: 'Este email já está cadastrado', en: 'This email is already registered', es: 'Este correo ya está registrado', ru: 'Эта электронная почта уже зарегистрирована' },
+  invalidEmail: { pt: 'Email inválido', en: 'Invalid email', es: 'Correo inválido', ru: 'Неверная электронная почта' },
+  fullName: { pt: 'Nome Completo *', en: 'Full Name *', es: 'Nombre Completo *', ru: 'Полное имя *' },
+  fullNamePlaceholder: { pt: 'Seu nome', en: 'Your name', es: 'Tu nombre', ru: 'Ваше имя' },
+  email: { pt: 'Email *', en: 'Email *', es: 'Correo *', ru: 'Электронная почта *' },
+  telegramId: { pt: 'Telegram ID *', en: 'Telegram ID *', es: 'Telegram ID *', ru: 'Telegram ID *' },
+  numbersOnly: { pt: '(números apenas)', en: '(numbers only)', es: '(solo números)', ru: '(только цифры)' },
+  telegramIdHint: { pt: 'Abra @userinfobot no Telegram para descobrir seu ID', en: 'Open @userinfobot on Telegram to find your ID', es: 'Abre @userinfobot en Telegram para descubrir tu ID', ru: 'Откройте @userinfobot в Telegram, чтобы узнать свой ID' },
+  telegramUsername: { pt: 'Username Telegram', en: 'Telegram Username', es: 'Username de Telegram', ru: 'Имя пользователя Telegram' },
+  optionalNoAt: { pt: '(opcional, sem @)', en: '(optional, without @)', es: '(opcional, sin @)', ru: '(необязательно, без @)' },
+  usernamePlaceholder: { pt: 'seu_username', en: 'your_username', es: 'tu_username', ru: 'ваше_имя_пользователя' },
+  role: { pt: 'Função *', en: 'Role *', es: 'Función *', ru: 'Роль *' },
+  roleCampo: { pt: 'Campo (Operacional)', en: 'Field (Operational)', es: 'Campo (Operacional)', ru: 'Поле (Операционный)' },
+  roleGuard: { pt: 'Segurança (Guard)', en: 'Security (Guard)', es: 'Seguridad (Guard)', ru: 'Охрана (Guard)' },
+  roleGestor: { pt: 'Gestor', en: 'Manager', es: 'Gerente', ru: 'Менеджер' },
+  roleAdmin: { pt: 'Admin', en: 'Admin', es: 'Admin', ru: 'Админ' },
+  password: { pt: 'Senha *', en: 'Password *', es: 'Contraseña *', ru: 'Пароль *' },
+  passwordMinHint: { pt: 'Mínimo 6 caracteres', en: 'Minimum 6 characters', es: 'Mínimo 6 caracteres', ru: 'Минимум 6 символов' },
+  confirmPassword: { pt: 'Confirmar Senha *', en: 'Confirm Password *', es: 'Confirmar Contraseña *', ru: 'Подтвердите пароль *' },
+  creating: { pt: 'Cadastrando...', en: 'Signing up...', es: 'Registrando...', ru: 'Регистрация...' },
+  createAccount: { pt: 'Criar Conta', en: 'Create Account', es: 'Crear Cuenta', ru: 'Создать аккаунт' },
+  howToGetId: { pt: '📱 Como pegar seu Telegram ID:', en: '📱 How to get your Telegram ID:', es: '📱 Cómo obtener tu Telegram ID:', ru: '📱 Как получить свой Telegram ID:' },
+  step1: { pt: 'Abra o Telegram', en: 'Open Telegram', es: 'Abre Telegram', ru: 'Откройте Telegram' },
+  step2Prefix: { pt: 'Procure por', en: 'Search for', es: 'Busca', ru: 'Найдите' },
+  step3: { pt: 'Clique em "Start"', en: 'Click "Start"', es: 'Haz clic en "Start"', ru: 'Нажмите «Start»' },
+  step4: { pt: 'Seu ID aparecerá (apenas números)', en: 'Your ID will appear (numbers only)', es: 'Tu ID aparecerá (solo números)', ru: 'Появится ваш ID (только цифры)' },
+  footer: { pt: 'Já tem conta? Entre em contato com o administrador', en: 'Already have an account? Contact the administrator', es: '¿Ya tienes cuenta? Contacta al administrador', ru: 'Уже есть аккаунт? Свяжитесь с администратором' },
+};
+
 export default function CadastroTelegram() {
   const navigate = useNavigate();
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
+  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
@@ -32,25 +73,25 @@ export default function CadastroTelegram() {
     try {
       // Validações
       if (!formData.email || !formData.password || !formData.nome || !formData.telegramId) {
-        toast.error('Preencha todos os campos obrigatórios');
+        toast.error(pick(T.fillRequired));
         setLoading(false);
         return;
       }
 
       if (formData.password !== formData.confirmPassword) {
-        toast.error('As senhas não coincidem');
+        toast.error(pick(T.passwordsMismatch));
         setLoading(false);
         return;
       }
 
       if (formData.password.length < 6) {
-        toast.error('A senha deve ter no mínimo 6 caracteres');
+        toast.error(pick(T.passwordMin));
         setLoading(false);
         return;
       }
 
       if (!/^\d+$/.test(formData.telegramId)) {
-        toast.error('Telegram ID deve ser apenas números');
+        toast.error(pick(T.telegramOnlyNumbers));
         setLoading(false);
         return;
       }
@@ -76,6 +117,21 @@ export default function CadastroTelegram() {
         criadoEm: new Date().toISOString(),
       });
 
+      // Dual-write Supabase (best-effort)
+      try {
+        const { usuariosWriteSupabase, escreverUsuarioSupabase } = await import('../lib/usuarios-supabase');
+        if (usuariosWriteSupabase()) {
+          await escreverUsuarioSupabase(uid, {
+            email: formData.email,
+            nome: formData.nome,
+            role: formData.role,
+            ativo: true,
+            telegramId: parseInt(formData.telegramId),
+            telegramUsername: formData.telegramUsername || null,
+          });
+        }
+      } catch (e) { console.warn('[supa] cadastro usuario dual-write falhou', e); }
+
       // Salvar também em prestadores (para geolocalização)
       await setDoc(doc(db, 'prestadores', uid), {
         uid,
@@ -87,14 +143,14 @@ export default function CadastroTelegram() {
         criadoEm: new Date().toISOString(),
       });
 
-      toast.success('Cadastro realizado com sucesso!');
+      toast.success(pick(T.signupSuccess));
       setTimeout(() => navigate('/'), 1500);
     } catch (error: any) {
-      const errorMessage = error.message || 'Erro ao cadastrar';
+      const errorMessage = error.message || pick(T.errorSignup);
       if (error.code === 'auth/email-already-in-use') {
-        toast.error('Este email já está cadastrado');
+        toast.error(pick(T.emailAlreadyUsed));
       } else if (error.code === 'auth/invalid-email') {
-        toast.error('Email inválido');
+        toast.error(pick(T.invalidEmail));
       } else {
         toast.error(errorMessage);
       }
@@ -114,7 +170,7 @@ export default function CadastroTelegram() {
             </svg>
           </div>
           <h1 className="text-3xl font-bold text-white mb-2">JET OS</h1>
-          <p className="text-slate-400">Cadastro - Sistema de Estações</p>
+          <p className="text-slate-400">{pick(T.subtitle)}</p>
         </div>
 
         {/* Form */}
@@ -122,14 +178,14 @@ export default function CadastroTelegram() {
           {/* Nome */}
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">
-              Nome Completo *
+              {pick(T.fullName)}
             </label>
             <input
               type="text"
               name="nome"
               value={formData.nome}
               onChange={handleChange}
-              placeholder="Seu nome"
+              placeholder={pick(T.fullNamePlaceholder)}
               className="w-full px-4 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-400 focus:border-blue-500 focus:outline-none"
               disabled={loading}
             />
@@ -138,7 +194,7 @@ export default function CadastroTelegram() {
           {/* Email */}
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">
-              Email *
+              {pick(T.email)}
             </label>
             <input
               type="email"
@@ -154,7 +210,7 @@ export default function CadastroTelegram() {
           {/* Telegram ID */}
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">
-              Telegram ID * <span className="text-xs text-slate-400">(números apenas)</span>
+              {pick(T.telegramId)} <span className="text-xs text-slate-400">{pick(T.numbersOnly)}</span>
             </label>
             <input
               type="text"
@@ -166,21 +222,21 @@ export default function CadastroTelegram() {
               disabled={loading}
             />
             <p className="text-xs text-slate-500 mt-1">
-              Abra @userinfobot no Telegram para descobrir seu ID
+              {pick(T.telegramIdHint)}
             </p>
           </div>
 
           {/* Telegram Username */}
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">
-              Username Telegram <span className="text-xs text-slate-400">(opcional, sem @)</span>
+              {pick(T.telegramUsername)} <span className="text-xs text-slate-400">{pick(T.optionalNoAt)}</span>
             </label>
             <input
               type="text"
               name="telegramUsername"
               value={formData.telegramUsername}
               onChange={handleChange}
-              placeholder="seu_username"
+              placeholder={pick(T.usernamePlaceholder)}
               className="w-full px-4 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white placeholder-slate-400 focus:border-blue-500 focus:outline-none"
               disabled={loading}
             />
@@ -189,7 +245,7 @@ export default function CadastroTelegram() {
           {/* Role */}
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">
-              Função *
+              {pick(T.role)}
             </label>
             <select
               name="role"
@@ -198,17 +254,17 @@ export default function CadastroTelegram() {
               className="w-full px-4 py-2 rounded-lg bg-slate-700 border border-slate-600 text-white focus:border-blue-500 focus:outline-none"
               disabled={loading}
             >
-              <option value="campo">Campo (Operacional)</option>
-              <option value="guard">Segurança (Guard)</option>
-              <option value="gestor">Gestor</option>
-              <option value="admin">Admin</option>
+              <option value="campo">{pick(T.roleCampo)}</option>
+              <option value="guard">{pick(T.roleGuard)}</option>
+              <option value="gestor">{pick(T.roleGestor)}</option>
+              <option value="admin">{pick(T.roleAdmin)}</option>
             </select>
           </div>
 
           {/* Password */}
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">
-              Senha *
+              {pick(T.password)}
             </label>
             <div className="relative">
               <input
@@ -228,13 +284,13 @@ export default function CadastroTelegram() {
                 {showPassword ? '👁️' : '👁️‍🗨️'}
               </button>
             </div>
-            <p className="text-xs text-slate-500 mt-1">Mínimo 6 caracteres</p>
+            <p className="text-xs text-slate-500 mt-1">{pick(T.passwordMinHint)}</p>
           </div>
 
           {/* Confirm Password */}
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">
-              Confirmar Senha *
+              {pick(T.confirmPassword)}
             </label>
             <input
               type={showPassword ? 'text' : 'password'}
@@ -253,24 +309,24 @@ export default function CadastroTelegram() {
             disabled={loading}
             className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 text-white font-semibold py-2 px-4 rounded-lg transition duration-200 mt-6"
           >
-            {loading ? 'Cadastrando...' : 'Criar Conta'}
+            {loading ? pick(T.creating) : pick(T.createAccount)}
           </button>
 
           {/* Info */}
           <div className="bg-blue-900 bg-opacity-50 border border-blue-700 rounded-lg p-3 text-sm text-blue-200">
-            <p className="font-semibold mb-1">📱 Como pegar seu Telegram ID:</p>
+            <p className="font-semibold mb-1">{pick(T.howToGetId)}</p>
             <ol className="list-decimal list-inside space-y-1 text-xs">
-              <li>Abra o Telegram</li>
-              <li>Procure por <span className="font-mono">@userinfobot</span></li>
-              <li>Clique em "Start"</li>
-              <li>Seu ID aparecerá (apenas números)</li>
+              <li>{pick(T.step1)}</li>
+              <li>{pick(T.step2Prefix)} <span className="font-mono">@userinfobot</span></li>
+              <li>{pick(T.step3)}</li>
+              <li>{pick(T.step4)}</li>
             </ol>
           </div>
         </form>
 
         {/* Footer */}
         <p className="text-center text-slate-500 text-sm mt-6">
-          Já tem conta? Entre em contato com o administrador
+          {pick(T.footer)}
         </p>
       </div>
     </div>

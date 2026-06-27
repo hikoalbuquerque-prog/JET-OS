@@ -15,6 +15,7 @@ import * as functions from 'firebase-functions';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onSchedule }        from 'firebase-functions/v2/scheduler';
 import { onCall }            from 'firebase-functions/v2/https';
+import { supabaseGet, supabaseGetOne, supabaseInsert } from './lib/supabase-rest';
 
 const db = admin.firestore();
 
@@ -98,6 +99,19 @@ async function telegram(token: string, chatId: string, texto: string): Promise<v
 
 async function getTgConfig(): Promise<{ token: string; chatIds: Record<string, string> } | null> {
   try {
+    // Supabase-first (Onda G)
+    const { getTelegramConfigSupa, getTelegramChatIdsSupa } = await import('./telegram-supabase');
+    const supa = await getTelegramConfigSupa('global');
+    if (supa?.bot_token) {
+      const chatIds = (supa.chat_ids && typeof supa.chat_ids === 'object')
+        ? supa.chat_ids as Record<string, string>
+        : await getTelegramChatIdsSupa();
+      return { token: String(supa.bot_token), chatIds };
+    }
+  } catch { /* fallback */ }
+
+  try {
+    // Fallback Firestore
     const snap = await db.collection('telegram_config').doc('global').get();
     if (!snap.exists) return null;
     const d = snap.data()!;
@@ -116,7 +130,7 @@ async function getChatId(cidade: string): Promise<string | null> {
 // ─── TRIGGER: novo GPS → verifica chegada ────────────────────────────────────
 
 export const verificarChegadaPonto = onDocumentCreated(
-  { document: 'gps_logistica/{id}', region: 'southamerica-east1' },
+  { document: 'gps_logistica/{id}', region: 'southamerica-east1', maxInstances: 10 },
   async (event) => {
     const gps = event.data?.data();
     if (!gps?.uid || !gps?.lat || !gps?.lng) return;
@@ -180,8 +194,20 @@ export const verificarChegadaPonto = onDocumentCreated(
           if (velocidadeMs > TELEPORTE_VEL_MS) {
             // Verifica cooldown no doc do usuário
             const opRef  = db.collection('usuarios').doc(uid);
-            const opSnap = await opRef.get();
-            const opData = opSnap.data() ?? {};
+            // Supabase-first
+            let opData: any = {};
+            try {
+              const sbUser = await supabaseGetOne<any>('usuarios', `select=*&id=eq.${encodeURIComponent(uid)}`);
+              if (sbUser) {
+                opData = sbUser;
+              } else {
+                const opSnap = await opRef.get();
+                opData = opSnap.data() ?? {};
+              }
+            } catch {
+              const opSnap = await opRef.get();
+              opData = opSnap.data() ?? {};
+            }
             const ultimoAlerta = opData.alertaTeleporteEm?.toMillis?.() ?? 0;
             const agora = Date.now();
 
@@ -203,6 +229,13 @@ export const verificarChegadaPonto = onDocumentCreated(
                 distanciaM,
                 ts: admin.firestore.FieldValue.serverTimestamp(),
               });
+
+              // Dual-write to Supabase
+              supabaseInsert('monitor_alertas', {
+                tipo: 'teleporte', uid, nome, lat, lng,
+                velocidade_kmh: velocidadeKmh, distancia_m: distanciaM,
+                ts: new Date().toISOString(),
+              }).catch(() => {});
 
               // Marca o ponto GPS como teleporte
               if (event.data?.ref) {
@@ -247,8 +280,20 @@ export const verificarChegadaPonto = onDocumentCreated(
       const GEOFENCE_COOLDOWN_MS = 15 * 60 * 1000; // cooldown 15 min por uid
 
       const opRef  = db.collection('usuarios').doc(uid);
-      const opSnap = await opRef.get();
-      const opData = opSnap.data() ?? {};
+      // Supabase-first
+      let opData: any = {};
+      try {
+        const sbUser = await supabaseGetOne<any>('usuarios', `select=*&id=eq.${encodeURIComponent(uid)}`);
+        if (sbUser) {
+          opData = sbUser;
+        } else {
+          const opSnap = await opRef.get();
+          opData = opSnap.data() ?? {};
+        }
+      } catch {
+        const opSnap = await opRef.get();
+        opData = opSnap.data() ?? {};
+      }
       const nome   = opData.nome ?? opData.email ?? uid;
 
       // Determina quais zonas estão atribuídas ao usuário
@@ -265,18 +310,22 @@ export const verificarChegadaPonto = onDocumentCreated(
         return;
       }
 
-      // Busca polígonos das zonas (coleção 'poligonos', campo 'poligono')
-      const zonaSnaps = await Promise.all(
-        zonaIds.map(id => db.collection('poligonos').doc(id).get())
-      );
-
-      const zonasComPoligono = zonaSnaps
-        .filter(s => s.exists)
-        .map(s => ({ id: s.id, ...(s.data()!) })) as {
-          id: string;
-          nome?: string;
-          poligono?: {lat: number; lng: number}[];
-        }[];
+      // Supabase-first: try zonas table
+      let zonasComPoligono: { id: string; nome?: string; poligono?: {lat: number; lng: number}[] }[] = [];
+      try {
+        const sbZonas = await supabaseGet<any>('zonas', `select=id,nome,poligono&id=in.(${zonaIds.map(id => encodeURIComponent(id)).join(',')})`);
+        if (sbZonas && sbZonas.length > 0) {
+          zonasComPoligono = sbZonas.filter((z: any) => z.poligono);
+        } else {
+          // Fallback Firestore
+          const zonaSnaps = await Promise.all(zonaIds.map(id => db.collection('poligonos').doc(id).get()));
+          zonasComPoligono = zonaSnaps.filter(s => s.exists).map(s => ({ id: s.id, ...(s.data()!) })) as typeof zonasComPoligono;
+        }
+      } catch {
+        // Fallback Firestore
+        const zonaSnaps = await Promise.all(zonaIds.map(id => db.collection('poligonos').doc(id).get()));
+        zonasComPoligono = zonaSnaps.filter(s => s.exists).map(s => ({ id: s.id, ...(s.data()!) })) as typeof zonasComPoligono;
+      }
 
       if (zonasComPoligono.length === 0) return;
 
@@ -303,6 +352,12 @@ export const verificarChegadaPonto = onDocumentCreated(
             zonas: nomesZonas,
             ts:    admin.firestore.FieldValue.serverTimestamp(),
           });
+
+          // Dual-write to Supabase
+          supabaseInsert('monitor_alertas', {
+            tipo: 'fora_zona', uid, nome, lat, lng,
+            zonas: nomesZonas, ts: new Date().toISOString(),
+          }).catch(() => {});
 
           // Envia Telegram
           const tgCfg = await getTgConfig();
@@ -346,18 +401,30 @@ export const verificarAtrasos = onSchedule(
     timeZone: 'America/Sao_Paulo',
     region: 'southamerica-east1',
     memory: '256MiB',
+    maxInstances: 10,
   },
   async () => {
     const agora   = Date.now();
 
-    // Item 6 — carrega parâmetros configuráveis via Firestore, merge com defaults
-    let CFG = DEFAULT_CFG;
+    // Item 6 — carrega parâmetros configuráveis, Supabase-first com fallback Firestore
+    let cfgData: any = {};
     try {
-      const cfgSnap = await db.collection('monitor_config').doc('gps').get();
-      CFG = { ...DEFAULT_CFG, ...(cfgSnap.data() ?? {}) } as typeof DEFAULT_CFG;
+      const sbCfg = await supabaseGetOne<any>('app_settings', `select=valor&chave=eq.monitor_config_gps`);
+      if (sbCfg?.valor) {
+        cfgData = sbCfg.valor;
+      } else {
+        const cfgSnap = await db.collection('monitor_config').doc('gps').get();
+        cfgData = cfgSnap.data() ?? {};
+      }
     } catch (e) {
-      functions.logger.warn('[verificarAtrasos] Falha ao carregar monitor_config/gps, usando defaults:', e);
+      try {
+        const cfgSnap = await db.collection('monitor_config').doc('gps').get();
+        cfgData = cfgSnap.data() ?? {};
+      } catch (e2) {
+        functions.logger.warn('[verificarAtrasos] Falha ao carregar monitor_config/gps, usando defaults:', e2);
+      }
     }
+    let CFG = { ...DEFAULT_CFG, ...cfgData } as typeof DEFAULT_CFG;
 
     const tgCfg   = await getTgConfig();
     if (!tgCfg?.token) {
@@ -574,6 +641,13 @@ export const verificarAtrasos = onSchedule(
           ts:      admin.firestore.FieldValue.serverTimestamp(),
         });
 
+        // Dual-write to Supabase
+        supabaseInsert('monitor_alertas', {
+          tipo: 'gps_ausente_slot', uid, nome: info.nome,
+          cidade: info.cidade, min_sem: minSem,
+          ts: new Date().toISOString(),
+        }).catch(() => {});
+
         await opRef.update({
           alertaGPSSlotEm: admin.firestore.FieldValue.serverTimestamp(),
         });
@@ -589,7 +663,7 @@ export const verificarAtrasos = onSchedule(
 // ─── Item 5 — callable: alerta de GPS falso (mock) ───────────────────────────
 
 export const alertarMockGPS = onCall(
-  { region: 'southamerica-east1', cors: true },
+  { region: 'southamerica-east1', maxInstances: 10, cors: true },
   async (request) => {
     const { uid, lat, lng, capturedAt } = (request.data ?? {}) as {
       uid: string; lat: number; lng: number; capturedAt: string;
@@ -641,6 +715,12 @@ export const alertarMockGPS = onCall(
       capturedAt: capturedAt ?? null,
       ts:         admin.firestore.FieldValue.serverTimestamp(),
     });
+
+    // Dual-write to Supabase
+    supabaseInsert('monitor_alertas', {
+      tipo: 'mock_gps', uid, nome, lat, lng,
+      captured_at: capturedAt ?? null, ts: new Date().toISOString(),
+    }).catch(() => {});
 
     functions.logger.warn(`[alertarMockGPS] Mock GPS detectado para ${nome} (${uid}) em lat=${lat} lng=${lng}`);
     return { ok: true };

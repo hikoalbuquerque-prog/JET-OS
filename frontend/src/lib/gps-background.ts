@@ -307,6 +307,8 @@ async function desativarWakeLock() {
 // ─── SERVIÇO PRINCIPAL ────────────────────────────────────────────────────────
 
 const WATCHDOG_MS = 3 * 60_000; // 3 min sem posição → alerta
+const HEARTBEAT_MS = 45_000;   // forçar upload a cada 45s mesmo parado
+const STALE_REVIVE_MS = 3 * 60_000; // auto-revive watcher se 3min sem upload
 
 class GPSBackgroundService {
   private ativo = false;
@@ -316,6 +318,10 @@ class GPSBackgroundService {
   private watcherId: string | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private watchdog: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private staleTimer: ReturnType<typeof setTimeout> | null = null;
+  private ultimaPosicao: { lat: number; lng: number; accuracy: number; time: number } | null = null;
+  private ultimoUploadMs = 0;
   private segundoPlano = false;
   private netListener: (() => void) | null = null;
 
@@ -352,6 +358,8 @@ class GPSBackgroundService {
       } catch (e: any) {
         // Plugin nativo indisponível (ex.: build antigo): cai para o caminho legado.
         console.warn('[GPS-BG] serviço nativo indisponível, fallback:', e?.message);
+        // Surface o motivo no banner do app (sem o serviço nativo, o GPS em background é instável).
+        try { opcoes.onErro?.('GPS nativo falhou: ' + (e?.message || String(e))); } catch { /* noop */ }
       }
     }
 
@@ -371,6 +379,8 @@ class GPSBackgroundService {
     }
 
     this._reiniciarWatchdog();
+    this._iniciarHeartbeat();
+    this._iniciarStaleDetection();
     this._emitirStats();
     console.log(`[GPS-BG] iniciado — estratégia: ${this.estrategia}`);
   }
@@ -517,6 +527,54 @@ class GPSBackgroundService {
     }, WATCHDOG_MS);
   }
 
+  private _iniciarHeartbeat() {
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    this.heartbeatTimer = setInterval(async () => {
+      if (!this.ativo || !this.opcoes) return;
+      const agora = Date.now();
+      if (agora - this.ultimoUploadMs < HEARTBEAT_MS) return;
+      if (!this.ultimaPosicao) return;
+
+      const bateria = await lerBateria();
+      const ponto: PontoGPS = {
+        uid:        this.opcoes.uid,
+        slotId:     this.opcoes.slotId,
+        lat:        this.ultimaPosicao.lat,
+        lng:        this.ultimaPosicao.lng,
+        accuracy:   this.ultimaPosicao.accuracy,
+        speed:      0,
+        heading:    null,
+        altitude:   null,
+        bateria,
+        capturedAt: new Date().toISOString(),
+        estrategia: this.estrategia as any,
+        isMock:     false,
+      };
+      const ok = await uploadPonto(ponto);
+      this._atualizarStats(ponto, ok);
+      this._log('heartbeat enviado');
+    }, HEARTBEAT_MS);
+  }
+
+  private _iniciarStaleDetection() {
+    if (this.staleTimer) clearTimeout(this.staleTimer);
+    this.staleTimer = setTimeout(async () => {
+      if (!this.ativo) return;
+      const agora = Date.now();
+      if (agora - this.ultimoUploadMs > STALE_REVIVE_MS) {
+        this._log('stale detection — revivendo watcher GPS');
+        if (this.watcherId && isAndroidCapacitor()) {
+          try { await BackgroundGeolocation.removeWatcher({ id: this.watcherId }); } catch {}
+          this.watcherId = null;
+          await this._iniciarAndroid();
+        } else if (!isAndroidCapacitor() && !isAndroidNative()) {
+          await this._cicloPWA();
+        }
+      }
+      this._iniciarStaleDetection();
+    }, STALE_REVIVE_MS);
+  }
+
   async parar() {
     this.ativo = false;
 
@@ -526,6 +584,8 @@ class GPSBackgroundService {
     }
 
     if (this.watchdog) { clearTimeout(this.watchdog); this.watchdog = null; }
+    if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
+    if (this.staleTimer) { clearTimeout(this.staleTimer); this.staleTimer = null; }
 
     if (this.watcherId) {
       try { await BackgroundGeolocation.removeWatcher({ id: this.watcherId }); }
@@ -557,8 +617,10 @@ class GPSBackgroundService {
       this.stats.ultimaLat     = ponto.lat;
       this.stats.ultimaLng     = ponto.lng;
       this.stats.ultimoEnvioEm = new Date();
-      this.stats.ultimoErro    = null; // GPS voltou — limpa erro
-      this._reiniciarWatchdog();       // reset timer de 3 min
+      this.stats.ultimoErro    = null;
+      this.ultimaPosicao = { lat: ponto.lat, lng: ponto.lng, accuracy: ponto.accuracy, time: Date.now() };
+      this.ultimoUploadMs = Date.now();
+      this._reiniciarWatchdog();
     } else {
       this.stats.pontosFalha++;
     }

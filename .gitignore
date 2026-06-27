@@ -36,6 +36,16 @@ build/
 *-key.json
 service-account-key.json
 credentials.json
-firebase-credentials.json*-key.json 
-service-account-key.json 
-serviceAccountKey.json 
+firebase-credentials.json
+serviceAccountKey.json
+serviceAccountKey-*.json
+serviceAccountKey*.json
+
+# Env locais sem ponto (ex.: env.local)
+env.local
+env.*.local
+
+# Android signing / keystores (NUNCA commitar)
+*.jks
+*.keystore
+frontend/android/app/jet-os-release.jks

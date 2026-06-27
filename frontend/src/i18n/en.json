@@ -189,7 +189,7 @@
           },
           {
             "titulo": "Satellite mode",
-            "desc": "Tap 🛰 in the side FABs to enable satellite view."
+            "desc": "Tap 🛰 on the buttons on the right side to enable satellite view."
           },
           {
             "titulo": "GoJet live",
@@ -203,7 +203,7 @@
         "passos": [
           {
             "titulo": "Enable add mode",
-            "desc": "Tap the + FAB and then tap the map to place the pin."
+            "desc": "Tap the + button and then tap the map to place the pin."
           },
           {
             "titulo": "Fill data",
@@ -211,7 +211,7 @@
           },
           {
             "titulo": "Photo",
-            "desc": "Use Camera, Gallery or paste a URL. Photos are saved to Firebase Storage."
+            "desc": "Use Camera, Gallery or paste a URL. Photos are saved automatically."
           },
           {
             "titulo": "Save",
@@ -241,12 +241,89 @@
           }
         ]
       },
+      "street-view": {
+        "titulo": "Street View and automatic photos",
+        "passos": [
+          {
+            "titulo": "What is it",
+            "desc": "Street View generates a photo of the station location using Google/Mapillary images. Useful when no field photo exists, giving a visual idea of the spot."
+          },
+          {
+            "titulo": "Generate for one station",
+            "desc": "Click the station on the map → SV button. The system finds the best available image and shows a preview. Choose Save, Save + Measure or Discard.",
+            "dica": "The saved image shows a 🌐 SV badge in the popup, indicating it's not a real photo."
+          },
+          {
+            "titulo": "Batch generation",
+            "desc": "Click the 🛠 button (tools, right side) → 🌐. The system generates Street View for all stations without photos visible on the map, respecting active filters.",
+            "dica": "Use type and status filters first to generate only for the stations you need."
+          },
+          {
+            "titulo": "SV + Measure combo",
+            "desc": "In the 🛠 button → ⚡. First generates Street View in batch, then automatically opens batch measurement mode for all stations with photo/SV without measurements.",
+            "dica": "Ideal for preparing an entire zone at once: generates photos and measures everything in sequence."
+          },
+          {
+            "titulo": "Interactive Street View",
+            "desc": "In the station popup, click 🌐 Street View to open the interactive Google Maps modal. Navigate the street, capture a frame and use it as the station photo.",
+            "dica": "Click 📸 Capture frame to open in a new window. Take a screenshot (Win+Shift+S) and paste with Ctrl+V."
+          }
+        ]
+      },
+      "medir-lote": {
+        "titulo": "Batch station measurement",
+        "passos": [
+          {
+            "titulo": "What is it",
+            "desc": "Batch measurement mode opens a carousel with all stations that have a photo but no measurement. You measure one by one without going back to the map."
+          },
+          {
+            "titulo": "Start",
+            "desc": "Click the 🛠 button (tools, right side) → 📐. The system filters visible stations on the map that have photo/SV but no measurement."
+          },
+          {
+            "titulo": "Measure each station",
+            "desc": "For each station, adjust the 4 corners of the area on the photo and click Save. The photo with measurements is saved automatically."
+          },
+          {
+            "titulo": "Skip or stop",
+            "desc": "Use Skip ⏭ button (or → key) to go to the next one. Stop ✕ (or Esc key) ends the batch. Progress is shown in the bar at the top."
+          },
+          {
+            "titulo": "Paste photo (Ctrl+V)",
+            "desc": "In any station's photo panel, you can paste a clipboard image with Ctrl+V or by clicking 📋 Paste. Useful for Street View screenshots.",
+            "dica": "Take a screenshot (Win+Shift+S on Windows, Cmd+Shift+4 on Mac), then paste directly in the app."
+          }
+        ]
+      },
+      "ferramentas": {
+        "titulo": "🛠 Map buttons and tools",
+        "passos": [
+          {
+            "titulo": "Right side buttons",
+            "desc": "Buttons are stacked on the bottom-right of the map. From bottom to top: ➕ Add station, 🛰 Satellite, 🛠 Tools, 🛴 GoJet, ⏱ Shift."
+          },
+          {
+            "titulo": "🛠 Tools (expandable)",
+            "desc": "Clicking 🛠 reveals 3 sub-buttons: ⚡ SV+Measure combo, 🌐 Batch SV generation, 📐 Batch measurement. Click 🛠 again to close.",
+            "dica": "Only visible for managers. Actions respect active type and status filters."
+          },
+          {
+            "titulo": "🛴 GoJet (expandable)",
+            "desc": "When 🛴 is active, sub-buttons appear: 📈 GoJet Analytics and 📊 GoJet Dashboard."
+          },
+          {
+            "titulo": "⏱ Shift",
+            "desc": "Opens the shift registration panel (clock in/out). Available for field operators, logistics and drivers."
+          }
+        ]
+      },
       "guard": {
         "titulo": "Guard — Incidents",
         "passos": [
           {
             "titulo": "Access Guard",
-            "desc": "Tap the 🛡 FAB (purple). Available for guard, field, manager and security manager."
+            "desc": "Tap the 🛡 button (purple). Available for guard, field, manager and security manager."
           },
           {
             "titulo": "Register incident",
@@ -291,20 +368,72 @@
       "slots-gestor": {
         "titulo": "🎛 Create & Manage Slots",
         "passos": [
-          { "titulo": "What is a slot", "desc": "A slot is a work shift assigned to one or more agents. It groups tasks (points to visit), defines schedule, zone and type: Charger (battery swap) or Scout (redistribute scooters). The agent accepts, checks in with a photo and executes each task.", "dica": "Every slot has an acceptance SLA. If no one accepts in time, the system escalates via Telegram." },
-          { "titulo": "Create a manual slot", "desc": "Go to 📦 Slots → ➕ Create tab. Choose type (Scout or Charger), fill in title, shift times, zone, SLA and (optionally) assign a worker. Add tasks with destination, quantity and priority. Click ✓ Create Slot.", "dica": "Leaving the Worker field empty keeps the slot open for any agent in the city to accept." },
-          { "titulo": "Auto-slot engine", "desc": "In 📦 Slots → 🤖 Auto-slots tab, create a config per zone. Set quantity thresholds (min, target, max) and battery threshold. The engine runs every 15 min via Cloud Function and creates slots automatically.", "dica": "Empty points generate urgent slots. Excess scooters generate redistribution scouts." },
-          { "titulo": "Time windows", "desc": "In the zone config, ⏰ Windows tab: define time windows with their own parameters — e.g. morning peak 07h-09h with target 12, night 22h-00h with reduced target. The active window overrides global values.", "dica": "Cross-midnight windows are supported. The one with the highest numeric priority wins overlaps." },
-          { "titulo": "Workers per slot", "desc": "In the Workers per slot field of the zone config, set N. The engine finds the N nearest available agents and distributes tasks round-robin: task 1→A, task 2→B, task 3→A…", "dica": "Use 2+ workers in large zones or when many critical points appear simultaneously." },
-          { "titulo": "Off-point scooters (Scout)", "desc": "Enable Include off-point scooters in the config. The engine detects scooters without a parking_id and generates 📍 Return to [Point X] tasks, grouping scooters within a 0.5 km radius." },
-          { "titulo": "Monitor slot in real time", "desc": "In the 📋 Slots tab, each card shows status, worker, progress and SLA. Click to expand and see all tasks. Flashing orange card = acceptance SLA expiring soon.", "dica": "Use the status filter at the top (Open / In progress / Done) to focus on active slots." },
-          { "titulo": "Reassign or cancel", "desc": "In the expanded card, click ✏ Reassign to change the worker without losing history. To cancel, click ✕ Cancel and state the reason — the worker gets push + Telegram automatically.", "dica": "Cancelled slots cannot be reopened. Create a new one if needed." },
-          { "titulo": "Team tab", "desc": "In 📦 Slots → 👥 Team tab, see all workers in the city with their current status (free, in slot, offline). Click to view history and completion rate." },
-          { "titulo": "Charger: battery priority", "desc": "The engine sorts scooters from most critical (lowest battery) to least. Bikes below 10% get urgent priority. Tasks are grouped by GoJet point.", "dica": "Battery threshold is configurable per zone and per time window. Default: 40%." },
-          { "titulo": "Scout: point classification", "desc": "Empty → urgent, refill full target. Low (<50%) → high, fill the gap. Excess (>120%) → normal, redistribute surplus. All types go in ONE slot, ordered by urgency." },
-          { "titulo": "SLA and auto-escalation", "desc": "If a slot stays unaccepted past the SLA, the Cloud Function escalates: Telegram to the managers group, increased priority and a new dispatch to the next available workers.", "dica": "Configure the acceptance SLA per zone. Manual slots also have an SLA field at creation." },
-          { "titulo": "Team GPS on map", "desc": "With 👥 Field active, see agents on the map. Green = GPS < 90s. Yellow = 90s-5min. Red = >5min. Click a pin to fly to their position.", "dica": "In the task detail view, the mini-map shows the agent's distance to the destination in real time." },
-          { "titulo": "Export history", "desc": "In 📦 Slots → 📂 History tab, filter by period, type, zone and status. Click ⬇ CSV to export with UTF-8 BOM — opens directly in Excel without encoding issues." }
+          {
+            "titulo": "What is a slot",
+            "desc": "A slot is a work shift assigned to one or more agents. It groups tasks (points to visit), defines schedule, zone and type: Charger (battery swap) or Scout (redistribute scooters). The agent accepts, checks in with a photo and executes each task.",
+            "dica": "Every slot has an acceptance deadline. If no one accepts in time, the system escalates via Telegram."
+          },
+          {
+            "titulo": "Create a manual slot",
+            "desc": "Go to 📦 Slots → ➕ Create tab. Choose type (Scout or Charger), fill in title, shift times, zone, acceptance deadline and (optionally) assign an operator. Add tasks with destination, quantity and priority. Click ✓ Create Slot.",
+            "dica": "Leaving the Operator field empty keeps the slot open for any agent in the city to accept."
+          },
+          {
+            "titulo": "Auto-slot engine",
+            "desc": "In 📦 Slots → 🤖 Auto-slots tab, create a config per zone. Set quantity thresholds (min, target, max) and battery threshold. The engine runs every 15 min automatically and creates slots.",
+            "dica": "Empty points generate urgent slots. Excess scooters generate redistribution scouts."
+          },
+          {
+            "titulo": "Time windows",
+            "desc": "In the zone config, ⏰ Windows tab: define time windows with their own parameters — e.g. morning peak 07h-09h with target 12, night 22h-00h with reduced target. The active window overrides global values.",
+            "dica": "Cross-midnight windows are supported. The one with the highest numeric priority wins overlaps."
+          },
+          {
+            "titulo": "Operators per slot",
+            "desc": "In the Operators per slot field of the zone config, set N. The engine finds the N nearest available agents and distributes tasks alternating between agents: task 1→A, task 2→B, task 3→A…",
+            "dica": "Use 2+ operators in large zones or when many critical points appear simultaneously."
+          },
+          {
+            "titulo": "Off-point scooters (Scout)",
+            "desc": "Enable Include off-point scooters in the config. The engine detects scooters parked outside any point and generates 📍 Return to [Point X] tasks, grouping scooters within a 0.5 km radius."
+          },
+          {
+            "titulo": "Monitor slot in real time",
+            "desc": "In the 📋 Slots tab, each card shows status, operator, progress and acceptance deadline. Click to expand and see all tasks. Flashing orange card = deadline expiring soon.",
+            "dica": "Use the status filter at the top (Open / In progress / Done) to focus on active slots."
+          },
+          {
+            "titulo": "Reassign or cancel",
+            "desc": "In the expanded card, click ✏ Reassign to change the operator without losing history. To cancel, click ✕ Cancel and state the reason — the operator gets push + Telegram automatically.",
+            "dica": "Cancelled slots cannot be reopened. Create a new one if needed."
+          },
+          {
+            "titulo": "Team tab",
+            "desc": "In 📦 Slots → 👥 Team tab, see all operators in the city with their current status (free, in slot, offline). Click to view history and completion rate."
+          },
+          {
+            "titulo": "Charger: battery priority",
+            "desc": "The engine sorts scooters from most critical (lowest battery) to least. Bikes below 10% get urgent priority. Tasks are grouped by GoJet point.",
+            "dica": "Battery threshold is configurable per zone and per time window. Default: 40%."
+          },
+          {
+            "titulo": "Scout: point classification",
+            "desc": "Empty → urgent, refill full target. Low (<50%) → high, fill the gap. Excess (>120%) → normal, redistribute surplus. All types go in ONE slot, ordered by urgency."
+          },
+          {
+            "titulo": "Acceptance deadline and auto-escalation",
+            "desc": "If a slot stays unaccepted past the deadline, the system escalates: Telegram to the managers group, increased priority and a new dispatch to the next available operators.",
+            "dica": "Configure the acceptance deadline per zone. Manual slots also have a deadline field at creation."
+          },
+          {
+            "titulo": "Team GPS on map",
+            "desc": "With 👥 Field active, see agents on the map. Green = GPS < 90s. Yellow = 90s-5min. Red = >5min. Click a pin to fly to their position.",
+            "dica": "In the task detail view, the mini-map shows the agent's distance to the destination in real time."
+          },
+          {
+            "titulo": "Export history",
+            "desc": "In 📦 Slots → 📂 History tab, filter by period, type, zone and status. Click ⬇ CSV to export — opens directly in Excel."
+          }
         ]
       },
       "slots-logistica": {
@@ -342,12 +471,12 @@
         "passos": [
           {
             "titulo": "Enable",
-            "desc": "Tap the 🛴 button in FABs."
+            "desc": "Tap the 🛴 button on the right side."
           },
           {
             "titulo": "Point colors",
-            "desc": "🔴 Empty · 🟠 <50% · 🟡 50–85% · 🔵 On target (85–120%) · 🟢 Excess (>120%)",
-            "dica": "Points with target = circle. Without target = grey square."
+            "desc": "🔴 Empty · 🟠 <50% · 🟡 50–85% · 🔵 On target capacity (85–120%) · 🟢 Excess (>120%)",
+            "dica": "Points with target capacity = circle. Without target capacity = grey square."
           },
           {
             "titulo": "Scooter colors",
@@ -358,20 +487,20 @@
             "desc": "Tap 📊 bottom-left: empty points, below target, bikes by status."
           },
           {
-            "titulo": "Freshness",
+            "titulo": "Data freshness indicator",
             "desc": "🟢 Data < 3min · 🟡 3–8min · 🔴 > 8min ago."
           },
           {
             "titulo": "Point filters",
-            "desc": "All · 🔴 Empty · 🟠 < target · 🔵 On target · 🟢 Excess · 🔗 M1/M2/M3",
-            "dica": "🔗 filter shows GoJet points with JET OS station within 150m."
+            "desc": "All · 🔴 Empty · 🟠 < goal · 🔵 On target capacity · 🟢 Excess · 🔗 M1/M2/M3",
+            "dica": "🔗 M1/M2/M3 = distance to the nearest JET OS station (M1 closest, M3 farthest, within 150m)."
           },
           {
             "titulo": "Scooter filters",
             "desc": "⚠️ Out of point · 🟠 Low battery · 🟢 Available."
           },
           {
-            "titulo": "Workers on map",
+            "titulo": "Operators on map",
             "desc": "Tap 👥 Field to see online operators. Tap name to fly to their position."
           }
         ]
@@ -401,62 +530,159 @@
       "pois": {
         "titulo": "Points of Interest (POIs)",
         "passos": [
-          { "titulo": "OSM POIs", "desc": "Tap the 🔍 FAB then 📍 to load points from OpenStreetMap." },
-          { "titulo": "Candidate Points", "desc": "Tap 🎯 to open the candidate points panel.", "dica": "Adjust Gap Radius, Area Radius and Min Score to calibrate suggestions." }
+          {
+            "titulo": "OSM POIs",
+            "desc": "Tap the 🔍 button then 📍 to load points from OpenStreetMap."
+          },
+          {
+            "titulo": "Candidate Points",
+            "desc": "Tap 🎯 to open the candidate points panel.",
+            "dica": "Adjust Gap Radius, Area Radius and Min Score to calibrate suggestions."
+          }
         ]
       },
       "locais-logisticos": {
         "titulo": "Logistics Locations",
         "passos": [
-          { "titulo": "What they are", "desc": "Charging Bases, Service Centers, Warehouses and Redistribution Points — where scooters are charged, repaired or stored." },
-          { "titulo": "Enable on map", "desc": "Tap the 🏭 FAB. Pins appear with icon by type.", "dica": "Tap any pin to edit the location." },
-          { "titulo": "Add new location", "desc": "With 🏭 active, tap 📍 and tap the map. The form opens with name, type, photo, capacity and responsible." },
-          { "titulo": "Financial management", "desc": "Tap 💳 to open the financial panel. Select a location and month to see payments.", "dica": "For energy, previous + current reading calculates the value automatically." }
+          {
+            "titulo": "What they are",
+            "desc": "Charging Bases, Service Centers, Warehouses and Redistribution Points — where scooters are charged, repaired or stored."
+          },
+          {
+            "titulo": "Enable on map",
+            "desc": "Tap the 🏭 button. Pins appear with icon by type.",
+            "dica": "Tap any pin to edit the location."
+          },
+          {
+            "titulo": "Add new location",
+            "desc": "With 🏭 active, tap 📍 and tap the map. The form opens with name, type, photo, capacity and responsible."
+          },
+          {
+            "titulo": "Financial management",
+            "desc": "Tap 💳 to open the financial panel. Select a location and month to see payments.",
+            "dica": "For energy, previous + current reading calculates the value automatically."
+          }
         ]
       },
       "zonas": {
         "titulo": "Zones and polygons",
         "passos": [
-          { "titulo": "Create zone", "desc": "Tap the ⬡ FAB then 'New zone'. Tap the map to add vertices." },
-          { "titulo": "Import KMZ", "desc": "Tap '📂 KMZ' to import zones from a Google My Maps file. Stations are ignored — only polygons are imported." },
-          { "titulo": "Edit vertices", "desc": "Select a zone and tap 'Edit vertices' to drag the points." },
-          { "titulo": "Configure", "desc": "Set name, group, phase, color and priority." }
+          {
+            "titulo": "Create zone",
+            "desc": "Tap the ⬡ button then 'New zone'. Tap the map to add vertices."
+          },
+          {
+            "titulo": "Import KMZ",
+            "desc": "Tap '📂 KMZ' to import zones from a Google My Maps file. Stations are ignored — only polygons are imported."
+          },
+          {
+            "titulo": "Edit vertices",
+            "desc": "Select a zone and tap 'Edit vertices' to drag the points."
+          },
+          {
+            "titulo": "Configure",
+            "desc": "Set name, group, phase, color and priority."
+          }
         ]
       },
       "gps-alertas": {
         "titulo": "📡 Automatic GPS alerts",
         "passos": [
-          { "titulo": "What it is", "desc": "Cloud Functions monitor field operators' GPS and send automatic alerts via Telegram." },
-          { "titulo": "Arrival alert", "desc": "If an operator doesn't arrive at the point within 20 minutes of starting the task, Telegram notifies the manager with the current distance." },
-          { "titulo": "Delay alert", "desc": "If a task runs for more than 30 minutes without completing, an alert is sent with progress (e.g. 3/5 delivered)." },
-          { "titulo": "GPS lost", "desc": "If an operator with an active task goes more than 10 minutes without sending GPS, Telegram alerts to check the app.", "dica": "Configure in Settings → Apps → JET OS → Battery → No restriction." },
-          { "titulo": "Cooldown", "desc": "Alerts have a 30-minute cooldown to prevent spam. The same operator/task won't trigger repeated alerts before that." }
+          {
+            "titulo": "What it is",
+            "desc": "The system monitors field operators' GPS and sends automatic alerts via Telegram."
+          },
+          {
+            "titulo": "Arrival alert",
+            "desc": "If an operator doesn't arrive at the point within 20 minutes of starting the task, Telegram notifies the manager with the current distance."
+          },
+          {
+            "titulo": "Delay alert",
+            "desc": "If a task runs for more than 30 minutes without completing, an alert is sent with progress (e.g. 3/5 delivered)."
+          },
+          {
+            "titulo": "GPS lost",
+            "desc": "If an operator with an active task goes more than 10 minutes without sending GPS, Telegram alerts to check the app.",
+            "dica": "Configure in Settings → Apps → JET OS → Battery → No restriction."
+          },
+          {
+            "titulo": "Cooldown",
+            "desc": "Alerts have a 30-minute cooldown to prevent spam. The same operator/task won't trigger repeated alerts before that."
+          }
         ]
       },
       "guard-expandido": {
         "titulo": "🛡 Guard & Security",
         "passos": [
-          { "titulo": "Register incident", "desc": "Tap the 🛡 FAB. Fill in type, description, location and photos. Telegram receives automatic notifications for Robbery, Vandalism and Attempt. Recovery also notifies Telegram." },
-          { "titulo": "Incident types", "desc": "Vandalism, Robbery, Attempt, Recovery, Other. Robberies appear in the Robberies Panel. Vandalism has extra damage assessment fields (%, R$)." },
-          { "titulo": "Vandalism damage", "desc": "When editing a Vandalism incident, fill in '% Damage' (0–100) and 'Value R$' after workshop assessment. These appear in Guard Dashboard and Report." },
-          { "titulo": "Edit timeline", "desc": "Each saved change (status, type, asset, report, searching) is recorded in the incident history with user name, changed field and timestamp. Visible in the edit modal." },
-          { "titulo": "Wanted tab", "desc": "In the Guard mobile screen, the 🔍 Wanted tab lists all assets marked as wanted. Search by asset ID, city or type." },
-          { "titulo": "City filters", "desc": "In the Guard map panel, city chips appear above the list. Tap to filter incidents from the desired city." },
-          { "titulo": "Guard Dashboard", "desc": "The '📊 Guard Dash' button in the header shows Robberies, Vandalism, R$ damage, BRPD losses, recovery rate and weekly trend." },
-          { "titulo": "Time counter", "desc": "Open incidents show a '🔓 2h30m' badge indicating how long they've been open. Yellow < 6h, orange > 6h, red > 1 day." },
-          { "titulo": "Executive report", "desc": "'Send Report' in Guard Dashboard sends to Telegram: PT-BR + RU message and 4-page PDF. P1: Robberies PT. P2: Robberies RU. P3: Vandalism. P4: Losses and full appendix." },
-          { "titulo": "Gestor Seg role", "desc": "The 'gestor_seg' role accesses Guard, Guard Analytics, Guard Dashboard and Robberies Panel. Can approve contractor records. No access to stations or slots." }
+          {
+            "titulo": "Register incident",
+            "desc": "Tap the 🛡 button. Fill in type, description, location and photos. Telegram receives automatic notifications for Robbery, Vandalism and Attempt. Recovery also notifies Telegram."
+          },
+          {
+            "titulo": "Incident types",
+            "desc": "Vandalism, Robbery, Attempt, Recovery, Other. Robberies appear in the Robberies Panel. Vandalism has extra damage assessment fields (%, R$)."
+          },
+          {
+            "titulo": "Vandalism damage",
+            "desc": "When editing a Vandalism incident, fill in '% Damage' (0–100) and 'Value R$' after workshop assessment. These appear in Guard Dashboard and Report."
+          },
+          {
+            "titulo": "Edit timeline",
+            "desc": "Each saved change (status, type, asset, report, searching) is recorded in the incident history with user name, changed field and timestamp. Visible in the edit modal."
+          },
+          {
+            "titulo": "Wanted tab",
+            "desc": "In the Guard mobile screen, the 🔍 Wanted tab lists all assets marked as wanted. Search by asset ID, city or type."
+          },
+          {
+            "titulo": "City filters",
+            "desc": "In the Guard map panel, city chips appear above the list. Tap to filter incidents from the desired city."
+          },
+          {
+            "titulo": "Guard Dashboard",
+            "desc": "The '📊 Guard Dash' button in the header shows Robberies, Vandalism, R$ damage, BRPD losses, recovery rate and weekly trend."
+          },
+          {
+            "titulo": "Time counter",
+            "desc": "Open incidents show a '🔓 2h30m' badge indicating how long they've been open. Yellow < 6h, orange > 6h, red > 1 day."
+          },
+          {
+            "titulo": "Executive report",
+            "desc": "'Send Report' in Guard Dashboard sends to Telegram: PT-BR + RU message and 4-page PDF. P1: Robberies PT. P2: Robberies RU. P3: Vandalism. P4: Losses and full appendix."
+          },
+          {
+            "titulo": "Gestor Seg role",
+            "desc": "The 'gestor_seg' role accesses Guard, Guard Analytics, Guard Dashboard and Robberies Panel. Can approve contractor records. No access to stations or slots."
+          }
         ]
       },
       "roubos": {
         "titulo": "🔴 Robberies & Guard Reports",
         "passos": [
-          { "titulo": "Open panel", "desc": "Tap 🔴 Robberies in the map FABs. Available for manager, gestor_seg and admin. Red pins appear on the map when Guard opens." },
-          { "titulo": "KPIs", "desc": "Total robberies, recovered, recovery rate, open wanted. Filters: 7d / 30d / 90d / all. Search by asset ID, city or description." },
-          { "titulo": "Automatic daily report", "desc": "Sent at 7am Tuesday–Sunday to the Telegram group. Reports the previous day. On Monday it sends the weekly report (Sun → Sat of the previous week)." },
-          { "titulo": "Manual report", "desc": "'Send Report' button in Guard Dashboard. Immediately generates and sends the 4-page executive PDF plus PT-BR + RU message." },
-          { "titulo": "PDF structure", "desc": "P1 PT: Open robberies (no recovered), KPIs, city table, 24h details. P2 RU: same info in Russian. P3: Vandalism with R$ and % damage. P4: BRPD losses, general KPIs and full appendix with clickable photos." },
-          { "titulo": "Real dates in report", "desc": "Yesterday shows the real date (e.g. 09/06). Current month shows the range (e.g. 01/06 to 09/06). Accumulated shows the year range of data (e.g. 2023–2026)." }
+          {
+            "titulo": "Open panel",
+            "desc": "Tap 🔴 Robberies in the map buttons. Available for manager, gestor_seg and admin. Red pins appear on the map when Guard opens."
+          },
+          {
+            "titulo": "KPIs",
+            "desc": "Total robberies, recovered, recovery rate, open wanted. Filters: 7d / 30d / 90d / all. Search by asset ID, city or description."
+          },
+          {
+            "titulo": "Automatic daily report",
+            "desc": "Sent at 7am Tuesday–Sunday to the Telegram group. Reports the previous day. On Monday it sends the weekly report (Sun → Sat of the previous week)."
+          },
+          {
+            "titulo": "Manual report",
+            "desc": "'Send Report' button in Guard Dashboard. Immediately generates and sends the 4-page executive PDF plus PT-BR + RU message."
+          },
+          {
+            "titulo": "PDF structure",
+            "desc": "P1 PT: Open robberies (no recovered), KPIs, city table, 24h details. P2 RU: same info in Russian. P3: Vandalism with R$ and % damage. P4: BRPD losses, general KPIs and full appendix with clickable photos."
+          },
+          {
+            "titulo": "Real dates in report",
+            "desc": "Yesterday shows the real date (e.g. 09/06). Current month shows the range (e.g. 01/06 to 09/06). Accumulated shows the year range of data (e.g. 2023–2026)."
+          }
         ]
       },
       "gestor-logistica": {
@@ -468,8 +694,8 @@
           },
           {
             "titulo": "City filter",
-            "desc": "Admin: dropdown at top. Manager: sees only their city (cidadesGerenciaLog).",
-            "dica": "Edit Firestore document: cidadesGerenciaLog (array)."
+            "desc": "Admin: dropdown at top. Manager: sees only their assigned city.",
+            "dica": "To change the manager's city, ask an admin to edit the user profile."
           },
           {
             "titulo": "Dashboard",
@@ -512,27 +738,160 @@
           },
           {
             "titulo": "Summary tab",
-            "desc": "Distribution bars by status, scooter stats, online workers and full color legend."
+            "desc": "Distribution bars by status, scooter stats, online operators and full color legend."
           },
           {
             "titulo": "Points tab",
-            "desc": "Table: status, available, physical, target, occupation %, M1/M2/M3 badge.",
+            "desc": "Table: status, available, physical, target capacity, occupation %, M1/M2/M3 badge (distance to nearest JET OS station).",
             "dica": "Sort by Status (critical first), Name A-Z or Quantity."
           },
           {
             "titulo": "Filters",
-            "desc": "🔴 Empty · 🟠 <50% · 🟡 50–85% · 🔵 On target · 🟢 Excess. Search by name."
+            "desc": "🔴 Empty · 🟠 <50% · 🟡 50–85% · 🔵 On target capacity · 🟢 Excess. Search by name."
           },
           {
             "titulo": "Scooters tab",
             "desc": "Clickable KPIs. ID, visual battery, at point or out, sub-status."
           },
           {
-            "titulo": "Workers tab",
+            "titulo": "Operators tab",
             "desc": "GPS: 🟢<5min / 🟡<15min / 🟠<30min. Exact time. Google Maps link."
           }
         ]
+      },
+      "privacidade": {
+        "titulo": "🔒 Privacy and your data",
+        "passos": [
+          {
+            "titulo": "Terms and Privacy",
+            "desc": "On first access, you accept the JET OS Terms of Use and Privacy Policy. Your acceptance is recorded with date and time.",
+            "dica": "When the terms are updated, the app asks for a new acceptance automatically."
+          },
+          {
+            "titulo": "Location consent",
+            "desc": "Field profiles (logistics, charger, scalt, guard and providers) also accept a specific GPS consent, under the Brazilian LGPD (Law 13.709/2018), before starting."
+          },
+          {
+            "titulo": "When GPS is collected",
+            "desc": "Your location is only recorded DURING shifts, slots and tasks — from start to end. Outside these periods, there is no collection."
+          },
+          {
+            "titulo": "What it is for",
+            "desc": "Proving the performance of activities, safety of the operator and assets, and logistics optimization. Data is not sold or used outside working hours."
+          },
+          {
+            "titulo": "Your rights",
+            "desc": "You can request access, correction or deletion of your data and revoke consent at any time. Revoking ends tracking.",
+            "dica": "To exercise your rights or contact the data protection officer (DPO), reach out to Jet management."
+          }
+        ]
+      },
+      "analytics": {
+        "titulo": "Ride Analytics",
+        "passos": [
+          {
+            "titulo": "Import data",
+            "desc": "Click on \"📊 Analytics\" and drag the Excel file exported from the system."
+          },
+          {
+            "titulo": "Heat map",
+            "desc": "The map shows start and end routes of each ride with intensity by volume."
+          },
+          {
+            "titulo": "Filters",
+            "desc": "Use the toolbar buttons to switch between Heatmap, Hexbins, Arcs and Points."
+          },
+          {
+            "titulo": "3D Mode",
+            "desc": "Click \"🏔 3D\" to tilt the map. Hold Ctrl + drag to rotate.",
+            "dica": "Combine the Hexbin 3D mode with Zones to identify high-demand neighborhoods."
+          }
+        ]
+      },
+      "dashboard": {
+        "titulo": "Dashboard and reports",
+        "passos": [
+          {
+            "titulo": "Station report",
+            "desc": "In \"📋 Dash\" → Reports, select a station and click \"Generate PDF\"."
+          },
+          {
+            "titulo": "Export Guard",
+            "desc": "In Dash → Guard, use the filters and click \"Export Excel\"."
+          },
+          {
+            "titulo": "Manage users",
+            "desc": "Click the 👥 icon in the header. Approve requests by setting the role. Security Manager: role gestor_seg."
+          },
+          {
+            "titulo": "Telegram notifications",
+            "desc": "In Dash → Guard → Config (admin only), configure which incident types trigger alerts.",
+            "dica": "The bot needs the token configured in Cloud Functions."
+          }
+        ]
+      },
+      "tarefas-logistica": {
+        "titulo": "📦 Tasks Module",
+        "passos": [
+          {
+            "titulo": "Open the module",
+            "desc": "Click the 📦 Tasks button on the side FABs. Available for logistics, field, manager and admin."
+          },
+          {
+            "titulo": "Worker Home",
+            "desc": "The 🏠 Home tab shows your status (working/idle), shift time and active tasks. Tap \"▶ Start work + Photo\" to begin."
+          },
+          {
+            "titulo": "Create task — GoJet",
+            "desc": "In the ➕ Create tab, select \"🛴 GoJet Point\" to see the live list sorted by deficit. Empty ones appear at the top with a ZERO badge.",
+            "dica": "Enable the \"🔴 Critical only\" filter to see only points below 50% of the target."
+          },
+          {
+            "titulo": "Create task — JET OS Station",
+            "desc": "Click any station on the map and tap \"📦 + Create task\" in the popup. Name and coordinates are filled automatically."
+          },
+          {
+            "titulo": "Create task — GoJet on map",
+            "desc": "With the GoJet overlay active, click a P point and tap \"+ Create task\". The point is preselected with the calculated deficit."
+          },
+          {
+            "titulo": "Automatic generation",
+            "desc": "Tasks are generated automatically every hour for GoJet points below 50% of the target. They appear with an AUTO badge on the kanban."
+          },
+          {
+            "titulo": "Fullscreen Kanban",
+            "desc": "In the 📊 Kanban tab, click ⊞ to expand fullscreen. On desktop, columns are side by side."
+          },
+          {
+            "titulo": "Change destination",
+            "desc": "In a task's detail, click 🎯 — an orange banner appears on the map. Click any GoJet P to set the new destination.",
+            "dica": "Only available for manager/admin."
+          },
+          {
+            "titulo": "Dashboard",
+            "desc": "The 📈 Stats tab shows: completion rate, average duration, agent ranking with gold/silver/bronze, top most-served points."
+          },
+          {
+            "titulo": "CSV History",
+            "desc": "The 📂 History tab has filters by status, type, agent and search. Click ⬇ CSV to export with BOM (opens directly in Excel)."
+          },
+          {
+            "titulo": "Notifications",
+            "desc": "When assigning a task, the agent receives native push (Android FCM) and Telegram simultaneously."
+          }
+        ]
       }
+    },
+    "roleLabels": {
+      "admin": "Admin",
+      "gestor": "Manager",
+      "supergestor": "Super Manager",
+      "gestor_log": "Log. Manager",
+      "gestor_seg": "Sec. Manager",
+      "campo": "Field",
+      "guard": "Guard",
+      "viewer": "Viewer",
+      "logistica": "Logistics"
     }
   },
   "fab": {
@@ -555,7 +914,253 @@
     "cancelAction": "Cancel",
     "slots": "Slots & Logistics",
     "gojet": "GoJet live",
-    "gojetDash": "GoJet Dashboard"
+    "gojetDash": "GoJet Dashboard",
+    "gojetAnalytics": "GoJet Analytics",
+    "satelite": "Satellite",
+    "tools": "Station tools (SV, Measure)",
+    "svCombo": "SV + Measure combo (generate SV then measure)",
+    "svBatch": "Batch SV generation",
+    "medirBatch": "Batch measure",
+    "turno": "Shift Registration"
+  },
+  "sv": {
+    "generating": "Generating Street View...",
+    "saved": "Street View saved!",
+    "noCoverage": "No Street View coverage",
+    "badge": "SV",
+    "replaceWithReal": "Tap to zoom · replace with real photo",
+    "tapToZoom": "Tap to zoom",
+    "preview": "Street View generated",
+    "save": "Save",
+    "saveAndMeasure": "Save + Measure",
+    "discard": "Discard",
+    "batchConfirm": "Generate Street View for {{count}} stations without photo visible on the map?",
+    "batchProgress": "SV batch: {{ok}} ok, {{fail}} no coverage, {{remaining}} remaining...",
+    "batchDone": "SV batch done: {{ok}} generated, {{fail}} no coverage",
+    "comboConfirm": "Combo: {{svCount}} SV to generate + {{medirCount}} measurements. Continue?",
+    "comboDone": "SV done: {{ok}} generated. Opening measurement..."
+  },
+  "medir": {
+    "batch": "Batch measure",
+    "batchEmpty": "All visible stations with photo already have measurements",
+    "saved": "Measurement saved! ({{current}}/{{total}})",
+    "skip": "Skip",
+    "stop": "Stop",
+    "done": "Batch done!",
+    "doneDesc": "{{count}} stations processed",
+    "backToMap": "Back to map",
+    "kbSkip": "skip",
+    "kbStop": "stop"
+  },
+  "foto": {
+    "title": "Station photo",
+    "subtitle": "Select a photo for this station",
+    "camera": "Camera",
+    "gallery": "Gallery",
+    "paste": "Paste",
+    "pasteHint": "Tip: take a screenshot (Win+Shift+S), then click Paste",
+    "noClipboard": "No image in clipboard. Copy the image first (Print/Ctrl+C).",
+    "pasting": "Pasting image...",
+    "pasteSaved": "Photo pasted and saved!",
+    "cancel": "Cancel"
+  },
+  "permissions": {
+    "location": "Location",
+    "locationDesc": "Required for shift registration, field GPS and proximity-based task assignment.",
+    "locationAlways": "Location all the time",
+    "locationAlwaysDesc": "Tap Allow and choose \"Allow all the time\". Without this, GPS stops when the app is minimized.",
+    "notifications": "Notifications",
+    "notificationsDesc": "Receive alerts for new tasks, slot updates and team messages in real time.",
+    "camera": "Camera",
+    "cameraDesc": "Required for shift entry photo and incident reporting.",
+    "background": "Run in background",
+    "backgroundDesc": "Keeps GPS active with screen locked. Without this, tracking stops when the phone sleeps.",
+    "intro": "To work correctly, the app needs the permissions below.",
+    "allow": "Allow",
+    "denied": "Denied. Go to Settings → Apps → JET OS → Permissions → Location → \"Allow all the time\"",
+    "deniedHint": "Tap 🔄 above after granting. Or open settings directly:",
+    "openSettings": "Open app settings",
+    "continue": "Continue",
+    "grantAll": "Grant all permissions above to continue."
+  },
+  "appShell": {
+    "backToLogin": "← Back to login",
+    "registrationSent": "Registration sent!",
+    "requestSent": "Request sent!",
+    "awaitApprovalProvider": "Wait for admin approval. You will receive an email with next steps.",
+    "awaitApprovalInternal": "Wait for admin approval. You will receive an email with access instructions.",
+    "requestAccess": "Request access",
+    "selectRoleHint": "Select your role to see the required fields.",
+    "selectRole": "SELECT YOUR ROLE *",
+    "operationalTeam": "OPERATIONAL TEAM",
+    "serviceProvider": "SERVICE PROVIDER",
+    "basicInfo": "BASIC INFORMATION",
+    "fullName": "Full name *",
+    "fullNamePlaceholder": "Your name",
+    "email": "Email *",
+    "password": "Password *",
+    "passwordPlaceholder": "Minimum 8 characters",
+    "passwordHint": "Minimum 8 characters, 1 uppercase and 1 number",
+    "providerInfo": "PROVIDER INFORMATION",
+    "city": "Operating city *",
+    "cityPlaceholder": "Select city...",
+    "loadingCities": "Loading cities...",
+    "contractType": "Contract type *",
+    "selectPlaceholder": "Select...",
+    "cpfCnpj": "CPF or CNPJ *",
+    "birthDate": "Date of birth *",
+    "pixKey": "Pix key *",
+    "pixKeyPlaceholder": "Your Pix key",
+    "telegramNumber": "Telegram number *",
+    "telegramHint": "After approval, you will receive instructions to connect Telegram.",
+    "cltContract": "CLT Contract",
+    "cltHint": "The responsible manager will follow your probation period and schedule in-person training. Renewal or termination will be communicated before the end of the period.",
+    "observation": "Notes (optional)",
+    "observationPlaceholder": "Any additional relevant information...",
+    "additionalInfo": "ADDITIONAL INFORMATION",
+    "operatingCountries": "Operating country(ies) *",
+    "companyReason": "Company / Reason (optional)",
+    "companyReasonPlaceholder": "E.g.: I'm part of the field team at company X",
+    "sending": "Sending...",
+    "submitProvider": "Submit provider registration",
+    "submitRequest": "Submit request",
+    "errSelectRole": "Select a role.",
+    "errSelectCountry": "Select at least one country.",
+    "errName": "Name is required.",
+    "errEmail": "Email is required.",
+    "errPassword": "Password is required.",
+    "errCity": "Enter the operating city.",
+    "errCpfCnpj": "Enter CPF or CNPJ.",
+    "errContract": "Select the contract type.",
+    "errTelegram": "Enter the Telegram number.",
+    "errPix": "Enter the Pix key.",
+    "errGeneric": "Error sending request.",
+    "recoverPassword": "Recover password",
+    "emailSent": "Email sent! Check your inbox.",
+    "yourEmail": "Your email",
+    "sendLink": "Send link",
+    "emailNotFound": "Email not found.",
+    "forgotPassword": "Forgot my password",
+    "login": "Log in",
+    "loggingIn": "Logging in...",
+    "noAccess": "No access? Request here",
+    "passwordLabel": "Password",
+    "reqMinChars": "Minimum 8 characters",
+    "reqUppercase": "One uppercase letter",
+    "reqNumber": "One number",
+    "reqDifferent": "Different from current",
+    "reqMatch": "Confirmation matches",
+    "createPassword": "Create your password",
+    "firstAccessHint": "First access — set a secure personal password",
+    "tempPasswordHint": "💡 Use the temporary password received via WhatsApp in the \"Current password\" field. After confirming, it will be replaced by your personal password.",
+    "currentPassword": "Current password (temporary)",
+    "currentPasswordPlaceholder": "Password received via WhatsApp",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm new password",
+    "reqFixErrors": "Fix the requirements before continuing.",
+    "invalidSession": "Invalid session.",
+    "wrongPassword": "Wrong current password. Use the temporary password received via WhatsApp.",
+    "errorChangingPassword": "Error changing password.",
+    "saving": "⏳ Saving...",
+    "setMyPassword": "🔐 Set my password",
+    "logoutAndBack": "← Log out and sign in again",
+    "loading": "Loading...",
+    "docPublic": "📄 Public Documents",
+    "docCurrent": "📎 Current document ↗",
+    "docUrlPlaceholder": "Document URL",
+    "upload": "📤 Upload",
+    "observationLabel": "📝 Notes",
+    "observationDocPlaceholder": "E.g.: Valid until 2025...",
+    "cancel": "Cancel",
+    "savingDocs": "Saving...",
+    "saveDocs": "💾 Save documents",
+    "errorSaving": "Error saving: ",
+    "roleCampo": "Field",
+    "roleCampoDesc": "Register stations and occurrences",
+    "roleGuard": "Guard",
+    "roleGuardDesc": "Guard occurrences",
+    "roleGestor": "Manager",
+    "roleGestorDesc": "Full operation management",
+    "roleViewer": "Viewer",
+    "roleViewerDesc": "Map visualization",
+    "roleLogistica": "Logistics Ag.",
+    "roleLogisticaDesc": "Charger / Scalt — scooter handling",
+    "rolePromotor": "Promoter",
+    "rolePromotorDesc": "Sales and activation team",
+    "roleFiscal": "Inspector",
+    "roleFiscalDesc": "Inspection and customer guidance",
+    "roleSeguranca": "Security",
+    "roleSegurancaDesc": "Security team (CLT)"
+  },
+  "streetviewModal": {
+    "streetView": "Street View",
+    "satellite": "Satellite",
+    "captureFrame": "Capture frame",
+    "captureHint": "Opens in new window for you to take a screenshot",
+    "useImage": "Use image",
+    "useImageHint": "Paste or drag the image",
+    "openMaps": "Open in Google Maps",
+    "loadingSV": "Loading Street View...",
+    "loadingSat": "Loading satellite...",
+    "footerSV": "Navigate by dragging. Click 📸 Capture frame to open in new window and screenshot easily.",
+    "footerSat": "Satellite zoom 19. To save: take a screenshot and click \"Use photo/print\"."
+  },
+  "form": {
+    "minChars": "Minimum 8 characters",
+    "pixKey": "Your Pix key",
+    "additionalInfo": "Any relevant additional information...",
+    "teamExample": "E.g.: I'm part of company X's field team",
+    "docUrl": "Document URL",
+    "docValidity": "E.g.: Valid until 2025...",
+    "tempPassword": "Password received via WhatsApp",
+    "assetId": "JET-001234",
+    "assetDesc": "Asset description...",
+    "currentPassword": "Current password (temporary)",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm new password",
+    "refresh": "Refresh"
+  },
+  "zone": {
+    "noName": "(unnamed)",
+    "imported": "Imported",
+    "created": "Created",
+    "stations": "stations",
+    "stPerKm2": "st/km²",
+    "area": "Area",
+    "density": "Density"
+  },
+  "popup": {
+    "competitor": "Competitor",
+    "publicDocs": "Public Documents",
+    "tpuNotRegistered": "TPU: not registered",
+    "authNotRegistered": "Authorization: not registered",
+    "updateDocs": "Update documents",
+    "addDocs": "Add documents",
+    "nameNotFilled": "(name not filled)",
+    "dataNotRegistered": "Business data not registered — click Edit",
+    "width": "Width",
+    "tapZoomReplace": "Tap to zoom · replace with real photo",
+    "tapZoom": "Tap to zoom",
+    "addPhoto": "Add photo",
+    "croqui": "Sketch",
+    "streetView": "Street View",
+    "edit": "Edit",
+    "del": "Del",
+    "monitor": "Monitor",
+    "createTask": "+ Create task",
+    "measure": "Measure",
+    "photo": "Photo",
+    "maps": "Maps",
+    "view": "View",
+    "occurrence": "occurrence",
+    "occurrences": "occurrences",
+    "addStationHere": "Add station here",
+    "delete": "Delete",
+    "sv": "SV",
+    "viewDoc": "View",
+    "tpu": "TPU",
+    "authorization": "Authorization",
+    "notRegistered": "not registered"
   },
   "legend": {
     "pub": "Public",
@@ -580,24 +1185,5 @@
     "guard": "Guard",
     "candidates": "Candidate Pts",
     "logout": "Logout"
-  },
-  "popup": {
-    "addStationHere": "Add station here",
-    "edit": "Edit",
-    "delete": "Delete",
-    "streetView": "Street View",
-    "photo": "Photo",
-    "maps": "Maps",
-    "croqui": "Sketch",
-    "sv": "SV",
-    "del": "Del",
-    "addPhoto": "Add photo",
-    "viewDoc": "View",
-    "addDocs": "Add documents",
-    "updateDocs": "Update documents",
-    "publicDocs": "Public Documents",
-    "tpu": "TPU",
-    "authorization": "Authorization",
-    "notRegistered": "not registered"
   }
 }

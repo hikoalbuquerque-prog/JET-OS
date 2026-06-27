@@ -38,7 +38,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.revogarAcesso = exports.aprovarSolicitacaoFn = exports.relatorioGuardManualFn = exports.relatorioGuardDiarioFn = exports.gerarStreetViewFn = exports.gerarCroquisLoteFn = exports.gerarCroquiFn = exports.healthCheck = exports.registrarLogAcesso = exports.getUsuarioFn = exports.obterEstatisticasMonitor = exports.listarSlots = exports.criarSlot = exports.atualizarRota = exports.listarRotas = exports.gerarRota = exports.deletarOperacao = exports.atualizarOperacao = exports.listarOperacoes = exports.criarOperacao = void 0;
+exports.revogarAcesso = exports.aprovarSolicitacaoFn = exports.relatorioGuardManualFn = exports.relatorioGuardDiarioFn = exports.gerarStreetViewFn = exports.gerarCroquisLoteFn = exports.gerarCroquiFn = exports.healthCheck = exports.registrarLogAcesso = exports.getUsuarioFn = void 0;
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
@@ -49,7 +49,7 @@ admin.initializeApp();
 // southamerica-east1 (erro "Quota exceeded for total allowable CPU") em deploys
 // que recriam muitas funções de uma vez. Também controla custo (ver migração Supabase).
 // Funções que precisarem de mais escala podem sobrescrever no próprio options.
-(0, v2_1.setGlobalOptions)({ region: 'southamerica-east1', maxInstances: 10 });
+(0, v2_1.setGlobalOptions)({ region: 'southamerica-east1', maxInstances: 3 });
 const db = admin.firestore();
 // ─── CORS helper ──────────────────────────────────────────────────
 function addCORS(res) {
@@ -59,179 +59,10 @@ function addCORS(res) {
     res.set('Access-Control-Max-Age', '3600');
 }
 // ══════════════════════════════════════════════════════════════════
-// OPERAÇÕES (legado onRequest — mantidas por compatibilidade)
+// LEGADO APOSENTADO (21/06/2026): operações, rotas, slots (CRUD HTTP),
+// obterEstatisticasMonitor — nenhum cliente chama; removidos na migração
+// Supabase Fase 2. Ver DEBRIEF §17.17.
 // ══════════════════════════════════════════════════════════════════
-exports.criarOperacao = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const { tipo, prioridade, estacaoId, quantidade, notas } = req.body;
-        const operacao = { tipo, prioridade, estacaoId, quantidade, notas,
-            status: 'pendente', dataCriacao: admin.firestore.Timestamp.now() };
-        const docRef = await db.collection('operacoes').add(operacao);
-        res.json({ id: docRef.id, ...operacao });
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao criar operação' });
-    }
-});
-exports.listarOperacoes = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const snap = await db.collection('operacoes').get();
-        res.json(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao listar operações' });
-    }
-});
-exports.atualizarOperacao = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const { id, status, notas } = req.body;
-        await db.collection('operacoes').doc(id).update({ status, notas });
-        res.json({ sucesso: true });
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao atualizar operação' });
-    }
-});
-exports.deletarOperacao = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const { id } = req.body;
-        await db.collection('operacoes').doc(id).delete();
-        res.json({ sucesso: true });
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao deletar operação' });
-    }
-});
-// ══════════════════════════════════════════════════════════════════
-// ROTAS
-// ══════════════════════════════════════════════════════════════════
-exports.gerarRota = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const { tarefas, uid } = req.body;
-        const rota = { uid, tarefas, distanciaTotal: 0, tempoEstimado: 0,
-            status: 'pendente', dataCriacao: admin.firestore.Timestamp.now(), sequencia: [] };
-        const docRef = await db.collection('rotas').add(rota);
-        res.json({ id: docRef.id, ...rota });
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao gerar rota' });
-    }
-});
-exports.listarRotas = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const snap = await db.collection('rotas').get();
-        res.json(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao listar rotas' });
-    }
-});
-exports.atualizarRota = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const { id, status, distanciaTotal, tempoEstimado } = req.body;
-        await db.collection('rotas').doc(id).update({ status, distanciaTotal, tempoEstimado });
-        res.json({ sucesso: true });
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao atualizar rota' });
-    }
-});
-// ══════════════════════════════════════════════════════════════════
-// SLOTS (legado — mantido para compatibilidade com SlotsModule antigo)
-// ══════════════════════════════════════════════════════════════════
-exports.criarSlot = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const { uid, tipo, horario, repeticao } = req.body;
-        const slot = { uid, tipo, horario, repeticao, status: 'ativo', tarefas: [],
-            proximaExecucao: admin.firestore.Timestamp.now() };
-        const docRef = await db.collection('slots').add(slot);
-        res.json({ id: docRef.id, ...slot });
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao criar slot' });
-    }
-});
-exports.listarSlots = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const snap = await db.collection('slots').get();
-        res.json(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao listar slots' });
-    }
-});
-// ══════════════════════════════════════════════════════════════════
-// ESTATÍSTICAS
-// ══════════════════════════════════════════════════════════════════
-exports.obterEstatisticasMonitor = (0, https_1.onRequest)(async (req, res) => {
-    addCORS(res);
-    if (req.method === 'OPTIONS') {
-        res.status(204).send('');
-        return;
-    }
-    try {
-        const [operacoes, slots, rotas] = await Promise.all([
-            db.collection('operacoes').get(),
-            db.collection('slots').get(),
-            db.collection('rotas').get(),
-        ]);
-        res.json({
-            totalOperacoes: operacoes.size,
-            operacoesAtivas: operacoes.docs.filter(d => d.data().status === 'pendente').length,
-            totalSlots: slots.size,
-            totalRotas: rotas.size,
-            timestamp: admin.firestore.Timestamp.now(),
-        });
-    }
-    catch (err) {
-        res.status(500).json({ erro: 'Erro ao obter estatísticas' });
-    }
-});
 // ══════════════════════════════════════════════════════════════════
 // USUÁRIO
 // ══════════════════════════════════════════════════════════════════
@@ -291,13 +122,13 @@ exports.healthCheck = (0, https_1.onRequest)((req, res) => {
 // (código real em src/croquis/index.ts)
 // ══════════════════════════════════════════════════════════════════
 const croquis_1 = require("./croquis");
-exports.gerarCroquiFn = (0, https_1.onCall)({ timeoutSeconds: 300, memory: '512MiB', region: 'southamerica-east1', cors: true }, async (request) => {
+exports.gerarCroquiFn = (0, https_1.onCall)({ timeoutSeconds: 300, memory: '512MiB', region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new Error('Não autenticado');
     const { estacaoId } = request.data;
     return (0, croquis_1.gerarCroqui)(estacaoId, request.auth.uid, request.auth.token.email || '');
 });
-exports.gerarCroquisLoteFn = (0, https_1.onCall)({ timeoutSeconds: 540, memory: '512MiB', region: 'southamerica-east1', cors: true }, async (request) => {
+exports.gerarCroquisLoteFn = (0, https_1.onCall)({ timeoutSeconds: 540, memory: '512MiB', region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new Error('Não autenticado');
     const { cidade, pais = 'BR', loteSize = 10 } = request.data;
@@ -308,7 +139,7 @@ exports.gerarCroquisLoteFn = (0, https_1.onCall)({ timeoutSeconds: 540, memory: 
 // (código real em src/streetview/index.ts)
 // ══════════════════════════════════════════════════════════════════
 const streetview_1 = require("./streetview");
-exports.gerarStreetViewFn = (0, https_1.onCall)({ timeoutSeconds: 120, memory: '256MiB', region: 'southamerica-east1', cors: true }, async (request) => {
+exports.gerarStreetViewFn = (0, https_1.onCall)({ timeoutSeconds: 120, memory: '256MiB', region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new Error('Não autenticado');
     const { lat, lng, codigo } = request.data;
@@ -326,7 +157,7 @@ exports.gerarStreetViewFn = (0, https_1.onCall)({ timeoutSeconds: 120, memory: '
 const relatorio_1 = require("./relatorio");
 // Diário — 7h, terça a domingo (reporta o dia anterior)
 // Segunda-feira envia o semanal no lugar
-exports.relatorioGuardDiarioFn = (0, scheduler_1.onSchedule)({ schedule: '0 7 * * 2-7', timeZone: 'America/Sao_Paulo', memory: '256MiB', timeoutSeconds: 120 }, async () => {
+exports.relatorioGuardDiarioFn = (0, scheduler_1.onSchedule)({ schedule: '0 7 * * 2-7', timeZone: 'America/Sao_Paulo', memory: '256MiB', timeoutSeconds: 120, maxInstances: 10 }, async () => {
     // Reporta o dia anterior
     const ontem = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
     ontem.setDate(ontem.getDate() - 1);
@@ -336,7 +167,7 @@ exports.relatorioGuardDiarioFn = (0, scheduler_1.onSchedule)({ schedule: '0 7 * 
     console.log('[guard-diario] Enviado para', dataStr, '—', relatorio.totalOcorrencias, 'ocorrências');
 });
 // Manual — callable para o botão "Enviar relatório agora" no DashboardManager
-exports.relatorioGuardManualFn = (0, https_1.onCall)({ timeoutSeconds: 180, memory: '256MiB', region: 'southamerica-east1', cors: true }, async (request) => {
+exports.relatorioGuardManualFn = (0, https_1.onCall)({ timeoutSeconds: 180, memory: '256MiB', region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new Error('Não autenticado');
     const { dataStr, tipo, periodo, lang } = (request.data || {});
@@ -356,7 +187,7 @@ exports.relatorioGuardManualFn = (0, https_1.onCall)({ timeoutSeconds: 180, memo
 // (código real em src/auth/index.ts)
 // ══════════════════════════════════════════════════════════════════
 const index_1 = require("./auth/index");
-exports.aprovarSolicitacaoFn = (0, https_1.onCall)({ timeoutSeconds: 60, memory: '256MiB', region: 'southamerica-east1', cors: true }, async (request) => {
+exports.aprovarSolicitacaoFn = (0, https_1.onCall)({ timeoutSeconds: 60, memory: '256MiB', region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new Error('Não autenticado');
     const { solicitacaoId, roleOverride } = request.data;
@@ -371,15 +202,23 @@ __exportStar(require("./auth"), exports); // getUsuario, criarSlotAuth, listarSl
 __exportStar(require("./automacao"), exports); // limpezaSnapshots, notificarOcorrencia, notificarTarefa, etc.
 __exportStar(require("./automacao-gojet-scraper"), exports); // scraperGoJet (paginação completa, multi-cidade), scraperGoJetManual
 __exportStar(require("./gps-alertas"), exports); // verificarAtrasos, verificarChegadaPonto
-__exportStar(require("./gps-ingest"), exports); // ingestGps — upload nativo de GPS (app fechado)
-__exportStar(require("./automacao-tarefas"), exports); // gerarTarefasGoJetFn, gerarTarefasAgendado, gerarSlotsAgendado, etc.
+// gps-ingest REMOVIDO — GPS nativo agora usa Edge Function Supabase (ingest-gps)
+__exportStar(require("./automacao-tarefas"), exports); // gerarTarefasGoJetFn, gerarTarefasAgendado, etc.
 __exportStar(require("./relatorios"), exports); // enviarRelatorioManual, relatorioGuardSemanal, relatorioPerdasDiario, relatorioPerdasSemanal
 __exportStar(require("./notificacoes-prestador"), exports); // notificarGestorNovaSolicitacao
 __exportStar(require("./mirror-ocorrencias"), exports); // espelharOcorrenciaSupabase — dual-write Guard -> Supabase (DEBRIEF §16)
+__exportStar(require("./mirror-estacoes"), exports); // espelharEstacaoSupabase — dual-write estações -> Supabase (Fase 2 Onda A)
+__exportStar(require("./mirror-onda-b-menores"), exports); // espelhar Solicitacao/TurnoLogistica -> Supabase (Fase 2 Onda B menores)
+__exportStar(require("./mirror-tarefas"), exports); // espelharTarefaSupabase, espelharTarefaLogisticaSupabase (Onda H)
+__exportStar(require("./mirror-solicitacoes"), exports); // espelharSolicitacaoSupabase — user access requests (Onda H)
+__exportStar(require("./mirror-gojet-config"), exports); // espelharGojetConfigSupabase — gojet_config dual-write (Onda H)
+__exportStar(require("./mirror-lgpd"), exports); // espelharConsentimentoLgpdSupabase — consentimentos_lgpd dual-write
+__exportStar(require("./buscar-pois-osm"), exports); // buscarPOIsOSMFn — Overpass/OSM server-side (gratuito; resolve CORS/429)
+__exportStar(require("./slots-telegram"), exports); // resumoSlotsTelegram, confirmarSlotsCascata, enviarResumoManual
 // ══════════════════════════════════════════════════════════════════
 // REVOGAR ACESSO — desativa usuário no Auth + Firestore
 // ══════════════════════════════════════════════════════════════════
-exports.revogarAcesso = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.revogarAcesso = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     const callerUid = request.auth?.uid;
     if (!callerUid)
         throw new Error('Não autenticado');

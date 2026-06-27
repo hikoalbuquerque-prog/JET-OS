@@ -1,6 +1,7 @@
 // functions/src/mirror-ocorrencias.ts
 //
-// Espelha (strangler dual-write) cada nova ocorrência do Firestore para o Supabase,
+// Espelha (strangler dual-write) cada ocorrência do Firestore para o Supabase em
+// create/update/delete (onDocumentWritten) — updates de status/BO também sincronizam,
 // para que o analytics migrado (RPC analytics_ocorrencias / PainelRoubos / heatmap) NÃO
 // fique stale enquanto o ESCRITOR do Guard ainda grava no Firebase. Ver DEBRIEF Seção 16.
 //
@@ -15,11 +16,8 @@
 // Segredos (Secret Manager / env): SUPABASE_URL, SUPABASE_SERVICE_ROLE.
 // Se não configurados, a função é no-op (não quebra o deploy enquanto a migração não corta).
 
-import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
-import { onDocumentCreated } from 'firebase-functions/v2/firestore';
-
-const db = admin.firestore();
+import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 
 const SUPABASE_URL          = process.env.SUPABASE_URL          ?? '';
 const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE ?? '';
@@ -67,14 +65,24 @@ function str(...vals: unknown[]): string | null {
   return null;
 }
 
-export const espelharOcorrenciaSupabase = onDocumentCreated(
-  { document: 'ocorrencias/{id}', region: 'southamerica-east1' },
+export const espelharOcorrenciaSupabase = onDocumentWritten(
+  { document: 'ocorrencias/{id}', region: 'southamerica-east1', maxInstances: 10 },
   async (event) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) return; // migração não cortada ainda
-    const d = event.data?.data();
-    if (!d) return;
-
     const firebaseDocId = event.params.id;
+    const hdr = { apikey: SUPABASE_SERVICE_ROLE, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE}` };
+
+    // Deletado no Firestore → remove do Supabase (mantém paridade nas leituras Onda B).
+    if (!event.data?.after?.exists) {
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/ocorrencias?firebase_doc_id=eq.${encodeURIComponent(firebaseDocId)}`,
+          { method: 'DELETE', headers: hdr });
+      } catch (e) { functions.logger.error('[mirror-ocor] delete:', e); }
+      return;
+    }
+
+    const d = event.data.after.data();
+    if (!d) return;
     const lat = num(d.lat_inicial, d.lat, d.latInicial);
     const lng = num(d.lng_inicial, d.lng, d.lngInicial);
 
@@ -138,12 +146,6 @@ export const espelharOcorrenciaSupabase = onDocumentCreated(
       // Não-fatal: o registro no Firebase já foi feito; o espelho é best-effort.
       functions.logger.error('[mirror-ocor] erro de rede no upsert:', e);
     }
-
-    // Marca no Firestore que foi espelhada (auditoria/diagnóstico do dual-run).
-    try {
-      await db.collection('ocorrencias').doc(firebaseDocId).update({
-        supabaseEspelhadoEm: admin.firestore.FieldValue.serverTimestamp(),
-      });
-    } catch { /* best-effort */ }
+    // NÃO escrever de volta no Firestore: onDocumentWritten re-dispararia (loop).
   },
 );

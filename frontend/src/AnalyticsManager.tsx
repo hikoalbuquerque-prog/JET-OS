@@ -8,12 +8,304 @@ import { ScatterplotLayer, ArcLayer, TextLayer } from '@deck.gl/layers';
 import type { MapViewState } from '@deck.gl/core';
 import { Map as MapLibreMap } from 'react-map-gl/maplibre';
 import { db, storage } from './lib/firebase';
+import { guardProviderSupabase, carregarOcorrenciasSupabase } from './lib/ocorrencias-supabase';
 import {
   collection, doc, setDoc, getDocs, deleteDoc, query, orderBy, getDoc,
   onSnapshot, where, Timestamp
 } from 'firebase/firestore';
 import { ref, deleteObject, getBytes } from 'firebase/storage';
-import { uploadComRetry } from './lib/uploadUtils';
+import { uploadComRetry, getBytesStorage, deleteStorage, storageProviderSupabase } from './lib/uploadUtils';
+import { useTranslation } from 'react-i18next';
+
+// ── i18n (padrão TermosUsoGate: objeto T {pt,en,es,ru} + pick por idioma) ──
+type Lang = 'pt'|'en'|'es'|'ru';
+type L = { pt:string; en:string; es:string; ru:string };
+const useLang = (): Lang => {
+  const { i18n } = useTranslation();
+  return (((i18n.language || 'pt').slice(0,2)) as Lang);
+};
+const makePick = (lang:Lang) => (o:L) => o[lang] ?? o.pt;
+
+const T: Record<string, L> = {
+  // Header / KPIs
+  analytics:        { pt:'Analytics',          en:'Analytics',          es:'Analytics',           ru:'Аналитика' },
+  corridas:         { pt:'Corridas',           en:'Rides',              es:'Viajes',              ru:'Поездки' },
+  receita:          { pt:'Receita',            en:'Revenue',            es:'Ingresos',            ru:'Выручка' },
+  receitaTotal:     { pt:'Receita total',      en:'Total revenue',      es:'Ingresos totales',    ru:'Общая выручка' },
+  distMedia:        { pt:'Dist. média',        en:'Avg. dist.',         es:'Dist. media',         ru:'Ср. дист.' },
+  durMedia:         { pt:'Dur. média',         en:'Avg. dur.',          es:'Dur. media',          ru:'Ср. длит.' },
+  dias:             { pt:'Dias',               en:'Days',               es:'Días',                ru:'Дни' },
+  estacoes:         { pt:'Estações',           en:'Stations',           es:'Estaciones',          ru:'Станции' },
+  // Tabs
+  tabMapa:          { pt:'🗺 Mapa',            en:'🗺 Map',             es:'🗺 Mapa',             ru:'🗺 Карта' },
+  tabTendencia:     { pt:'📈 Tendência',       en:'📈 Trend',           es:'📈 Tendencia',        ru:'📈 Тренд' },
+  tabPerdas:        { pt:'💸 Perdas',          en:'💸 Losses',          es:'💸 Pérdidas',         ru:'💸 Потери' },
+  tabRoubos:        { pt:'🔴 Roubos',          en:'🔴 Thefts',          es:'🔴 Robos',            ru:'🔴 Кражи' },
+  tabGuard:         { pt:'🛡 Guard',           en:'🛡 Guard',           es:'🛡 Guard',            ru:'🛡 Guard' },
+  tabOd:            { pt:'🔀 OD',              en:'🔀 OD',              es:'🔀 OD',               ru:'🔀 OD' },
+  // Layers
+  layerHeat:        { pt:'Heat',               en:'Heat',               es:'Heat',                ru:'Тепло' },
+  layerHex:         { pt:'Hex',                en:'Hex',                es:'Hex',                 ru:'Hex' },
+  layerPts:         { pt:'Pts',                en:'Pts',                es:'Pts',                 ru:'Точки' },
+  layerArc:         { pt:'Arcos',              en:'Arcs',               es:'Arcos',               ru:'Дуги' },
+  inicios:          { pt:'Inícios',            en:'Starts',             es:'Inicios',             ru:'Старты' },
+  fins:             { pt:'Fins',               en:'Ends',               es:'Fines',               ru:'Финиши' },
+  estacoesBtn:      { pt:'📍 Estações',        en:'📍 Stations',        es:'📍 Estaciones',       ru:'📍 Станции' },
+  zonas:            { pt:'🗺 Zonas',           en:'🗺 Zones',           es:'🗺 Zonas',            ru:'🗺 Зоны' },
+  gaps:             { pt:'🔴 Gaps',            en:'🔴 Gaps',            es:'🔴 Gaps',             ru:'🔴 Пробелы' },
+  gapsTitle:        { pt:'Clusters sem cobertura JET', en:'Clusters without JET coverage', es:'Clusters sin cobertura JET', ru:'Кластеры без покрытия JET' },
+  guardHeatTitle:   { pt:'Heatmap de ocorrências Guard', en:'Guard incidents heatmap', es:'Mapa de calor de incidentes Guard', ru:'Тепловая карта инцидентов Guard' },
+  // Períodos Guard
+  hoje:             { pt:'Hoje',               en:'Today',              es:'Hoy',                 ru:'Сегодня' },
+  ontem:            { pt:'Ontem',              en:'Yesterday',          es:'Ayer',                ru:'Вчера' },
+  total:            { pt:'Total',              en:'Total',              es:'Total',               ru:'Всего' },
+  todos:            { pt:'Todos',              en:'All',                es:'Todos',               ru:'Все' },
+  // Compare / timeline
+  comparar:         { pt:'⚖ Comparar',         en:'⚖ Compare',          es:'⚖ Comparar',          ru:'⚖ Сравнить' },
+  diasLabel:        { pt:'dias',               en:'days',               es:'días',                ru:'дн.' },
+  timeline:         { pt:'Timeline',           en:'Timeline',           es:'Línea de tiempo',     ru:'Хронология' },
+  // Side panel tabs
+  filtros:          { pt:'Filtros',            en:'Filters',            es:'Filtros',             ru:'Фильтры' },
+  score:            { pt:'Score',              en:'Score',              es:'Puntuación',          ru:'Оценка' },
+  clusters:         { pt:'Clusters',           en:'Clusters',           es:'Clusters',            ru:'Кластеры' },
+  horas:            { pt:'⏱ Horas',            en:'⏱ Hours',            es:'⏱ Horas',             ru:'⏱ Часы' },
+  corridasTooltip:  { pt:'corridas',           en:'rides',              es:'viajes',              ru:'поездок' },
+  // Drag/drop, upload
+  solteXlsx:        { pt:'Solte o XLSX aqui',  en:'Drop the XLSX here', es:'Suelta el XLSX aquí', ru:'Перетащите XLSX сюда' },
+  semPermissao:     { pt:'Sem permissão',      en:'No permission',      es:'Sin permiso',         ru:'Нет доступа' },
+  lendoArquivo:     { pt:'Lendo arquivo...',   en:'Reading file...',    es:'Leyendo archivo...',  ru:'Чтение файла...' },
+  enviando:         { pt:'Enviando...',        en:'Uploading...',       es:'Enviando...',         ru:'Загрузка...' },
+  mesclando:        { pt:'Mesclando...',       en:'Merging...',         es:'Combinando...',       ru:'Объединение...' },
+  substituindo:     { pt:'Substituindo...',    en:'Replacing...',       es:'Reemplazando...',     ru:'Замена...' },
+  erro:             { pt:'Erro',               en:'Error',              es:'Error',               ru:'Ошибка' },
+  removido:         { pt:'Removido',           en:'Removed',            es:'Eliminado',           ru:'Удалено' },
+  carregando:       { pt:'Carregando...',      en:'Loading...',         es:'Cargando...',         ru:'Загрузка...' },
+  carregandoMeta:   { pt:'Erro ao carregar metadados', en:'Error loading metadata', es:'Error al cargar metadatos', ru:'Ошибка загрузки метаданных' },
+  erroAoCarregar:   { pt:'Erro ao carregar',   en:'Error loading',      es:'Error al cargar',     ru:'Ошибка загрузки' },
+  nenhumPeriodo:    { pt:'Nenhum período',     en:'No period',          es:'Ningún período',      ru:'Нет периода' },
+  // Trend view
+  tendenciaPorDia:  { pt:'Tendência por Dia',  en:'Trend by Day',       es:'Tendencia por Día',   ru:'Тренд по дням' },
+  nenhumDado:       { pt:'Nenhum dado carregado ainda.', en:'No data loaded yet.', es:'Aún no hay datos cargados.', ru:'Данные ещё не загружены.' },
+  labelCorridas:    { pt:'Corridas',           en:'Rides',              es:'Viajes',              ru:'Поездки' },
+  labelReceita:     { pt:'Receita R$',         en:'Revenue R$',         es:'Ingresos R$',         ru:'Выручка R$' },
+  labelDist:        { pt:'Dist. média km',     en:'Avg. dist. km',      es:'Dist. media km',      ru:'Ср. дист. км' },
+  // Calendar
+  periodo:          { pt:'Período',            en:'Period',             es:'Período',             ru:'Период' },
+  selecionando:     { pt:'Selecionando',       en:'Selecting',          es:'Seleccionando',       ru:'Выбор' },
+  semana:           { pt:'Semana',             en:'Week',               es:'Semana',              ru:'Неделя' },
+  mes:              { pt:'Mês',                en:'Month',              es:'Mes',                 ru:'Месяц' },
+  tudo:             { pt:'Tudo',               en:'All',                es:'Todo',                ru:'Всё' },
+  limpar:           { pt:'Limpar',             en:'Clear',              es:'Limpiar',             ru:'Очистить' },
+  // Regiões
+  regioesCarregadas:{ pt:'🏙 Regiões carregadas', en:'🏙 Loaded regions', es:'🏙 Regiones cargadas', ru:'🏙 Загруженные регионы' },
+  verTodasRegioes:  { pt:'Ver todas as regiões', en:'View all regions', es:'Ver todas las regiones', ru:'Показать все регионы' },
+  // Hour filter
+  hora:             { pt:'Hora',               en:'Hour',               es:'Hora',                ru:'Час' },
+  pico:             { pt:'Pico',               en:'Peak',               es:'Pico',                ru:'Пик' },
+  manha:            { pt:'Manhã',              en:'Morning',            es:'Mañana',              ru:'Утро' },
+  noturno:          { pt:'Noturno',            en:'Night',              es:'Nocturno',            ru:'Ночь' },
+  filtrosCorrida:   { pt:'Filtros de Corrida', en:'Ride Filters',       es:'Filtros de Viaje',    ru:'Фильтры поездок' },
+  distMax:          { pt:'Dist. máx',          en:'Max dist.',          es:'Dist. máx',           ru:'Макс. дист.' },
+  durMax:           { pt:'Dur. máx',           en:'Max dur.',           es:'Dur. máx',            ru:'Макс. длит.' },
+  resumo:           { pt:'Resumo',             en:'Summary',            es:'Resumen',             ru:'Сводка' },
+  porDia:           { pt:'/dia',               en:'/day',               es:'/día',                ru:'/день' },
+  porCorrida:       { pt:'por corrida',        en:'per ride',           es:'por viaje',           ru:'на поездку' },
+  exportarPdf:      { pt:'📕 Exportar PDF completo', en:'📕 Export full PDF', es:'📕 Exportar PDF completo', ru:'📕 Экспорт полного PDF' },
+  exportarPdfTitle: { pt:'Exportar relatório PDF', en:'Export PDF report', es:'Exportar informe PDF', ru:'Экспорт PDF-отчёта' },
+  deltaCorridas:    { pt:'Δ corridas',         en:'Δ rides',            es:'Δ viajes',            ru:'Δ поездок' },
+  deltaReceita:     { pt:'Δ receita',          en:'Δ revenue',          es:'Δ ingresos',          ru:'Δ выручка' },
+  porHora:          { pt:'⏱ Por Hora',         en:'⏱ By Hour',          es:'⏱ Por Hora',          ru:'⏱ По часам' },
+  cliqueFiltrarHora:{ pt:'Clique para filtrar hora', en:'Click to filter hour', es:'Clic para filtrar hora', ru:'Нажмите, чтобы отфильтровать час' },
+  excluido:         { pt:'excluído',           en:'excluded',           es:'excluido',            ru:'исключено' },
+  topZonas:         { pt:'Top Zonas',          en:'Top Zones',          es:'Top Zonas',           ru:'Топ зон' },
+  dist:             { pt:'Dist.',              en:'Dist.',              es:'Dist.',               ru:'Дист.' },
+  selecioneDias:    { pt:'Selecione dias',     en:'Select days',        es:'Selecciona días',     ru:'Выберите дни' },
+  // Score panel
+  scoreEstacoes:    { pt:'Score de Estações JET', en:'JET Station Score', es:'Puntuación de Estaciones JET', ru:'Оценка станций JET' },
+  scoreDesc:        { pt:'Corridas iniciando/terminando a ≤150m. Verde=alta demanda, cinza=inativa.', en:'Rides starting/ending within ≤150m. Green=high demand, gray=inactive.', es:'Viajes que inician/terminan a ≤150m. Verde=alta demanda, gris=inactiva.', ru:'Поездки начинаются/заканчиваются в пределах ≤150 м. Зелёный=высокий спрос, серый=неактивна.' },
+  estacoesSemDemanda:{ pt:'Estações sem demanda', en:'Stations with no demand', es:'Estaciones sin demanda', ru:'Станции без спроса' },
+  // Clusters panel
+  gapsCobertura:    { pt:'Gaps de Cobertura',  en:'Coverage Gaps',      es:'Brechas de Cobertura', ru:'Пробелы покрытия' },
+  gapsDesc:         { pt:'Clusters com ≥50 corridas e sem estação JET a menos de 300m. Candidatos para nova estação.', en:'Clusters with ≥50 rides and no JET station within 300m. Candidates for a new station.', es:'Clusters con ≥50 viajes y sin estación JET a menos de 300m. Candidatos para nueva estación.', ru:'Кластеры с ≥50 поездками без станции JET в пределах 300 м. Кандидаты на новую станцию.' },
+  mostrandoMapa:    { pt:'🔴 Mostrando no mapa', en:'🔴 Showing on map', es:'🔴 Mostrando en el mapa', ru:'🔴 Показано на карте' },
+  mostrarMapa:      { pt:'Mostrar no mapa',    en:'Show on map',        es:'Mostrar en el mapa',  ru:'Показать на карте' },
+  selecioneAnalisar:{ pt:'Selecione dias para analisar', en:'Select days to analyze', es:'Selecciona días para analizar', ru:'Выберите дни для анализа' },
+  nenhumGap:        { pt:'Nenhum gap encontrado', en:'No gaps found',   es:'No se encontraron brechas', ru:'Пробелы не найдены' },
+  estacaoMaisProxima:{ pt:'Estação mais próxima', en:'Nearest station', es:'Estación más cercana', ru:'Ближайшая станция' },
+  // Excluir confirm
+  excluir:          { pt:'Excluir',            en:'Delete',             es:'Eliminar',            ru:'Удалить' },
+  // OD
+  matrizOd:         { pt:'Matriz Origem → Destino', en:'Origin → Destination Matrix', es:'Matriz Origen → Destino', ru:'Матрица Источник → Назначение' },
+  odSub:            { pt:'Top fluxos entre zonas com mais de 5 corridas no período selecionado', en:'Top flows between zones with more than 5 rides in the selected period', es:'Principales flujos entre zonas con más de 5 viajes en el período seleccionado', ru:'Главные потоки между зонами с более чем 5 поездками за выбранный период' },
+  odSelDias:        { pt:'Selecione dias para ver a matriz OD.', en:'Select days to see the OD matrix.', es:'Selecciona días para ver la matriz OD.', ru:'Выберите дни, чтобы увидеть OD-матрицу.' },
+  odDesc:           { pt:'Top fluxos origem → destino calculados a partir das zonas de início e fim de cada corrida. Os dados de zona de destino dependem do campo "zona de término" disponível nos arquivos importados.', en:'Top origin → destination flows computed from the start and end zones of each ride. Destination zone data depends on the "end zone" field available in the imported files.', es:'Principales flujos origen → destino calculados a partir de las zonas de inicio y fin de cada viaje. Los datos de zona de destino dependen del campo "zona de término" disponible en los archivos importados.', ru:'Главные потоки источник → назначение, рассчитанные по зонам начала и конца каждой поездки. Данные зоны назначения зависят от поля «зона окончания», доступного в импортированных файлах.' },
+  // Merge modal
+  dadosExistentes:  { pt:'📊 Dados existentes', en:'📊 Existing data',  es:'📊 Datos existentes', ru:'📊 Существующие данные' },
+  jaExisteDados:    { pt:'Já existe dados para', en:'Data already exists for', es:'Ya existen datos para', ru:'Данные уже существуют для' },
+  existente:        { pt:'Existente',          en:'Existing',           es:'Existente',           ru:'Существующие' },
+  novo:             { pt:'Novo',               en:'New',                es:'Nuevo',               ru:'Новые' },
+  mesclarBtn:       { pt:'🔀 Mesclar',         en:'🔀 Merge',           es:'🔀 Combinar',         ru:'🔀 Объединить' },
+  corridasNoTotal:  { pt:'corridas no total',  en:'rides in total',     es:'viajes en total',     ru:'поездок всего' },
+  substituirBtn:    { pt:'🔄 Substituir — manter apenas as', en:'🔄 Replace — keep only the', es:'🔄 Reemplazar — mantener solo las', ru:'🔄 Заменить — оставить только' },
+  novasCorridas:    { pt:'novas corridas',     en:'new rides',          es:'nuevos viajes',       ru:'новых поездок' },
+  cancelar:         { pt:'Cancelar',           en:'Cancel',             es:'Cancelar',            ru:'Отмена' },
+  corridasCarregadas:{ pt:'corridas carregadas', en:'rides loaded',     es:'viajes cargados',     ru:'поездок загружено' },
+  mesclado:         { pt:'Mesclado',           en:'Merged',             es:'Combinado',           ru:'Объединено' },
+  arquivoVazio:     { pt:'Arquivo vazio',      en:'Empty file',         es:'Archivo vacío',       ru:'Пустой файл' },
+  carregandoParser: { pt:'Carregando parser...', en:'Loading parser...', es:'Cargando parser...', ru:'Загрузка парсера...' },
+  lendoPlanilha:    { pt:'Lendo planilha...',  en:'Reading spreadsheet...', es:'Leyendo hoja...',  ru:'Чтение таблицы...' },
+  processando:      { pt:'Processando',        en:'Processing',         es:'Procesando',          ru:'Обработка' },
+  // HoraComparativo
+  corridasPorHora:  { pt:'Corridas por hora',  en:'Rides per hour',     es:'Viajes por hora',     ru:'Поездки в час' },
+  diasSelecionados: { pt:'Dias selecionados',  en:'Selected days',      es:'Días seleccionados',  ru:'Выбранные дни' },
+  diaAnterior:      { pt:'Dia anterior',       en:'Previous day',       es:'Día anterior',        ru:'Предыдущий день' },
+  mesmoDiaSemana:   { pt:'Mesmo dia da semana', en:'Same weekday',      es:'Mismo día de la semana', ru:'Тот же день недели' },
+  semanaVsSemana:   { pt:'Semana vs semana',   en:'Week vs week',       es:'Semana vs semana',    ru:'Неделя к неделе' },
+  carregandoDados:  { pt:'⏳ Carregando dados...', en:'⏳ Loading data...', es:'⏳ Cargando datos...', ru:'⏳ Загрузка данных...' },
+  selecioneCalendario:{ pt:'Selecione dias no calendário para visualizar', en:'Select days in the calendar to view', es:'Selecciona días en el calendario para visualizar', ru:'Выберите дни в календаре для просмотра' },
+  selecionado:      { pt:'selecionado',        en:'selected',           es:'seleccionado',        ru:'выбран' },
+  anterior:         { pt:'anterior',           en:'previous',           es:'anterior',            ru:'предыдущий' },
+  semanaAtual:      { pt:'Semana atual',       en:'Current week',       es:'Semana actual',       ru:'Текущая неделя' },
+  semanaAnterior:   { pt:'Semana anterior',    en:'Previous week',      es:'Semana anterior',     ru:'Предыдущая неделя' },
+  picoLabel:        { pt:'pico',               en:'peak',               es:'pico',                ru:'пик' },
+  // Perdas / Roubos panel
+  painelRoubos:     { pt:'🔴 Painel de Roubos', en:'🔴 Theft Panel',    es:'🔴 Panel de Robos',   ru:'🔴 Панель краж' },
+  painelPerdas:     { pt:'💸 Painel de Perdas', en:'💸 Loss Panel',     es:'💸 Panel de Pérdidas', ru:'💸 Панель потерь' },
+  roubosConfirmados:{ pt:'Roubos e furtos confirmados por filial', en:'Confirmed thefts and robberies by branch', es:'Robos y hurtos confirmados por sucursal', ru:'Подтверждённые кражи и хищения по филиалам' },
+  ocorrenciasConfirmadas:{ pt:'Ocorrências confirmadas por filial', en:'Confirmed incidents by branch', es:'Incidencias confirmadas por sucursal', ru:'Подтверждённые инциденты по филиалам' },
+  esteMes:          { pt:'Este mês',           en:'This month',         es:'Este mes',            ru:'Этот месяц' },
+  acumulado:        { pt:'Acumulado',          en:'Accumulated',        es:'Acumulado',           ru:'Накоплено' },
+  totalGeral:       { pt:'Total geral',        en:'Grand total',        es:'Total general',       ru:'Общий итог' },
+  roubosFurtos:     { pt:'Roubos/Furtos',      en:'Thefts/Robberies',   es:'Robos/Hurtos',        ru:'Кражи/Хищения' },
+  patinetes:        { pt:'Patinetes',          en:'Scooters',           es:'Patinetes',           ru:'Самокаты' },
+  bicicletas:       { pt:'Bicicletas',         en:'Bicycles',           es:'Bicicletas',          ru:'Велосипеды' },
+  baterias:         { pt:'Baterias',           en:'Batteries',          es:'Baterías',            ru:'Батареи' },
+  evolucao:         { pt:'Evolução — Ontem × Este mês × Acumulado', en:'Evolution — Yesterday × This month × Accumulated', es:'Evolución — Ayer × Este mes × Acumulado', ru:'Динамика — Вчера × Этот месяц × Накоплено' },
+  distVisualFilial: { pt:'Distribuição visual por filial', en:'Visual distribution by branch', es:'Distribución visual por sucursal', ru:'Визуальное распределение по филиалам' },
+  porFilial:        { pt:'Por filial',         en:'By branch',          es:'Por sucursal',        ru:'По филиалам' },
+  resumido:         { pt:'▲ Resumido',         en:'▲ Summary',          es:'▲ Resumido',          ru:'▲ Кратко' },
+  detalhe:          { pt:'▼ Detalhe',          en:'▼ Detail',           es:'▼ Detalle',           ru:'▼ Подробно' },
+  incidentes:       { pt:'Incidentes',         en:'Incidents',          es:'Incidencias',         ru:'Инциденты' },
+  // Trend chart series labels
+  serieTotal:       { pt:'Total',              en:'Total',              es:'Total',               ru:'Всего' },
+  seriePatinetes:   { pt:'🛴 Patinetes',       en:'🛴 Scooters',        es:'🛴 Patinetes',        ru:'🛴 Самокаты' },
+  serieBicicletas:  { pt:'🚲 Bicicletas',      en:'🚲 Bicycles',        es:'🚲 Bicicletas',       ru:'🚲 Велосипеды' },
+  serieBaterias:    { pt:'🔋 Baterias',        en:'🔋 Batteries',       es:'🔋 Baterías',         ru:'🔋 Батареи' },
+  // Guard analytics
+  custom:           { pt:'📅 Custom',          en:'📅 Custom',          es:'📅 Personalizado',    ru:'📅 Свой' },
+  escopo:           { pt:'Escopo',             en:'Scope',              es:'Alcance',             ru:'Область' },
+  cidade:           { pt:'Cidade',             en:'City',               es:'Ciudad',              ru:'Город' },
+  brasil:           { pt:'🇧🇷 Brasil',          en:'🇧🇷 Brazil',          es:'🇧🇷 Brasil',           ru:'🇧🇷 Бразилия' },
+  modoBrasil:       { pt:'🇧🇷 Modo Brasil — todas as ocorrências do período, sem filtro de cidade', en:'🇧🇷 Brazil mode — all incidents in the period, no city filter', es:'🇧🇷 Modo Brasil — todas las incidencias del período, sin filtro de ciudad', ru:'🇧🇷 Режим Бразилии — все инциденты за период, без фильтра по городу' },
+  abertos:          { pt:'Abertos',            en:'Open',               es:'Abiertos',            ru:'Открытые' },
+  resolvidos:       { pt:'Resolvidos',         en:'Resolved',           es:'Resueltos',           ru:'Решённые' },
+  taxaResolucao:    { pt:'Taxa resolução',     en:'Resolution rate',    es:'Tasa resolución',     ru:'Доля решений' },
+  subEstacoes:      { pt:'🏆 Estações',        en:'🏆 Stations',        es:'🏆 Estaciones',       ru:'🏆 Станции' },
+  subTendencia:     { pt:'📈 Tendência',       en:'📈 Trend',           es:'📈 Tendencia',        ru:'📈 Тренд' },
+  subSla:           { pt:'⏱ SLA',              en:'⏱ SLA',              es:'⏱ SLA',               ru:'⏱ SLA' },
+  subHorario:       { pt:'🕐 Horário',         en:'🕐 Time',            es:'🕐 Horario',          ru:'🕐 Время' },
+  subZonas:         { pt:'🗺 Zonas',           en:'🗺 Zones',           es:'🗺 Zonas',            ru:'🗺 Зоны' },
+  subCorrelacao:    { pt:'🔗 Correlação',      en:'🔗 Correlation',     es:'🔗 Correlación',      ru:'🔗 Корреляция' },
+  // Guard ranking
+  nenhumaOcorrEstacao:{ pt:'Nenhuma ocorrência próxima a estações no período.', en:'No incidents near stations in the period.', es:'Ninguna incidencia cerca de estaciones en el período.', ru:'Нет инцидентов рядом со станциями за период.' },
+  raioBusca:        { pt:'Raio de busca',      en:'Search radius',      es:'Radio de búsqueda',   ru:'Радиус поиска' },
+  estacoesVerificadas:{ pt:'estações verificadas', en:'stations checked', es:'estaciones verificadas', ru:'станций проверено' },
+  estacoesCom:      { pt:'Estações com ocorrências a',  en:'Stations with incidents within', es:'Estaciones con incidencias a', ru:'Станции с инцидентами в пределах' },
+  afetadas:         { pt:'afetadas',           en:'affected',           es:'afectadas',           ru:'затронуто' },
+  abertosLabel:     { pt:'abertos',            en:'open',               es:'abiertos',            ru:'открыто' },
+  // Guard tendência
+  distPorTipo:      { pt:'Distribuição por tipo no período selecionado', en:'Distribution by type in the selected period', es:'Distribución por tipo en el período seleccionado', ru:'Распределение по типам за выбранный период' },
+  statusOcorrencias:{ pt:'Status das ocorrências', en:'Incident status', es:'Estado de las incidencias', ru:'Статус инцидентов' },
+  statusAberto:     { pt:'Aberto',             en:'Open',               es:'Abierto',             ru:'Открыт' },
+  statusEmApuracao: { pt:'Em apuração',        en:'Under review',       es:'En investigación',    ru:'На рассмотрении' },
+  statusRecuperado: { pt:'Recuperado',         en:'Recovered',          es:'Recuperado',          ru:'Восстановлено' },
+  statusEncerrado:  { pt:'Encerrado',          en:'Closed',             es:'Cerrado',             ru:'Закрыто' },
+  // Guard SLA
+  taxaResolucaoTit: { pt:'Taxa de Resolução',  en:'Resolution Rate',    es:'Tasa de Resolución',  ru:'Доля решений' },
+  slaBom:           { pt:'BOM',                en:'GOOD',               es:'BUENO',               ru:'ХОРОШО' },
+  slaAtencao:       { pt:'ATENÇÃO',            en:'ATTENTION',          es:'ATENCIÓN',            ru:'ВНИМАНИЕ' },
+  slaCritico:       { pt:'CRÍTICO',            en:'CRITICAL',           es:'CRÍTICO',             ru:'КРИТИЧНО' },
+  deOcorrResolvidas:{ pt:'ocorrências resolvidas', en:'incidents resolved', es:'incidencias resueltas', ru:'инцидентов решено' },
+  deLabel:          { pt:'de',                 en:'of',                 es:'de',                  ru:'из' },
+  funilStatus:      { pt:'Funil de status',    en:'Status funnel',      es:'Embudo de estado',    ru:'Воронка статусов' },
+  abertas:          { pt:'Abertas',            en:'Open',               es:'Abiertas',            ru:'Открыто' },
+  emApuracao:       { pt:'Em apuração',        en:'Under review',       es:'En investigación',    ru:'На рассмотрении' },
+  recuperadas:      { pt:'Recuperadas',        en:'Recovered',          es:'Recuperadas',         ru:'Восстановлено' },
+  encerradas:       { pt:'Encerradas',         en:'Closed',             es:'Cerradas',            ru:'Закрыто' },
+  resolucaoPorTipo: { pt:'Resolução por tipo', en:'Resolution by type', es:'Resolución por tipo', ru:'Решение по типам' },
+  // Guard heatmap horário
+  corridasPorHoraGuard:{ pt:'Corridas por hora (período selecionado)', en:'Rides per hour (selected period)', es:'Viajes por hora (período seleccionado)', ru:'Поездки в час (выбранный период)' },
+  selecioneVerCorridas:{ pt:'Selecione dias no calendário para ver corridas', en:'Select days in the calendar to see rides', es:'Selecciona días en el calendario para ver viajes', ru:'Выберите дни в календаре, чтобы увидеть поездки' },
+  diaLegenda:       { pt:'🟢 Dia (6–22h)',     en:'🟢 Day (6–22h)',     es:'🟢 Día (6–22h)',      ru:'🟢 День (6–22ч)' },
+  noiteLegenda:     { pt:'🔵 Noite (22–6h)',   en:'🔵 Night (22–6h)',   es:'🔵 Noche (22–6h)',    ru:'🔵 Ночь (22–6ч)' },
+  volumePorTipo:    { pt:'Volume de ocorrências por tipo', en:'Incident volume by type', es:'Volumen de incidencias por tipo', ru:'Объём инцидентов по типам' },
+  padraoDiaSemana:  { pt:'Padrão por dia da semana (estimado)', en:'Pattern by weekday (estimated)', es:'Patrón por día de la semana (estimado)', ru:'Шаблон по дням недели (оценка)' },
+  distEstimada:     { pt:'Distribuição estimada com base no volume total · dados reais disponíveis com campo criadoEm nos pontos', en:'Estimated distribution based on total volume · real data available with the createdAt field on points', es:'Distribución estimada según el volumen total · datos reales disponibles con el campo createdAt en los puntos', ru:'Оценка распределения по общему объёму · реальные данные доступны при наличии поля createdAt у точек' },
+  // Guard risco zona
+  semDadosLoc:      { pt:'Sem dados de localização no período selecionado.', en:'No location data in the selected period.', es:'Sin datos de ubicación en el período seleccionado.', ru:'Нет данных о местоположении за выбранный период.' },
+  quadrantes:       { pt:'Quadrantes de ~1km² com maior concentração de ocorrências', en:'~1km² quadrants with the highest concentration of incidents', es:'Cuadrantes de ~1km² con mayor concentración de incidencias', ru:'Квадранты ~1км² с наибольшей концентрацией инцидентов' },
+  riscoCritico:     { pt:'CRÍTICO',            en:'CRITICAL',           es:'CRÍTICO',             ru:'КРИТИЧНО' },
+  riscoAlto:        { pt:'ALTO',               en:'HIGH',               es:'ALTO',                ru:'ВЫСОКИЙ' },
+  riscoMedio:       { pt:'MÉDIO',              en:'MEDIUM',             es:'MEDIO',               ru:'СРЕДНИЙ' },
+  riscoBaixo:       { pt:'BAIXO',              en:'LOW',                es:'BAJO',                ru:'НИЗКИЙ' },
+  // Guard correlação
+  relacaoVolume:    { pt:'Relação entre volume de corridas e ocorrências no período selecionado', en:'Relationship between ride volume and incidents in the selected period', es:'Relación entre volumen de viajes e incidencias en el período seleccionado', ru:'Связь между объёмом поездок и инцидентами за выбранный период' },
+  corridasNoPeriodo:{ pt:'Corridas no período', en:'Rides in period',   es:'Viajes en el período', ru:'Поездки за период' },
+  ocorrNoPeriodo:   { pt:'Ocorrências no período', en:'Incidents in period', es:'Incidencias en el período', ru:'Инциденты за период' },
+  ocorrPor1k:       { pt:'Ocorr. por 1k corridas', en:'Incidents per 1k rides', es:'Incid. por 1k viajes', ru:'Инц. на 1т поездок' },
+  roubosPor1k:      { pt:'Roubos por 1k corridas', en:'Thefts per 1k rides', es:'Robos por 1k viajes', ru:'Кражи на 1т поездок' },
+  selecioneCorrelacao:{ pt:'Selecione dias no calendário para ver a correlação com corridas', en:'Select days in the calendar to see the correlation with rides', es:'Selecciona días en el calendario para ver la correlación con viajes', ru:'Выберите дни в календаре, чтобы увидеть корреляцию с поездками' },
+  insightAutomatico:{ pt:'Insight automático', en:'Automatic insight',  es:'Insight automático',  ru:'Авто-инсайт' },
+  taxaRouboElevada: { pt:'Taxa de roubo elevada', en:'High theft rate', es:'Tasa de robo elevada', ru:'Высокий уровень краж' },
+  taxaRouboModerada:{ pt:'Taxa de roubo moderada', en:'Moderate theft rate', es:'Tasa de robo moderada', ru:'Умеренный уровень краж' },
+  taxaRouboControlada:{ pt:'Taxa de roubo controlada', en:'Theft rate under control', es:'Tasa de robo controlada', ru:'Уровень краж под контролем' },
+  reforcarRondas:   { pt:'Reforçar rondas nos horários de pico.', en:'Reinforce patrols during peak hours.', es:'Reforzar rondas en horas pico.', ru:'Усилить патрулирование в часы пик.' },
+  monitorarTendencia:{ pt:'Monitorar tendência.', en:'Monitor the trend.', es:'Monitorear la tendencia.', ru:'Следить за тенденцией.' },
+  horariosPicoCorridas:{ pt:'Horários de pico de corridas', en:'Ride peak hours', es:'Horas pico de viajes', ru:'Часы пик поездок' },
+  breakdownPorTipo: { pt:'Breakdown por tipo no período', en:'Breakdown by type in the period', es:'Desglose por tipo en el período', ru:'Разбивка по типам за период' },
+  ocorrenciasLabel: { pt:'ocorrências',        en:'incidents',          es:'incidencias',         ru:'инцидентов' },
+  por1kCorridas:    { pt:'por 1k corridas',    en:'per 1k rides',       es:'por 1k viajes',       ru:'на 1т поездок' },
+  // Tipos de incidente
+  tipoRoubo:        { pt:'Roubo',              en:'Theft',              es:'Robo',                ru:'Кража' },
+  tipoTentativa:    { pt:'Tentativa',          en:'Attempt',            es:'Intento',             ru:'Попытка' },
+  tipoVandalismo:   { pt:'Vandalismo',         en:'Vandalism',          es:'Vandalismo',          ru:'Вандализм' },
+  tipoRecuperacao:  { pt:'Recuperação',        en:'Recovery',           es:'Recuperación',        ru:'Восстановление' },
+  tipoOutro:        { pt:'Outro',              en:'Other',              es:'Otro',                ru:'Другое' },
+  // PDF report
+  pdfTitulo:        { pt:'Relatório Analytics', en:'Analytics Report',  es:'Informe Analytics',   ru:'Отчёт Analytics' },
+  pdfPeriodo:       { pt:'Período',            en:'Period',             es:'Período',             ru:'Период' },
+  pdfGerado:        { pt:'Gerado',             en:'Generated',          es:'Generado',            ru:'Создано' },
+  pdfHorariosPico:  { pt:'Horários de pico',   en:'Peak hours',         es:'Horas pico',          ru:'Часы пик' },
+  pdfHora:          { pt:'Hora',               en:'Hour',               es:'Hora',                ru:'Час' },
+  pdfPctTotal:      { pt:'% do total',         en:'% of total',         es:'% del total',         ru:'% от итога' },
+  pdfTopEstacoes:   { pt:'Top estações por demanda', en:'Top stations by demand', es:'Top estaciones por demanda', ru:'Топ станций по спросу' },
+  pdfCodigo:        { pt:'Código',             en:'Code',               es:'Código',              ru:'Код' },
+  pdfBairro:        { pt:'Bairro',             en:'District',           es:'Barrio',              ru:'Район' },
+  pdfCorridasPorDia:{ pt:'Corridas por dia',   en:'Rides per day',      es:'Viajes por día',      ru:'Поездки в день' },
+  pdfData:          { pt:'Data',               en:'Date',               es:'Fecha',               ru:'Дата' },
+};
+
+// Weekday labels por idioma (Dom-Sáb)
+const DOW_I18N: Record<Lang,string[]> = {
+  pt: ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'],
+  en: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],
+  es: ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'],
+  ru: ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'],
+};
+// Iniciais do calendário (D S T Q Q S S)
+const CAL_INITIALS: Record<Lang,string[]> = {
+  pt: ['D','S','T','Q','Q','S','S'],
+  en: ['S','M','T','W','T','F','S'],
+  es: ['D','L','M','X','J','V','S'],
+  ru: ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'],
+};
+// Nomes dos meses por idioma (abreviados)
+const MONTHS_I18N: Record<Lang,string[]> = {
+  pt: ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'],
+  en: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+  es: ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'],
+  ru: ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'],
+};
 
 // ── TIPOS ────────────────────────────────────────────────────────
 interface Ride { ls:number; lo:number; le:number; ln:number; d:number; dur:number; rev:number; h:number; zs:string; cidade?:string; }
@@ -86,6 +378,7 @@ function PerdasTrendChart({
   incidentes: any[];
   modoRoubos: boolean;
 }) {
+  const lang = useLang(); const pick = makePick(lang);
   const agora  = new Date();
   const ontem  = new Date(agora); ontem.setDate(ontem.getDate() - 1);
   const iniMes = new Date(agora.getFullYear(), agora.getMonth(), 1);
@@ -122,22 +415,22 @@ function PerdasTrendChart({
     : { total: 549, patinetes: 268, bicicletas: 5, baterias: 276 };
 
   const periodos = [
-    { label: 'Ontem',     d: doOntem },
-    { label: 'Este mês',  d: doMes   },
-    { label: 'Acumulado', d: doTotal },
+    { label: pick(T.ontem),     d: doOntem },
+    { label: pick(T.esteMes),   d: doMes   },
+    { label: pick(T.acumulado), d: doTotal },
   ];
 
   const SERIES = modoRoubos
     ? [
-        { key: 'total' as const,      label: 'Total',      cor: '#ef4444' },
-        { key: 'patinetes' as const,  label: '🛴 Patinetes', cor: '#3b82f6' },
-        { key: 'bicicletas' as const, label: '🚲 Bicicletas', cor: '#e2e8f0' },
+        { key: 'total' as const,      label: pick(T.serieTotal),      cor: '#ef4444' },
+        { key: 'patinetes' as const,  label: pick(T.seriePatinetes), cor: '#3b82f6' },
+        { key: 'bicicletas' as const, label: pick(T.serieBicicletas), cor: '#e2e8f0' },
       ]
     : [
-        { key: 'total' as const,      label: 'Total',      cor: '#f87171' },
-        { key: 'patinetes' as const,  label: '🛴 Patinetes', cor: '#3b82f6' },
-        { key: 'bicicletas' as const, label: '🚲 Bicicletas', cor: '#e2e8f0' },
-        { key: 'baterias' as const,   label: '🔋 Baterias',  cor: '#a78bfa' },
+        { key: 'total' as const,      label: pick(T.serieTotal),      cor: '#f87171' },
+        { key: 'patinetes' as const,  label: pick(T.seriePatinetes), cor: '#3b82f6' },
+        { key: 'bicicletas' as const, label: pick(T.serieBicicletas), cor: '#e2e8f0' },
+        { key: 'baterias' as const,   label: pick(T.serieBaterias),  cor: '#a78bfa' },
       ];
 
   const maxVal = Math.max(
@@ -298,6 +591,7 @@ function PerdasBarChart({ kpis }: { kpis: Record<string,{patinetes:number;bicicl
 }
 
 function PerdasPanel({ incidentes, loading, modoRoubos=false }: { incidentes: any[]; loading: boolean; modoRoubos?: boolean }) {
+  const lang = useLang(); const pick = makePick(lang);
   const [periodoPerda, setPeriodoPerda] = useState<'ontem'|'mes'|'total'>('total');
   const [verDetalhe,   setVerDetalhe]   = useState(false);
   const [filialSel,    setFilialSel]    = useState<string|null>(null);
@@ -375,16 +669,16 @@ function PerdasPanel({ incidentes, loading, modoRoubos=false }: { incidentes: an
       {/* Header */}
       <div style={{ padding:'14px 16px', borderBottom:'1px solid #1c2535', background:'rgba(239,68,68,.05)' }}>
         <div style={{ fontSize:13, fontWeight:700, color:'#f87171', marginBottom:4 }}>
-          {modoRoubos ? '🔴 Painel de Roubos' : '💸 Painel de Perdas'}
+          {modoRoubos ? pick(T.painelRoubos) : pick(T.painelPerdas)}
         </div>
         <div style={{ fontSize:10, color:'#4a5a7a' }}>
-          {modoRoubos ? 'Roubos e furtos confirmados por filial' : 'Ocorrências confirmadas por filial'}
+          {modoRoubos ? pick(T.roubosConfirmados) : pick(T.ocorrenciasConfirmadas)}
         </div>
       </div>
 
       {/* Seletor período */}
       <div style={{ display:'flex', gap:4, padding:'10px 14px', borderBottom:'1px solid #1c2535' }}>
-        {([['ontem','Ontem'],['mes','Este mês'],['total','Acumulado']] as [string,string][]).map(([v,l]) => (
+        {([['ontem',pick(T.ontem)],['mes',pick(T.esteMes)],['total',pick(T.acumulado)]] as [string,string][]).map(([v,l]) => (
           <button key={v} onClick={() => setPeriodoPerda(v as any)}
             style={{ flex:1, padding:'5px 0', borderRadius:6, cursor:'pointer', fontSize:10, fontWeight:600,
               background: periodoPerda===v ? 'rgba(239,68,68,.15)' : 'rgba(255,255,255,.03)',
@@ -395,21 +689,21 @@ function PerdasPanel({ incidentes, loading, modoRoubos=false }: { incidentes: an
         ))}
       </div>
 
-      {loading && <div style={{ padding:20, textAlign:'center', color:'#4a5a7a', fontSize:11 }}>Carregando...</div>}
+      {loading && <div style={{ padding:20, textAlign:'center', color:'#4a5a7a', fontSize:11 }}>{pick(T.carregando)}</div>}
 
       {/* KPIs gerais */}
       <div style={sec}>
-        <div style={hdr}>Total geral</div>
+        <div style={hdr}>{pick(T.totalGeral)}</div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:6 }}>
           {(modoRoubos ? [
-            { l:'Roubos/Furtos', v: totalGeral.total,      c:'#ef4444' },
-            { l:'Patinetes',     v: totalGeral.patinetes,  c:'#3b82f6' },
-            { l:'Bicicletas',    v: totalGeral.bicicletas, c:'#e2e8f0' },
+            { l:pick(T.roubosFurtos), v: totalGeral.total,      c:'#ef4444' },
+            { l:pick(T.patinetes),    v: totalGeral.patinetes,  c:'#3b82f6' },
+            { l:pick(T.bicicletas),   v: totalGeral.bicicletas, c:'#e2e8f0' },
           ] : [
-            { l:'Total',      v: totalGeral.total,      c:'#f87171' },
-            { l:'Patinetes',  v: totalGeral.patinetes,  c:'#3b82f6' },
-            { l:'Bicicletas', v: totalGeral.bicicletas, c:'#e2e8f0' },
-            { l:'Baterias',   v: totalGeral.baterias,   c:'#a78bfa' },
+            { l:pick(T.total),      v: totalGeral.total,      c:'#f87171' },
+            { l:pick(T.patinetes),  v: totalGeral.patinetes,  c:'#3b82f6' },
+            { l:pick(T.bicicletas), v: totalGeral.bicicletas, c:'#e2e8f0' },
+            { l:pick(T.baterias),   v: totalGeral.baterias,   c:'#a78bfa' },
           ]).map(k => (
             <div key={k.l} style={{ background:'#111722', borderRadius:6, padding:'8px 6px', border:'1px solid #1c2535', textAlign:'center' }}>
               <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:16, fontWeight:700, color:k.c }}>{k.v}</div>
@@ -421,23 +715,23 @@ function PerdasPanel({ incidentes, loading, modoRoubos=false }: { incidentes: an
 
       {/* Gráfico comparativo de períodos */}
       <div style={sec}>
-        <div style={hdr}>Evolução — Ontem × Este mês × Acumulado</div>
+        <div style={hdr}>{pick(T.evolucao)}</div>
         <PerdasTrendChart incidentes={incidentes} modoRoubos={modoRoubos} />
       </div>
 
       {/* Gráfico de barras por filial */}
       <div style={sec}>
-        <div style={hdr}>Distribuição visual por filial</div>
+        <div style={hdr}>{pick(T.distVisualFilial)}</div>
         <PerdasBarChart kpis={kpisPorFilial} />
       </div>
 
       {/* Tabela por filial */}
       <div style={sec}>
         <div style={{ ...hdr, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-          <span>Por filial</span>
+          <span>{pick(T.porFilial)}</span>
           <button onClick={() => setVerDetalhe(v => !v)}
             style={{ fontSize:8, color:'#3d9bff', background:'none', border:'none', cursor:'pointer' }}>
-            {verDetalhe ? '▲ Resumido' : '▼ Detalhe'}
+            {verDetalhe ? pick(T.resumido) : pick(T.detalhe)}
           </button>
         </div>
 
@@ -484,7 +778,7 @@ function PerdasPanel({ incidentes, loading, modoRoubos=false }: { incidentes: an
       {/* Detalhe da filial selecionada */}
       {filialSel && (
         <div style={sec}>
-          <div style={hdr}>Incidentes — {filialSel}</div>
+          <div style={hdr}>{pick(T.incidentes)} — {filialSel}</div>
           {incidentes.filter(i => i.filial === filialSel).slice(0,20).map((inc,i) => (
             <div key={inc.id||i} style={{ padding:'6px 8px', borderRadius:6, marginBottom:4,
               background:'rgba(255,255,255,.02)', border:'1px solid #1c2535' }}>
@@ -505,7 +799,7 @@ function PerdasPanel({ incidentes, loading, modoRoubos=false }: { incidentes: an
           ))}
           {incidentes.filter(i => i.filial === filialSel).length > 20 && (
             <div style={{ fontSize:9, color:'#4a5a7a', textAlign:'center', padding:4 }}>
-              + {incidentes.filter(i => i.filial === filialSel).length - 20} incidentes
+              + {incidentes.filter(i => i.filial === filialSel).length - 20} {pick(T.incidentes).toLowerCase()}
             </div>
           )}
         </div>
@@ -570,6 +864,7 @@ export default function AnalyticsManager({ usuario, showToast }: { usuario:any; 
   const animRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isGestor = usuario?.role === 'gestor' || usuario?.role === 'admin';
+  const lang = useLang(); const pick = makePick(lang);
 
   // ── LOAD METADATA ────────────────────────────────────────────────
   useEffect(() => {
@@ -581,7 +876,7 @@ export default function AnalyticsManager({ usuario, showToast }: { usuario:any; 
         setDays(partial);
         const latest = Object.keys(partial).sort().pop();
         if (latest) { const [y,mo]=latest.split('-').map(Number); setCalYear(y); setCalMonth(mo-1); }
-      } catch { showToast('Erro ao carregar metadados','error'); }
+      } catch { showToast(pick(T.carregandoMeta),'error'); }
     };
     load();
   }, []);
@@ -677,13 +972,13 @@ export default function AnalyticsManager({ usuario, showToast }: { usuario:any; 
         if (prev[dateKey]?.rides?.length) { resolve(prev[dateKey].rides as Ride[]); return prev; }
         const meta = prev[dateKey]?.meta;
         if (!meta?.storage_path) { resolve([]); return prev; }
-        getBytes(ref(storage, meta.storage_path))
+        getBytesStorage(meta.storage_path)
           .then(bytes => {
             const data: DayData = JSON.parse(new TextDecoder().decode(bytes));
             setDays(p => ({ ...p, [dateKey]: { ...p[dateKey], rides: data.rides } }));
             resolve(data.rides);
           })
-          .catch(() => { showToast('Erro ao carregar ' + dateKey, 'error'); resolve([]); });
+          .catch(() => { showToast(pick(T.erroAoCarregar) + ' ' + dateKey, 'error'); resolve([]); });
         return prev;
       });
     });
@@ -786,6 +1081,13 @@ export default function AnalyticsManager({ usuario, showToast }: { usuario:any; 
     if (activeTab !== 'perdas' && activeTab !== 'guard') return;
     if (incidentes.length > 0) return; // já carregado
     setLoadingIncident(true);
+    // Fase 2 / Onda B — leitura do Supabase atrás de flag (read-only).
+    if (guardProviderSupabase()) {
+      carregarOcorrenciasSupabase({ limit: 10000 })
+        .then(rows => { setIncidentes(rows); setLoadingIncident(false); })
+        .catch(() => setLoadingIncident(false));
+      return;
+    }
     getDocs(collection(db, 'ocorrencias')).then(snap => {
       const docs: any[] = [];
       snap.forEach(d => docs.push({ id: d.id, ...d.data() }));
@@ -810,34 +1112,40 @@ export default function AnalyticsManager({ usuario, showToast }: { usuario:any; 
     } else {
       desdeMs = Date.now() - guardDias * 24 * 60 * 60 * 1000;
     }
+    const parseLoc = (v: any) => {
+      if (typeof v === 'number') return v;
+      const n = parseFloat(String(v ?? '').replace(',', '.'));
+      return isNaN(n) ? 0 : n;
+    };
+    const processar = (docs: any[]) => {
+      const pts = docs
+        .filter((o: any) => {
+          const ts = o.criadoEm || o.created_at;
+          if (!ts) return desdeMs === 0;
+          const ms = ts?.toDate ? ts.toDate().getTime() : new Date(ts).getTime();
+          if (isNaN(ms)) return desdeMs === 0;
+          return ms >= desdeMs && ms <= ateMs;
+        })
+        .filter((o: any) => guardFiltroTipo === 'TODOS' || o.tipo === guardFiltroTipo)
+        .map((o: any) => ({
+          lat:    parseLoc(o.lat_inicial ?? o.lat ?? o.latitude),
+          lng:    parseLoc(o.lng_inicial ?? o.lng ?? o.longitude),
+          tipo:   String(o.tipo   || 'Outro'),
+          status: String(o.status || ''),
+        }));
+      setGuardPoints(pts);
+    };
+    // Fase 2 / Onda B — leitura do Supabase atrás de flag (read-only).
+    if (guardProviderSupabase()) {
+      carregarOcorrenciasSupabase({ limit: 10000 })
+        .then(rows => { if (ativo) processar(rows); })
+        .catch(err => { console.error('[Guard] Supabase', err); setGuardPoints([]); });
+      return () => { ativo = false; };
+    }
     // Sem filtro server-side — aceita criadoEm (Timestamp) e created_at (ISO string)
     const q = query(collection(db, 'ocorrencias'));
     const unsub = onSnapshot(q,
-      snap => {
-        if (!ativo) return;
-        const parseLoc = (v: any) => {
-          if (typeof v === 'number') return v;
-          const n = parseFloat(String(v ?? '').replace(',', '.'));
-          return isNaN(n) ? 0 : n;
-        };
-        const pts = snap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .filter((o: any) => {
-            const ts = o.criadoEm || o.created_at;
-            if (!ts) return desdeMs === 0;
-            const ms = ts?.toDate ? ts.toDate().getTime() : new Date(ts).getTime();
-            if (isNaN(ms)) return desdeMs === 0;
-            return ms >= desdeMs && ms <= ateMs;
-          })
-          .filter((o: any) => guardFiltroTipo === 'TODOS' || o.tipo === guardFiltroTipo)
-          .map((o: any) => ({
-            lat:    parseLoc(o.lat_inicial ?? o.lat ?? o.latitude),
-            lng:    parseLoc(o.lng_inicial ?? o.lng ?? o.longitude),
-            tipo:   String(o.tipo   || 'Outro'),
-            status: String(o.status || ''),
-          }));
-        setGuardPoints(pts);
-      },
+      snap => { if (ativo) processar(snap.docs.map(d => ({ id: d.id, ...d.data() }))); },
       err => { console.error('[Guard] error:', err.code, err.message); setGuardPoints([]); }
     );
     return () => { ativo = false; unsub(); };
@@ -1031,24 +1339,24 @@ export default function AnalyticsManager({ usuario, showToast }: { usuario:any; 
   tr:nth-child(even){background:#f9f9f9}
   @media print{button{display:none}}
 </style></head><body>
-<h1>Relatório Analytics</h1>
-<p style="color:#888;font-size:11px">Período: ${period.join(', ')} · Gerado: ${new Date().toLocaleString('pt-BR')}</p>
+<h1>${pick(T.pdfTitulo)}</h1>
+<p style="color:#888;font-size:11px">${pick(T.pdfPeriodo)}: ${period.join(', ')} · ${pick(T.pdfGerado)}: ${new Date().toLocaleString('pt-BR')}</p>
 <div class="kpis">
-  <div class="kpi"><div class="val">${n.toLocaleString('pt-BR')}</div><div class="lbl">Corridas</div></div>
-  <div class="kpi"><div class="val">R$${totRev.toFixed(0)}</div><div class="lbl">Receita total</div></div>
-  <div class="kpi"><div class="val">${avgDist.toFixed(2)}km</div><div class="lbl">Dist. média</div></div>
-  <div class="kpi"><div class="val">${avgDur.toFixed(0)}min</div><div class="lbl">Dur. média</div></div>
+  <div class="kpi"><div class="val">${n.toLocaleString('pt-BR')}</div><div class="lbl">${pick(T.corridas)}</div></div>
+  <div class="kpi"><div class="val">R$${totRev.toFixed(0)}</div><div class="lbl">${pick(T.receitaTotal)}</div></div>
+  <div class="kpi"><div class="val">${avgDist.toFixed(2)}km</div><div class="lbl">${pick(T.distMedia)}</div></div>
+  <div class="kpi"><div class="val">${avgDur.toFixed(0)}min</div><div class="lbl">${pick(T.durMedia)}</div></div>
 </div>
-<h2>Horários de pico</h2>
-<table><tr><th>Hora</th><th>Corridas</th><th>% do total</th></tr>
+<h2>${pick(T.pdfHorariosPico)}</h2>
+<table><tr><th>${pick(T.pdfHora)}</th><th>${pick(T.corridas)}</th><th>${pick(T.pdfPctTotal)}</th></tr>
 ${peakH.map(([h,c])=>`<tr><td>${h}h</td><td>${c}</td><td>${(+c/n*100).toFixed(1)}%</td></tr>`).join('')}
 </table>
-<h2>Top estações por demanda</h2>
-<table><tr><th>Código</th><th>Bairro</th><th>Inícios</th><th>Fins</th><th>Total</th><th>Receita</th></tr>
+<h2>${pick(T.pdfTopEstacoes)}</h2>
+<table><tr><th>${pick(T.pdfCodigo)}</th><th>${pick(T.pdfBairro)}</th><th>${pick(T.inicios)}</th><th>${pick(T.fins)}</th><th>${pick(T.total)}</th><th>${pick(T.receita)}</th></tr>
 ${topSt.map(s=>`<tr><td>${s.codigo}</td><td>${s.bairro}</td><td>${s.starts}</td><td>${s.ends}</td><td>${s.total}</td><td>R$${s.rev.toFixed(0)}</td></tr>`).join('')}
 </table>
-<h2>Corridas por dia</h2>
-<table><tr><th>Data</th><th>Corridas</th><th>Receita</th></tr>
+<h2>${pick(T.pdfCorridasPorDia)}</h2>
+<table><tr><th>${pick(T.pdfData)}</th><th>${pick(T.corridas)}</th><th>${pick(T.receita)}</th></tr>
 ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Ride)=>s+(r.rev||0),0);return `<tr><td>${d}</td><td>${dr.length}</td><td>R$${rev.toFixed(0)}</td></tr>`;}).join('')}
 </table>
 </body></html>`;
@@ -1214,7 +1522,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
 
   const calDays = buildCalDays(calYear, calMonth);
   const activeSorted = [...(compareMode ? new Set([...compareA,...compareB]) : activeDays)].sort();
-  const periodLabel = activeSorted.length===0?'Nenhum período':activeSorted.length===1?activeSorted[0]:activeSorted[0]+' → '+activeSorted[activeSorted.length-1];
+  const periodLabel = activeSorted.length===0?pick(T.nenhumPeriodo):activeSorted.length===1?activeSorted[0]:activeSorted[0]+' → '+activeSorted[activeSorted.length-1];
 
   // ── UPLOAD ───────────────────────────────────────────────────────
   // Salva um DayData no Firestore + Storage
@@ -1245,12 +1553,12 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
       setViewState((vs:any) => ({ ...vs, longitude:cy, latitude:cx, zoom:11.5,
         transitionDuration:800 }));
     }
-    showToast(`${dayKey}: ${data.rides.length} corridas carregadas`, 'success');
+    showToast(`${dayKey}: ${data.rides.length} ${pick(T.corridasCarregadas)}`, 'success');
   }, []);
 
   const handleFile = useCallback(async (file:File) => {
-    if (!isGestor) { showToast('Sem permissão','error'); return; }
-    setUploading(true); setUploadProgress('Lendo arquivo...');
+    if (!isGestor) { showToast(pick(T.semPermissao),'error'); return; }
+    setUploading(true); setUploadProgress(pick(T.lendoArquivo));
     try {
       const data: DayData = file.name.endsWith('.json') ? JSON.parse(await file.text()) : await parseXLSX(file, setUploadProgress);
       const dateKey = data.meta.date || manualDate || new Date().toISOString().split('T')[0];
@@ -1280,7 +1588,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
         let existRides: Ride[] = [];
         if (existMeta.storage_path) {
           try {
-            const bytes = await getBytes(ref(storage, existMeta.storage_path));
+            const bytes = await getBytesStorage(existMeta.storage_path);
             existRides = JSON.parse(new TextDecoder().decode(bytes)).rides || [];
           } catch { existRides = []; }
         }
@@ -1290,16 +1598,16 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
       }
 
       // Chave nova — salva direto
-      setUploadProgress('Enviando...');
+      setUploadProgress(pick(T.enviando));
       await salvarDay(data, dayKey);
-    } catch(e:any) { showToast('Erro: '+e.message,'error'); }
+    } catch(e:any) { showToast(pick(T.erro)+': '+e.message,'error'); }
     setUploading(false); setUploadProgress('');
   }, [isGestor, manualDate, salvarDay]);
 
   // Executa mesclagem ou substituição
   const handleMerge = useCallback(async (acao: 'mesclar'|'substituir') => {
     if (!mergeCtx) return;
-    setUploading(true); setUploadProgress(acao === 'mesclar' ? 'Mesclando...' : 'Substituindo...');
+    setUploading(true); setUploadProgress(acao === 'mesclar' ? pick(T.mesclando) : pick(T.substituindo));
     const { data, dayKey, existente } = mergeCtx;
     setMergeCtx(null);
     try {
@@ -1323,24 +1631,24 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
           }
         };
         await salvarDay(merged, dayKey);
-        showToast(`Mesclado: ${ridesUnidos.length} corridas (${existente.rides.length} + ${data.rides.length})`, 'success');
+        showToast(`${pick(T.mesclado)}: ${ridesUnidos.length} ${pick(T.corridas).toLowerCase()} (${existente.rides.length} + ${data.rides.length})`, 'success');
       } else {
         await salvarDay(data, dayKey);
       }
-    } catch(e:any) { showToast('Erro: '+(e as any).message,'error'); }
+    } catch(e:any) { showToast(pick(T.erro)+': '+(e as any).message,'error'); }
     setUploading(false); setUploadProgress('');
   }, [mergeCtx, salvarDay]);
 
   const deleteDay = useCallback(async (dateKey:string) => {
-    if (!isGestor || !confirm(`Excluir ${dateKey}?`)) return;
+    if (!isGestor || !confirm(`${pick(T.excluir)} ${dateKey}?`)) return;
     try {
       const path = days[dateKey]?.meta?.storage_path;
-      if (path) await deleteObject(ref(storage, path));
+      if (path) await deleteStorage(path);
       await deleteDoc(doc(db,'analytics_days',dateKey));
       setDays(prev => { const n={...prev}; delete n[dateKey]; return n; });
       setActiveDays(prev => { const n=new Set(prev); n.delete(dateKey); return n; });
-      showToast('Removido','success');
-    } catch { showToast('Erro','error'); }
+      showToast(pick(T.removido),'success');
+    } catch { showToast(pick(T.erro),'error'); }
   }, [days, isGestor]);
 
   // ── RENDER ───────────────────────────────────────────────────────
@@ -1352,9 +1660,9 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
         <div style={{padding:'10px 20px',borderRight:'1px solid #1c2535',fontFamily:"'IBM Plex Mono',monospace",fontSize:14,fontWeight:600,color:'#3d9bff'}}>
           JET<span style={{color:'#4a5a7a'}}>OS</span> · Analytics
         </div>
-        {([['Corridas',n.toLocaleString('pt-BR'),'#3d9bff'],['Receita','R$'+totalRev.toFixed(0),'#f5c842'],
-           ['Dist. média',avgDist.toFixed(1)+'km','#2ecc71'],['Dur. média',avgDur.toFixed(0)+'min','#3d9bff'],
-           ['Dias',Object.keys(days).length,'#f5c842'],['Estações',estacoesVisiveis.length+(activeDays.size===0?' (BR)':''),'#2ecc71']] as [string,any,string][]).map(([l,v,c])=>(
+        {([[pick(T.corridas),n.toLocaleString('pt-BR'),'#3d9bff'],[pick(T.receita),'R$'+totalRev.toFixed(0),'#f5c842'],
+           [pick(T.distMedia),avgDist.toFixed(1)+'km','#2ecc71'],[pick(T.durMedia),avgDur.toFixed(0)+'min','#3d9bff'],
+           [pick(T.dias),Object.keys(days).length,'#f5c842'],[pick(T.estacoes),estacoesVisiveis.length+(activeDays.size===0?' (BR)':''),'#2ecc71']] as [string,any,string][]).map(([l,v,c])=>(
           <div key={l} style={{padding:'8px 16px',borderRight:'1px solid #1c2535',display:'flex',flexDirection:'column',gap:1}}>
             <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:14,fontWeight:600,color:c}}>{v}</div>
             <div style={{fontSize:9,color:'#4a5a7a',textTransform:'uppercase',letterSpacing:.8}}>{l}</div>
@@ -1384,17 +1692,17 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
               ...(t==='perdas'?{borderColor:activeTab==='perdas'?'rgba(239,68,68,.5)':'transparent',color:activeTab==='perdas'?'#f87171':'#4a5a7a'}:{}),
               ...(t==='roubos'?{borderColor:activeTab==='roubos'?'rgba(239,68,68,.6)':'transparent',color:activeTab==='roubos'?'#ef4444':'#4a5a7a'}:{}),
             }}>
-              {t==='map'?'🗺 Mapa':t==='trend'?'📈 Tendência':t==='od'?'🔀 OD':
+              {t==='map'?pick(T.tabMapa):t==='trend'?pick(T.tabTendencia):t==='od'?pick(T.tabOd):
                t==='perdas'?<span style={{display:'flex',alignItems:'center',gap:4}}>
-                  💸 Perdas
+                  {pick(T.tabPerdas)}
                   {incidentes.length>0&&<span style={{fontSize:9,padding:'1px 5px',borderRadius:8,background:'rgba(239,68,68,.2)',color:'#f87171'}}>{incidentes.length}</span>}
                 </span>:
                t==='roubos'?<span style={{display:'flex',alignItems:'center',gap:4}}>
-                  🔴 Roubos
+                  {pick(T.tabRoubos)}
                   {incidentes.length>0&&<span style={{fontSize:9,padding:'1px 5px',borderRadius:8,background:'rgba(239,68,68,.2)',color:'#f87171'}}>{incidentes.filter((i:any)=>i.tipo==='Roubo'||i.tipo==='Furto').length}</span>}
                 </span>:
                 <span style={{display:'flex',alignItems:'center',gap:4}}>
-                  🛡 Guard
+                  {pick(T.tabGuard)}
                   {guardPoints.length>0&&<span style={{fontSize:9,padding:'1px 5px',borderRadius:8,background:'rgba(167,139,250,.2)',color:'#a78bfa'}}>{guardPoints.length}</span>}
                 </span>}
             </button>
@@ -1406,7 +1714,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
             {(['heat','hex','pts','arc'] as const).map(l=>(
               <button key={l} onClick={()=>setLayer(l)} style={tbBtn(l===layer)}>
                 <div style={{width:6,height:6,borderRadius:'50%',background:{heat:'#ff4500',hex:'#ffd700',pts:'#2ecc71',arc:'#3d9bff'}[l]}}/>
-                {{heat:'Heat',hex:'Hex',pts:'Pts',arc:'Arcos'}[l]}
+                {{heat:pick(T.layerHeat),hex:pick(T.layerHex),pts:pick(T.layerPts),arc:pick(T.layerArc)}[l]}
               </button>
             ))}
           </div>
@@ -1425,18 +1733,18 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
 
           {/* Toggles */}
           <div style={{display:'flex',gap:2,padding:'5px 0',borderRight:'1px solid #1c2535',marginRight:8,paddingRight:8}}>
-            <button onClick={()=>setShowStarts(s=>!s)} style={tbBtn(showStarts)}>Inícios</button>
-            <button onClick={()=>setShowEnds(s=>!s)} style={tbBtn(showEnds)}>Fins</button>
-            <button onClick={()=>setShowStations(s=>!s)} style={tbBtn(showStations)}>📍 Estações</button>
-            <button onClick={()=>setShowPoligonos(s=>!s)} style={{...tbBtn(showPoligonos),color:showPoligonos?'#a78bfa':'#4a5a7a',borderColor:showPoligonos?'rgba(167,139,250,.4)':'transparent'}}>🗺 Zonas</button>
+            <button onClick={()=>setShowStarts(s=>!s)} style={tbBtn(showStarts)}>{pick(T.inicios)}</button>
+            <button onClick={()=>setShowEnds(s=>!s)} style={tbBtn(showEnds)}>{pick(T.fins)}</button>
+            <button onClick={()=>setShowStations(s=>!s)} style={tbBtn(showStations)}>{pick(T.estacoesBtn)}</button>
+            <button onClick={()=>setShowPoligonos(s=>!s)} style={{...tbBtn(showPoligonos),color:showPoligonos?'#a78bfa':'#4a5a7a',borderColor:showPoligonos?'rgba(167,139,250,.4)':'transparent'}}>{pick(T.zonas)}</button>
             <button onClick={()=>{ setIs3DMode(s=>!s); setViewState(v=>({...v, pitch: is3DMode?0:45, bearing: is3DMode?0:-15})); }} style={{...tbBtn(is3DMode),color:is3DMode?'#fbbf24':'#4a5a7a',borderColor:is3DMode?'rgba(251,191,36,.4)':'transparent'}}>🏔 3D</button>
-            <button onClick={()=>setShowClusters(s=>!s)} style={tbBtn(showClusters)} title="Clusters sem cobertura JET">🔴 Gaps</button>
-            <button onClick={()=>setShowGuardHeat(s=>!s)} style={{...tbBtn(showGuardHeat), borderColor: showGuardHeat ? 'rgba(167,139,250,.6)' : 'transparent', color: showGuardHeat ? '#a78bfa' : '#4a5a7a'}} title="Heatmap de ocorrências Guard">🛡 Guard{showGuardHeat && guardPoints.length > 0 ? ` (${guardPoints.length})` : ''}</button>
+            <button onClick={()=>setShowClusters(s=>!s)} style={tbBtn(showClusters)} title={pick(T.gapsTitle)}>{pick(T.gaps)}</button>
+            <button onClick={()=>setShowGuardHeat(s=>!s)} style={{...tbBtn(showGuardHeat), borderColor: showGuardHeat ? 'rgba(167,139,250,.6)' : 'transparent', color: showGuardHeat ? '#a78bfa' : '#4a5a7a'}} title={pick(T.guardHeatTitle)}>🛡 Guard{showGuardHeat && guardPoints.length > 0 ? ` (${guardPoints.length})` : ''}</button>
           </div>
           {showGuardHeat && (
             <div style={{display:'flex',gap:3,alignItems:'center',padding:'0 8px',borderRight:'1px solid #1c2535',marginRight:8,paddingRight:8,flexWrap:'wrap'}}>
               {/* Botões de período */}
-              {([{l:'Hoje',d:1},{l:'Ontem',d:2},{l:'7d',d:7},{l:'30d',d:30},{l:'Total',d:0}] as {l:string;d:number}[]).map(({l,d}) => (
+              {([{l:pick(T.hoje),d:1},{l:pick(T.ontem),d:2},{l:'7d',d:7},{l:'30d',d:30},{l:pick(T.total),d:0}] as {l:string;d:number}[]).map(({l,d}) => (
                 <button key={d} onClick={()=>{setGuardDias(d);setGuardModoCustom(false);}} style={{
                   ...tbBtn(!guardModoCustom && guardDias===d), fontSize:10, padding:'2px 6px',
                   borderColor: !guardModoCustom && guardDias===d ? 'rgba(167,139,250,.5)' : 'transparent',
@@ -1465,14 +1773,15 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                     fontSize:9,padding:'1px 6px',borderRadius:8,cursor:'pointer',
                     background:guardFiltroTipo==='TODOS'?'rgba(255,255,255,.1)':'transparent',
                     border:'none',color:guardFiltroTipo==='TODOS'?'#fff':'#4a5a7a',
-                  }}>Todos ({guardPoints.length})</button>
+                  }}>{pick(T.todos)} ({guardPoints.length})</button>
                   {(['Roubo','Tentativa','Vandalismo','Recuperacao','Outro'] as const).map(t => {
                     const n = guardPoints.filter(p => p.tipo === t).length;
                     if (!n) return null;
                     const cor: Record<string,string> = {Roubo:'#ef4444',Tentativa:'#f97316',Vandalismo:'#eab308',Recuperacao:'#22c55e',Outro:'#6b7280'};
                     const em:  Record<string,string> = {Roubo:'🔴',Tentativa:'🟠',Vandalismo:'🟡',Recuperacao:'🟢',Outro:'⚪'};
+                    const tipoLbl: Record<string,string> = {Roubo:pick(T.tipoRoubo),Tentativa:pick(T.tipoTentativa),Vandalismo:pick(T.tipoVandalismo),Recuperacao:pick(T.tipoRecuperacao),Outro:pick(T.tipoOutro)};
                     return (
-                      <button key={t} onClick={()=>setGuardFiltroTipo(t)} title={t} style={{
+                      <button key={t} onClick={()=>setGuardFiltroTipo(t)} title={tipoLbl[t]} style={{
                         fontSize:9,padding:'1px 5px',borderRadius:10,cursor:'pointer',
                         background: guardFiltroTipo===t ? cor[t]+'30' : 'transparent',
                         color: cor[t], border:'1px solid '+(guardFiltroTipo===t?cor[t]+'60':'transparent'),
@@ -1485,15 +1794,15 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
           )}
           {/* Compare mode */}
           <button onClick={()=>setCompareMode(m=>!m)} style={{...tbBtn(compareMode),borderColor:compareMode?'#f5c842':'transparent',color:compareMode?'#f5c842':'#4a5a7a'}}>
-            ⚖ Comparar
+            {pick(T.comparar)}
           </button>
           {compareMode && (
             <div style={{display:'flex',gap:4,marginLeft:8}}>
               <button onClick={()=>setCompareSide('A')} style={{...tbBtn(compareSide==='A'),background:compareSide==='A'?'rgba(0,100,255,.2)':'transparent',color:'#3d9bff',borderColor:compareSide==='A'?'#3d9bff':'#1c2535'}}>
-                A ({compareA.size} dias)
+                A ({compareA.size} {pick(T.diasLabel)})
               </button>
               <button onClick={()=>setCompareSide('B')} style={{...tbBtn(compareSide==='B'),background:compareSide==='B'?'rgba(255,100,0,.2)':'transparent',color:'#ff6422',borderColor:compareSide==='B'?'#ff6422':'#1c2535'}}>
-                B ({compareB.size} dias)
+                B ({compareB.size} {pick(T.diasLabel)})
               </button>
             </div>
           )}
@@ -1501,7 +1810,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
           <div style={{display:'flex',alignItems:'center',gap:6,marginLeft:'auto',paddingRight:8}}>
             <button onClick={()=>{setAnimPlaying(p=>!p); if(animHour===null)setAnimHour(0);}}
               style={{...tbBtn(animPlaying),color:animPlaying?'#2ecc71':'#4a5a7a'}}>
-              {animPlaying?'⏸':'▶'} Timeline
+              {animPlaying?'⏸':'▶'} {pick(T.timeline)}
             </button>
             {animHour!==null && (
               <>
@@ -1516,7 +1825,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
           <div style={{display:'flex',gap:2,padding:'5px 0',borderLeft:'1px solid #1c2535',marginLeft:4,paddingLeft:8}}>
             {(['filters','score','clusters','hora'] as const).map(p=>(
               <button key={p} onClick={()=>setSidePanel(p)} style={tbBtn(sidePanel===p)}>
-                {p==='filters'?'Filtros':p==='score'?'Score':p==='clusters'?'Clusters':'⏱ Horas'}
+                {p==='filters'?pick(T.filtros):p==='score'?pick(T.score):p==='clusters'?pick(T.clusters):pick(T.horas)}
               </button>
             ))}
           </div>
@@ -1540,7 +1849,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                     onClick={() => setCidadesFiltro(prev => {
                       const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n;
                     })}
-                    title={totalC.toLocaleString('pt-BR') + ' corridas'}
+                    title={totalC.toLocaleString('pt-BR') + ' ' + pick(T.corridas).toLowerCase()}
                     style={{...tbBtn(ativo), fontSize:9, padding:'2px 8px', whiteSpace:'nowrap',
                       color: ativo ? '#fff' : '#4a5a7a',
                       background: ativo ? 'rgba(61,155,255,.2)' : 'transparent',
@@ -1574,18 +1883,18 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
               </DeckGL>
               {compareMode && (
                 <div style={{position:'absolute',bottom:20,left:'50%',transform:'translateX(-50%)',display:'flex',gap:16,background:'rgba(12,16,24,.9)',padding:'8px 20px',borderRadius:8,border:'1px solid #1c2535',pointerEvents:'none'}}>
-                  <div style={{display:'flex',alignItems:'center',gap:6}}><div style={{width:12,height:12,borderRadius:'50%',background:'#3d9bff'}}/><span style={{fontSize:11}}>A: {filteredA.length.toLocaleString()} corridas</span></div>
-                  <div style={{display:'flex',alignItems:'center',gap:6}}><div style={{width:12,height:12,borderRadius:'50%',background:'#ff6422'}}/><span style={{fontSize:11}}>B: {filteredB.length.toLocaleString()} corridas</span></div>
+                  <div style={{display:'flex',alignItems:'center',gap:6}}><div style={{width:12,height:12,borderRadius:'50%',background:'#3d9bff'}}/><span style={{fontSize:11}}>A: {filteredA.length.toLocaleString()} {pick(T.corridas).toLowerCase()}</span></div>
+                  <div style={{display:'flex',alignItems:'center',gap:6}}><div style={{width:12,height:12,borderRadius:'50%',background:'#ff6422'}}/><span style={{fontSize:11}}>B: {filteredB.length.toLocaleString()} {pick(T.corridas).toLowerCase()}</span></div>
                 </div>
               )}
               {animHour!==null && (
                 <div style={{position:'absolute',top:16,left:'50%',transform:'translateX(-50%)',background:'rgba(12,16,24,.9)',padding:'6px 20px',borderRadius:20,border:'1px solid #2ecc71',fontFamily:"'IBM Plex Mono',monospace",fontSize:14,color:'#2ecc71',pointerEvents:'none'}}>
-                  {animHour}:00 — {animHour+1 < 24 ? animHour+1 : 0}:00 · {(byHour[animHour]||0)} corridas
+                  {animHour}:00 — {animHour+1 < 24 ? animHour+1 : 0}:00 · {(byHour[animHour]||0)} {pick(T.corridas).toLowerCase()}
                 </div>
               )}
               {dragging && <div style={{position:'absolute',top:'0',left:'0',right:'0',bottom:'0',background:'rgba(61,155,255,.08)',border:'2px dashed #3d9bff',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:12,zIndex:1000}}>
                 <div style={{fontSize:48}}>📂</div>
-                <div style={{fontSize:18,fontWeight:700,color:'#3d9bff'}}>Solte o XLSX aqui</div>
+                <div style={{fontSize:18,fontWeight:700,color:'#3d9bff'}}>{pick(T.solteXlsx)}</div>
               </div>}
               {tooltip && (
                 <div style={{position:'fixed',left:tooltip.x+12,top:tooltip.y-10,background:'rgba(8,11,18,.97)',border:'1px solid #1c2535',padding:'8px 12px',borderRadius:7,pointerEvents:'none',zIndex:9999,backdropFilter:'blur(8px)'}}>
@@ -1600,14 +1909,14 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
           {/* TREND VIEW */}
           {activeTab==='trend' && (
             <div style={{padding:24,flex:1,overflowY:'auto',minHeight:0}}>
-              <div style={{fontSize:13,fontWeight:700,marginBottom:20,color:'#dce8ff'}}>Tendência por Dia</div>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:20,color:'#dce8ff'}}>{pick(T.tendenciaPorDia)}</div>
               {trendData.length === 0 ? (
-                <div style={{color:'#4a5a7a',fontSize:12}}>Nenhum dado carregado ainda.</div>
+                <div style={{color:'#4a5a7a',fontSize:12}}>{pick(T.nenhumDado)}</div>
               ) : (
                 <>
-                  <TrendChart data={trendData} metric="total" color="#3d9bff" label="Corridas"/>
-                  <TrendChart data={trendData} metric="rev" color="#f5c842" label="Receita R$"/>
-                  <TrendChart data={trendData} metric="dist" color="#2ecc71" label="Dist. média km"/>
+                  <TrendChart data={trendData} metric="total" color="#3d9bff" label={pick(T.labelCorridas)}/>
+                  <TrendChart data={trendData} metric="rev" color="#f5c842" label={pick(T.labelReceita)}/>
+                  <TrendChart data={trendData} metric="dist" color="#2ecc71" label={pick(T.labelDist)}/>
                 </>
               )}
             </div>
@@ -1616,8 +1925,8 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
           {/* OD VIEW */}
           {activeTab==='od' && (
             <div style={{padding:24,flex:1,overflowY:'auto',minHeight:0}}>
-              <div style={{fontSize:13,fontWeight:700,marginBottom:8,color:'#dce8ff'}}>Matriz Origem → Destino</div>
-              <div style={{fontSize:11,color:'#4a5a7a',marginBottom:20}}>Top fluxos entre zonas com mais de 5 corridas no período selecionado</div>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:8,color:'#dce8ff'}}>{pick(T.matrizOd)}</div>
+              <div style={{fontSize:11,color:'#4a5a7a',marginBottom:20}}>{pick(T.odSub)}</div>
               <ODMatrix rides={ridesA}/>
             </div>
           )}
@@ -1684,7 +1993,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
 
             return (
               <div style={sec}>
-                <div style={{...secTitle, marginBottom:8}}>🏙 Regiões carregadas</div>
+                <div style={{...secTitle, marginBottom:8}}>{pick(T.regioesCarregadas)}</div>
                 <div style={{display:'flex',flexDirection:'column',gap:5}}>
                   {kpisPorRegiao.map(k => {
                     const pct = totalGeral > 0 ? k.total/totalGeral*100 : 0;
@@ -1718,7 +2027,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                     <button onClick={() => setCidadesFiltro(new Set())} style={{
                       padding:'4px',fontSize:9,color:'#3d9bff',background:'none',
                       border:'none',cursor:'pointer',textAlign:'center',
-                    }}>Ver todas as regiões</button>
+                    }}>{pick(T.verTodasRegioes)}</button>
                   )}
                 </div>
               </div>
@@ -1728,19 +2037,19 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
           {/* CALENDAR */}
           <div style={sec}>
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
-              <div style={secTitle}>Período{compareMode?` — Selecionando ${compareSide}`:''}</div>
+              <div style={secTitle}>{pick(T.periodo)}{compareMode?` — ${pick(T.selecionando)} ${compareSide}`:''}</div>
               <button onClick={()=>setCalMonth(m=>{if(m===0){setCalYear(y=>y-1);return 11;}return m-1;})} style={calBtn}>‹</button>
-              <div style={{fontSize:11,fontWeight:600}}>{MONTHS[calMonth]} {calYear}</div>
+              <div style={{fontSize:11,fontWeight:600}}>{MONTHS_I18N[lang][calMonth]} {calYear}</div>
               <button onClick={()=>setCalMonth(m=>{if(m===11){setCalYear(y=>y+1);return 0;}return m+1;})} style={calBtn}>›</button>
             </div>
             {/* Seleção rápida */}
             <div style={{display:'flex',gap:4,marginBottom:8,flexWrap:'wrap'}}>
               {[
-                ['Hoje', ()=>{const d=new Date().toISOString().split('T')[0];if(days[d])toggleDay(d);}],
-                ['Semana', ()=>{const today=new Date();[...Array(7)].forEach((_,i)=>{const d=new Date(today);d.setDate(today.getDate()-i);const k=d.toISOString().split('T')[0];if(days[k])toggleDay(k);});}],
-                ['Mês', ()=>{const prefix=`${calYear}-${String(calMonth+1).padStart(2,'0')}`;allDayKeys.filter(k=>k.startsWith(prefix)).forEach(k=>{ if(!activeDays.has(k)) toggleDay(k); });}],
-                ['Tudo', ()=>{allDayKeys.forEach(k=>{ if(!activeDays.has(k)) toggleDay(k); });}],
-                ['Limpar', ()=>setActiveDays(new Set())],
+                [pick(T.hoje), ()=>{const d=new Date().toISOString().split('T')[0];if(days[d])toggleDay(d);}],
+                [pick(T.semana), ()=>{const today=new Date();[...Array(7)].forEach((_,i)=>{const d=new Date(today);d.setDate(today.getDate()-i);const k=d.toISOString().split('T')[0];if(days[k])toggleDay(k);});}],
+                [pick(T.mes), ()=>{const prefix=`${calYear}-${String(calMonth+1).padStart(2,'0')}`;allDayKeys.filter(k=>k.startsWith(prefix)).forEach(k=>{ if(!activeDays.has(k)) toggleDay(k); });}],
+                [pick(T.tudo), ()=>{allDayKeys.forEach(k=>{ if(!activeDays.has(k)) toggleDay(k); });}],
+                [pick(T.limpar), ()=>setActiveDays(new Set())],
               ].map(([label, fn])=>(
                 <button key={String(label)} onClick={()=>(fn as ()=>void)()} style={{
                   padding:'2px 8px',borderRadius:6,border:'1px solid rgba(61,155,255,.2)',
@@ -1750,7 +2059,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
               ))}
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:2}}>
-              {['D','S','T','Q','Q','S','S'].map((d,i)=><div key={i} style={{textAlign:'center',fontSize:9,color:'#4a5a7a'}}>{d}</div>)}
+              {CAL_INITIALS[lang].map((d,i)=><div key={i} style={{textAlign:'center',fontSize:9,color:'#4a5a7a'}}>{d}</div>)}
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
               {calDays.map((item,i)=>{
@@ -1783,7 +2092,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
           {sidePanel==='filters' && <>
             {/* Hour filter */}
             <div style={sec}>
-              <div style={secTitle}>Hora {animHour!==null?`— Timeline: ${animHour}h`:''}</div>
+              <div style={secTitle}>{pick(T.hora)} {animHour!==null?`— ${pick(T.timeline)}: ${animHour}h`:''}</div>
               <div style={{display:'grid',gridTemplateColumns:'repeat(12,1fr)',gap:2}}>
                 {[...Array(24).keys()].map(h=>{
                   const cnt=byHour[h]||0, on=animHour!==null?h===animHour:selHours.has(h), intens=cnt/maxHour;
@@ -1795,15 +2104,15 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                 })}
               </div>
               <div style={{display:'flex',gap:3,marginTop:20}}>
-                {([['Todos',()=>setSelHours(new Set([...Array(24).keys()]))],['Pico',()=>setSelHours(new Set([7,8,9,17,18,19]))],['Manhã',()=>setSelHours(new Set([5,6,7,8,9,10]))],['Noturno',()=>setSelHours(new Set([20,21,22,23,0,1]))]] as [string,()=>void][]).map(([l,fn])=>(
+                {([[pick(T.todos),()=>setSelHours(new Set([...Array(24).keys()]))],[pick(T.pico),()=>setSelHours(new Set([7,8,9,17,18,19]))],[pick(T.manha),()=>setSelHours(new Set([5,6,7,8,9,10]))],[pick(T.noturno),()=>setSelHours(new Set([20,21,22,23,0,1]))]] as [string,()=>void][]).map(([l,fn])=>(
                   <button key={l} onClick={fn} style={{flex:1,padding:'3px 0',background:'#111722',border:'1px solid #1c2535',color:'#4a5a7a',borderRadius:3,cursor:'pointer',fontSize:9,fontFamily:"'DM Sans',sans-serif"}}>{l}</button>
                 ))}
               </div>
             </div>
             {/* Sliders */}
             <div style={sec}>
-              <div style={secTitle}>Filtros de Corrida</div>
-              {([['Dist. máx',maxDist,13,.5,setMaxDist,'km'],['Dur. máx',maxDur,140,5,setMaxDur,'min']] as any[]).map(([l,v,mx,st,fn,u])=>(
+              <div style={secTitle}>{pick(T.filtrosCorrida)}</div>
+              {([[pick(T.distMax),maxDist,13,.5,setMaxDist,'km'],[pick(T.durMax),maxDur,140,5,setMaxDur,'min']] as any[]).map(([l,v,mx,st,fn,u])=>(
                 <div key={l} style={{display:'flex',alignItems:'center',gap:8,marginBottom:7}}>
                   <span style={{fontSize:10,color:'#4a5a7a',width:62}}>{l}</span>
                   <input type="range" min={0} max={mx} step={st} value={v} onChange={e=>fn(parseFloat(e.target.value))}
@@ -1814,15 +2123,15 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
             </div>
             {/* Metrics */}
             <div style={sec}>
-              <div style={secTitle}>Resumo {compareMode?'A':''}</div>
+              <div style={secTitle}>{pick(T.resumo)} {compareMode?'A':''}</div>
               {/* KPIs expandidos com sub-info */}
               {(() => {
                 const nDias = Math.max(activeDays.size, 1);
                 const kpiData: [string,string,string,string][] = [
-                  ['Corridas',      n.toLocaleString('pt-BR'),               Math.round(n/nDias).toLocaleString()+'/dia',  '#3d9bff'],
-                  ['Receita',       'R$'+Math.round(totalRev).toLocaleString('pt-BR'), 'R$'+Math.round(totalRev/nDias)+'/dia',       '#f5c842'],
-                  ['Dist. média',   avgDist.toFixed(1)+'km',                 'por corrida',                                '#2ecc71'],
-                  ['Dur. média',    avgDur.toFixed(0)+'min',                 'por corrida',                                '#e67e22'],
+                  [pick(T.corridas),  n.toLocaleString('pt-BR'),               Math.round(n/nDias).toLocaleString()+pick(T.porDia),  '#3d9bff'],
+                  [pick(T.receita),   'R$'+Math.round(totalRev).toLocaleString('pt-BR'), 'R$'+Math.round(totalRev/nDias)+pick(T.porDia),       '#f5c842'],
+                  [pick(T.distMedia), avgDist.toFixed(1)+'km',                 pick(T.porCorrida),                           '#2ecc71'],
+                  [pick(T.durMedia),  avgDur.toFixed(0)+'min',                 pick(T.porCorrida),                           '#e67e22'],
                 ];
                 return (
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
@@ -1833,26 +2142,26 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                         <div style={{fontSize:8,color:'#4a5a7a',marginTop:3}}>{sub}</div>
                       </div>
                     ))}
-                    <button onClick={exportAnalyticsPDF} title="Exportar relatório PDF"
+                    <button onClick={exportAnalyticsPDF} title={pick(T.exportarPdfTitle)}
                       style={{background:'rgba(239,68,68,.1)',border:'1px solid rgba(239,68,68,.25)',
                         color:'#f87171',cursor:'pointer',fontSize:10,fontWeight:600,
                         borderRadius:5,padding:'8px 10px',alignSelf:'stretch',whiteSpace:'nowrap',
-                        gridColumn:'span 2'}}>📕 Exportar PDF completo</button>
+                        gridColumn:'span 2'}}>{pick(T.exportarPdf)}</button>
                   </div>
                 );
               })()}
               {compareMode && filteredB.length>0 && (
                 <div style={{marginTop:8,padding:'8px 10px',background:'rgba(255,100,34,.08)',borderRadius:5,border:'1px solid rgba(255,100,34,.2)',fontSize:10}}>
-                  <div style={{color:'#ff6422',fontWeight:700,marginBottom:4}}>B: {filteredB.length.toLocaleString()} corridas</div>
-                  <div style={{color:'#4a5a7a'}}>Δ corridas: <span style={{color: filteredA.length>filteredB.length?'#2ecc71':'#ff4757'}}>{filteredA.length>filteredB.length?'+':''}{(filteredA.length-filteredB.length).toLocaleString()}</span></div>
-                  <div style={{color:'#4a5a7a'}}>Δ receita: <span style={{color:totalRev>(filteredB.reduce((s,r)=>s+(r.rev||0),0))?'#2ecc71':'#ff4757'}}>R${(totalRev - filteredB.reduce((s,r)=>s+(r.rev||0),0)).toFixed(0)}</span></div>
+                  <div style={{color:'#ff6422',fontWeight:700,marginBottom:4}}>B: {filteredB.length.toLocaleString()} {pick(T.corridas).toLowerCase()}</div>
+                  <div style={{color:'#4a5a7a'}}>{pick(T.deltaCorridas)}: <span style={{color: filteredA.length>filteredB.length?'#2ecc71':'#ff4757'}}>{filteredA.length>filteredB.length?'+':''}{(filteredA.length-filteredB.length).toLocaleString()}</span></div>
+                  <div style={{color:'#4a5a7a'}}>{pick(T.deltaReceita)}: <span style={{color:totalRev>(filteredB.reduce((s,r)=>s+(r.rev||0),0))?'#2ecc71':'#ff4757'}}>R${(totalRev - filteredB.reduce((s,r)=>s+(r.rev||0),0)).toFixed(0)}</span></div>
                 </div>
               )}
             </div>
             {/* Gráfico por hora — clicável para filtrar */}
             <div style={sec}>
-              <div style={{...secTitle, marginBottom:6}}>⏱ Por Hora</div>
-              <div style={{display:'flex',alignItems:'flex-end',gap:1,height:56,marginBottom:6,cursor:'pointer'}} title="Clique para filtrar hora">
+              <div style={{...secTitle, marginBottom:6}}>{pick(T.porHora)}</div>
+              <div style={{display:'flex',alignItems:'flex-end',gap:1,height:56,marginBottom:6,cursor:'pointer'}} title={pick(T.cliqueFiltrarHora)}>
                 {[...Array(24).keys()].map(h=>{
                   const cnt=byHour[h]||0, pct=(cnt/maxHour)*100, on=animHour!==null?h===animHour:selHours.has(h);
                   const isPico = cnt === Math.max(...Object.values(byHour), 0) && cnt > 0;
@@ -1864,7 +2173,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                       if (n.size === 0) return new Set([...Array(24).keys()]);
                       return n;
                     })}
-                    title={`${h}h: ${cnt} corridas${isPico?' ⭐ Pico':''}${!on?' (excluído)':''}`}
+                    title={`${h}h: ${cnt} ${pick(T.corridas).toLowerCase()}${isPico?' ⭐ '+pick(T.pico):''}${!on?' ('+pick(T.excluido)+')':''}`}
                     style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',gap:1,cursor:'pointer'}}>
                     <div style={{width:'100%',borderRadius:'2px 2px 0 0',minHeight:2,height:`${pct}%`,
                       opacity:on?.9:.15,
@@ -1880,11 +2189,11 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
             {/* Score list */}
             <div style={{...sec,flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
-                <div style={secTitle}>Top Zonas</div>
+                <div style={secTitle}>{pick(T.topZonas)}</div>
                 <select value={scoreMetric} onChange={e=>setScoreMetric(e.target.value as any)}
                   style={{background:'#111722',border:'1px solid #1c2535',color:'#dce8ff',padding:'2px 6px',borderRadius:4,fontSize:10,cursor:'pointer'}}>
-                  <option value="count">Corridas</option><option value="rev">Receita</option>
-                  <option value="dist">Dist.</option><option value="peak">Pico</option>
+                  <option value="count">{pick(T.corridas)}</option><option value="rev">{pick(T.receita)}</option>
+                  <option value="dist">{pick(T.dist)}</option><option value="peak">{pick(T.pico)}</option>
                 </select>
               </div>
               <div style={{display:'flex',flexDirection:'column',gap:4,overflowY:'auto',flex:1}}>
@@ -1898,7 +2207,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                     <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:600,color:'#3d9bff',width:32,textAlign:'right'}}>{z.count}</div>
                   </div>
                 ))}
-                {scored.length===0&&<div style={{fontSize:11,color:'#4a5a7a',textAlign:'center',marginTop:12}}>Selecione dias</div>}
+                {scored.length===0&&<div style={{fontSize:11,color:'#4a5a7a',textAlign:'center',marginTop:12}}>{pick(T.selecioneDias)}</div>}
               </div>
             </div>
           </>}
@@ -1907,8 +2216,8 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
           {sidePanel==='score' && (
             <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
               <div style={sec}>
-                <div style={secTitle}>Score de Estações JET</div>
-                <div style={{fontSize:10,color:'#4a5a7a',marginBottom:8}}>Corridas iniciando/terminando a ≤150m. Verde=alta demanda, cinza=inativa.</div>
+                <div style={secTitle}>{pick(T.scoreEstacoes)}</div>
+                <div style={{fontSize:10,color:'#4a5a7a',marginBottom:8}}>{pick(T.scoreDesc)}</div>
               </div>
               <div style={{flex:1,overflowY:'auto',padding:'8px 14px',display:'flex',flexDirection:'column',gap:4}}>
                 {stationScores.filter(s=>s.total>0).slice(0,20).map((s,i)=>{
@@ -1929,7 +2238,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                 })}
                 {stationScores.filter(s=>s.total===0).length>0 && (
                   <div style={{marginTop:8,padding:'8px',background:'rgba(255,71,87,.05)',borderRadius:5,border:'1px solid rgba(255,71,87,.15)'}}>
-                    <div style={{fontSize:10,color:'#ff4757',fontWeight:600,marginBottom:4}}>Estações sem demanda ({stationScores.filter(s=>s.total===0).length})</div>
+                    <div style={{fontSize:10,color:'#ff4757',fontWeight:600,marginBottom:4}}>{pick(T.estacoesSemDemanda)} ({stationScores.filter(s=>s.total===0).length})</div>
                     {stationScores.filter(s=>s.total===0).slice(0,5).map(s=>(
                       <div key={s.id} style={{fontSize:9,color:'#4a5a7a',padding:'2px 0',cursor:'pointer'}}
                         onClick={()=>setViewState(vs=>({...vs,longitude:s.lng,latitude:s.lat,zoom:16}))}>
@@ -1946,15 +2255,15 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
           {sidePanel==='clusters' && (
             <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
               <div style={sec}>
-                <div style={secTitle}>Gaps de Cobertura</div>
-                <div style={{fontSize:10,color:'#4a5a7a',marginBottom:8}}>Clusters com ≥50 corridas e sem estação JET a menos de 300m. Candidatos para nova estação.</div>
+                <div style={secTitle}>{pick(T.gapsCobertura)}</div>
+                <div style={{fontSize:10,color:'#4a5a7a',marginBottom:8}}>{pick(T.gapsDesc)}</div>
                 <button onClick={()=>setShowClusters(true)} style={{...tbBtn(showClusters),fontSize:10,padding:'4px 10px',width:'100%',justifyContent:'center',borderColor:showClusters?'#ff4757':'#1c2535',color:showClusters?'#ff4757':'#4a5a7a'}}>
-                  {showClusters?'🔴 Mostrando no mapa':'Mostrar no mapa'}
+                  {showClusters?pick(T.mostrandoMapa):pick(T.mostrarMapa)}
                 </button>
               </div>
               <div style={{flex:1,overflowY:'auto',padding:'8px 14px',display:'flex',flexDirection:'column',gap:4}}>
                 {clusters.length===0 && <div style={{fontSize:11,color:'#4a5a7a',textAlign:'center',marginTop:16}}>
-                  {filtered.length===0?'Selecione dias para analisar':'Nenhum gap encontrado'}
+                  {filtered.length===0?pick(T.selecioneAnalisar):pick(T.nenhumGap)}
                 </div>}
                 {clusters.slice(0,20).map((c,i)=>(
                   <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',background:'#111722',borderRadius:5,border:'1px solid rgba(255,71,87,.2)',cursor:'pointer'}}
@@ -1962,7 +2271,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                     <div style={{width:28,height:28,borderRadius:'50%',background:'rgba(255,50,50,.2)',border:'2px solid #ff4757',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:700,color:'#ff4757',flexShrink:0}}>{c.count}</div>
                     <div style={{flex:1}}>
                       <div style={{fontSize:10,color:'#dce8ff'}}>{c.lat.toFixed(4)}, {c.lng.toFixed(4)}</div>
-                      <div style={{fontSize:9,color:'#4a5a7a'}}>Estação mais próxima: {Math.round(c.nearestStation)}m</div>
+                      <div style={{fontSize:9,color:'#4a5a7a'}}>{pick(T.estacaoMaisProxima)}: {Math.round(c.nearestStation)}m</div>
                     </div>
                     <div style={{fontSize:9,color:'#f5c842',fontFamily:"'IBM Plex Mono',monospace"}}>+{Math.round(c.nearestStation)}m</div>
                   </div>
@@ -1987,10 +2296,10 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
       {mergeCtx && (
         <div style={{position:'fixed',inset:'0',zIndex:5000,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,.7)',backdropFilter:'blur(6px)'}}>
           <div style={{background:'#0c1018',border:'1px solid #1c2535',borderRadius:12,padding:24,width:340,maxWidth:'92vw',boxShadow:'0 24px 80px rgba(0,0,0,.9)'}}>
-            <div style={{fontSize:16,fontWeight:700,color:'#dce8ff',marginBottom:8}}>📊 Dados existentes</div>
+            <div style={{fontSize:16,fontWeight:700,color:'#dce8ff',marginBottom:8}}>{pick(T.dadosExistentes)}</div>
             <div style={{fontSize:12,color:'rgba(255,255,255,.5)',marginBottom:16,lineHeight:1.6}}>
-              Já existe dados para <b style={{color:'#f5c842'}}>{mergeCtx.dayKey}</b>.<br/>
-              <span style={{color:'rgba(255,255,255,.3)'}}>Existente: {mergeCtx.existente.rides.length} corridas · Novo: {mergeCtx.data.rides.length} corridas</span>
+              {pick(T.jaExisteDados)} <b style={{color:'#f5c842'}}>{mergeCtx.dayKey}</b>.<br/>
+              <span style={{color:'rgba(255,255,255,.3)'}}>{pick(T.existente)}: {mergeCtx.existente.rides.length} {pick(T.corridas).toLowerCase()} · {pick(T.novo)}: {mergeCtx.data.rides.length} {pick(T.corridas).toLowerCase()}</span>
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:8}}>
               <button onClick={()=>handleMerge('mesclar')} style={{
@@ -1998,20 +2307,20 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                 background:'linear-gradient(135deg,#1a6fd4,#307FE2)',
                 color:'#fff',fontSize:13,fontWeight:700,
               }}>
-                🔀 Mesclar — {mergeCtx.existente.rides.length + mergeCtx.data.rides.length} corridas no total
+                {pick(T.mesclarBtn)} — {mergeCtx.existente.rides.length + mergeCtx.data.rides.length} {pick(T.corridasNoTotal)}
               </button>
               <button onClick={()=>handleMerge('substituir')} style={{
                 padding:'12px',borderRadius:8,cursor:'pointer',
                 border:'1px solid rgba(239,68,68,.3)',background:'rgba(239,68,68,.08)',
                 color:'#f87171',fontSize:13,fontWeight:600,
               }}>
-                🔄 Substituir — manter apenas as {mergeCtx.data.rides.length} novas corridas
+                {pick(T.substituirBtn)} {mergeCtx.data.rides.length} {pick(T.novasCorridas)}
               </button>
               <button onClick={()=>setMergeCtx(null)} style={{
                 padding:'10px',borderRadius:8,border:'1px solid rgba(255,255,255,.08)',
                 background:'rgba(255,255,255,.04)',color:'rgba(255,255,255,.4)',
                 cursor:'pointer',fontSize:12,
-              }}>Cancelar</button>
+              }}>{pick(T.cancelar)}</button>
             </div>
           </div>
         </div>
@@ -2048,6 +2357,7 @@ function TrendChart({ data, metric, color, label }: { data:{date:string,total:nu
 
 // ── OD MATRIX ─────────────────────────────────────────────────────
 function ODMatrix({ rides }: { rides: Ride[] }) {
+  const lang = useLang(); const pick = makePick(lang);
   const od: Record<string, Record<string,number>> = {};
   rides.forEach(r => {
     const zs=(r.zs||'').replace(/[🟥🟦🟧⬛️⛔️🛴]/g,'').trim();
@@ -2055,13 +2365,12 @@ function ODMatrix({ rides }: { rides: Ride[] }) {
     if (!od[zs]) od[zs]={};
   });
   const zones = Object.keys(od).slice(0,8);
-  if (zones.length === 0) return <div style={{color:'#4a5a7a',fontSize:12}}>Selecione dias para ver a matriz OD.</div>;
+  if (zones.length === 0) return <div style={{color:'#4a5a7a',fontSize:12}}>{pick(T.odSelDias)}</div>;
   const maxFlow = 1;
   return (
     <div style={{overflowX:'auto'}}>
       <div style={{fontSize:11,color:'#4a5a7a',marginBottom:12}}>
-        Top fluxos origem → destino calculados a partir das zonas de início e fim de cada corrida.
-        Os dados de zona de destino dependem do campo "zona de término" disponível nos arquivos importados.
+        {pick(T.odDesc)}
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:6}}>
         {zones.slice(0,10).map(z=>{
@@ -2200,7 +2509,6 @@ const calBtn:CSSProperties={background:'none',border:'none',color:'#4a5a7a',curs
 
 // ── HORA COMPARATIVO ─────────────────────────────────────────────
 const COLORS = ['#3d9bff','#f5c842','#2ecc71','#ff6b35','#a78bfa','#f472b6','#34d399'];
-const DOW = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 
 function HoraComparativo({ days, activeDays, allDayKeys, mode, setMode }: {
   days: Record<string,{meta:any;rides?:any[]}>;
@@ -2209,6 +2517,8 @@ function HoraComparativo({ days, activeDays, allDayKeys, mode, setMode }: {
   mode: 'diasSel'|'semDia'|'anterior'|'semana';
   setMode: (m:'diasSel'|'semDia'|'anterior'|'semana')=>void;
 }) {
+  const lang = useLang(); const pick = makePick(lang);
+  const DOW = DOW_I18N[lang];
   const [localRides, setLocalRides] = useState<Record<string,any[]>>({});
   const [loading, setLoading] = useState(false);
 
@@ -2217,15 +2527,13 @@ function HoraComparativo({ days, activeDays, allDayKeys, mode, setMode }: {
     const missing = keys.filter(k => !days[k]?.rides?.length && !localRides[k]);
     if (!missing.length) return;
     setLoading(true);
-    const { getBytes } = await import('firebase/storage');
-    const { ref: sRef } = await import('firebase/storage');
-    const { storage } = await import('./lib/firebase');
+    const { getBytesStorage: gbs } = await import('./lib/uploadUtils');
     const loaded: Record<string,any[]> = {};
     await Promise.all(missing.map(async k => {
       const meta = days[k]?.meta;
       if (!meta?.storage_path) return;
       try {
-        const bytes = await getBytes(sRef(storage, meta.storage_path));
+        const bytes = await gbs(meta.storage_path);
         const data = JSON.parse(new TextDecoder().decode(bytes));
         loaded[k] = data.rides || [];
       } catch { loaded[k] = []; }
@@ -2289,8 +2597,8 @@ function HoraComparativo({ days, activeDays, allDayKeys, mode, setMode }: {
     const todayDate = today ? new Date(today) : new Date();
     const yest = new Date(todayDate); yest.setDate(yest.getDate()-1);
     const yestKey = yest.toISOString().split('T')[0];
-    if (today) series.push({ label: today.slice(5)+' (selecionado)', color: COLORS[0], data: buildProfile([today]) });
-    if (allDayKeys.includes(yestKey)) series.push({ label: yestKey.slice(5)+' (anterior)', color: COLORS[1], data: buildProfile([yestKey]) });
+    if (today) series.push({ label: today.slice(5)+' ('+pick(T.selecionado)+')', color: COLORS[0], data: buildProfile([today]) });
+    if (allDayKeys.includes(yestKey)) series.push({ label: yestKey.slice(5)+' ('+pick(T.anterior)+')', color: COLORS[1], data: buildProfile([yestKey]) });
 
   } else if (mode === 'semDia') {
     // Same day of week across all available data
@@ -2321,8 +2629,8 @@ function HoraComparativo({ days, activeDays, allDayKeys, mode, setMode }: {
       }
       const thisValid = weekKeys.filter(k => allDayKeys.includes(k));
       const prevValid = prevWeekKeys.filter(k => allDayKeys.includes(k));
-      if (thisValid.length) series.push({ label: 'Semana atual', color: COLORS[0], data: buildProfile(thisValid) });
-      if (prevValid.length) series.push({ label: 'Semana anterior', color: COLORS[1], data: buildProfile(prevValid) });
+      if (thisValid.length) series.push({ label: pick(T.semanaAtual), color: COLORS[0], data: buildProfile(thisValid) });
+      if (prevValid.length) series.push({ label: pick(T.semanaAnterior), color: COLORS[1], data: buildProfile(prevValid) });
       // Also add selected days individually
       if (activeSorted.length <= 3) {
         activeSorted.forEach((k,i) => {
@@ -2341,16 +2649,16 @@ function HoraComparativo({ days, activeDays, allDayKeys, mode, setMode }: {
   return (
     <div style={{ padding: '12px 14px', overflowY: 'auto', flex: 1 }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: '#dce8ff', marginBottom: 10 }}>
-        Corridas por hora
+        {pick(T.corridasPorHora)}
       </div>
 
       {/* Mode selector */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 14 }}>
         {([
-          ['diasSel', 'Dias selecionados'],
-          ['anterior', 'Dia anterior'],
-          ['semDia', 'Mesmo dia da semana'],
-          ['semana', 'Semana vs semana'],
+          ['diasSel', pick(T.diasSelecionados)],
+          ['anterior', pick(T.diaAnterior)],
+          ['semDia', pick(T.mesmoDiaSemana)],
+          ['semana', pick(T.semanaVsSemana)],
         ] as const).map(([m, l]) => (
           <button key={m} onClick={() => setMode(m)} style={{
             padding: '4px 10px', borderRadius: 8, border: 'none', cursor: 'pointer',
@@ -2364,12 +2672,12 @@ function HoraComparativo({ days, activeDays, allDayKeys, mode, setMode }: {
 
       {loading && (
         <div style={{ color: '#3d9bff', fontSize: 10, textAlign: 'center', padding: 8 }}>
-          ⏳ Carregando dados...
+          {pick(T.carregandoDados)}
         </div>
       )}
       {!loading && series.length === 0 && (
         <div style={{ color: 'rgba(255,255,255,.3)', fontSize: 11, textAlign: 'center', padding: 24 }}>
-          Selecione dias no calendário para visualizar
+          {pick(T.selecioneCalendario)}
         </div>
       )}
 
@@ -2454,7 +2762,7 @@ function HoraComparativo({ days, activeDays, allDayKeys, mode, setMode }: {
                       {total}
                     </span>
                     <span style={{ fontSize: 9, color: '#4a5a7a', marginLeft: 6 }}>
-                      pico: {peak.h}h ({peak.v})
+                      {pick(T.picoLabel)}: {peak.h}h ({peak.v})
                     </span>
                   </div>
                 </div>
@@ -2505,6 +2813,7 @@ function GuardAnalyticsPanel({
   guardDias, guardModoCustom, guardCustomDe, guardCustomAte, guardFiltroTipo,
   setGuardDias, setGuardModoCustom, setGuardCustomDe, setGuardCustomAte, setGuardFiltroTipo,
 }: GuardAnalyticsProps) {
+  const lang = useLang(); const pick = makePick(lang);
   const [escopoBrasil, setEscopoBrasil] = useState(false);
   const [subTab, setSubTab] = useState<'ranking'|'trend'|'sla'|'hora'|'zona'|'corr'>('ranking');
 
@@ -2528,13 +2837,13 @@ function GuardAnalyticsPanel({
 
       {/* ── Filtros período ──────────────────────────────────────── */}
       <div style={{ padding:'10px 14px', borderBottom:'1px solid #1c2535', display:'flex', gap:5, flexWrap:'wrap', alignItems:'center', flexShrink:0, background:'#0c1018' }}>
-        <span style={{ fontSize:10, color:'#4a5a7a', marginRight:4 }}>Período:</span>
-        {([{l:'Hoje',d:1},{l:'Ontem',d:2},{l:'7d',d:7},{l:'30d',d:30},{l:'Total',d:0}] as {l:string;d:number}[]).map(({l,d}) => (
+        <span style={{ fontSize:10, color:'#4a5a7a', marginRight:4 }}>{pick(T.periodo)}:</span>
+        {([{l:pick(T.hoje),d:1},{l:pick(T.ontem),d:2},{l:'7d',d:7},{l:'30d',d:30},{l:pick(T.total),d:0}] as {l:string;d:number}[]).map(({l,d}) => (
           <button key={d} onClick={()=>{setGuardDias(d);setGuardModoCustom(false);}} style={tabBtn(!guardModoCustom && guardDias===d)}>
             {l}
           </button>
         ))}
-        <button onClick={()=>setGuardModoCustom(!guardModoCustom)} style={tabBtn(guardModoCustom)}>📅 Custom</button>
+        <button onClick={()=>setGuardModoCustom(!guardModoCustom)} style={tabBtn(guardModoCustom)}>{pick(T.custom)}</button>
         {guardModoCustom && <>
           <input type="date" value={guardCustomDe} onChange={e=>setGuardCustomDe(e.target.value)}
             style={{fontSize:10,padding:'4px 7px',borderRadius:6,background:'#1c2535',border:'1px solid #2a3a55',color:'#fff',outline:'none'}}/>
@@ -2544,12 +2853,12 @@ function GuardAnalyticsPanel({
         </>}
         {/* Escopo: cidade selecionada ou Brasil todo */}
         <div style={{marginLeft:'auto',display:'flex',gap:5,alignItems:'center'}}>
-          <span style={{fontSize:9,color:'#4a5a7a',marginRight:2}}>Escopo:</span>
+          <span style={{fontSize:9,color:'#4a5a7a',marginRight:2}}>{pick(T.escopo)}:</span>
           <button onClick={()=>setEscopoBrasil(false)} style={{...tabBtn(!escopoBrasil),padding:'3px 8px',fontSize:10}}>
-            📍 {cidade || 'Cidade'}
+            📍 {cidade || pick(T.cidade)}
           </button>
           <button onClick={()=>setEscopoBrasil(true)} style={{...tabBtn(escopoBrasil),padding:'3px 8px',fontSize:10}}>
-            🇧🇷 Brasil
+            {pick(T.brasil)}
           </button>
         </div>
         <div style={{display:'flex',gap:5}}>
@@ -2558,7 +2867,7 @@ function GuardAnalyticsPanel({
             if (t!=='TODOS' && !n) return null;
             const cor = t==='TODOS' ? undefined : TIPO_COR_G[t];
             return <button key={t} onClick={()=>setGuardFiltroTipo(t)} style={tabBtn(guardFiltroTipo===t, cor)}>
-              {t==='TODOS'?`Todos (${n})`:`${TIPO_EM_G[t]} ${n}`}
+              {t==='TODOS'?`${pick(T.todos)} (${n})`:`${TIPO_EM_G[t]} ${n}`}
             </button>;
           })}
         </div>
@@ -2568,17 +2877,17 @@ function GuardAnalyticsPanel({
       {escopoBrasil && (
         <div style={{padding:'6px 14px',background:'rgba(234,179,8,.06)',
           borderBottom:'1px solid rgba(234,179,8,.15)',fontSize:10,color:'#eab308',flexShrink:0}}>
-          🇧🇷 Modo Brasil — todas as ocorrências do período, sem filtro de cidade
+          {pick(T.modoBrasil)}
         </div>
       )}
 
       {/* ── KPIs resumo ───────────────────────────────────────────── */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:8, padding:'12px 14px', flexShrink:0 }}>
         {[
-          { label:'Total', value:total, cor:'#a78bfa' },
-          { label:'Abertos', value:abertos, cor:'#ef4444' },
-          { label:'Resolvidos', value:resolvidos, cor:'#22c55e' },
-          { label:'Taxa resolução', value:taxaRes+'%', cor: taxaRes>=80?'#22c55e':taxaRes>=50?'#eab308':'#ef4444' },
+          { label:pick(T.total), value:total, cor:'#a78bfa' },
+          { label:pick(T.abertos), value:abertos, cor:'#ef4444' },
+          { label:pick(T.resolvidos), value:resolvidos, cor:'#22c55e' },
+          { label:pick(T.taxaResolucao), value:taxaRes+'%', cor: taxaRes>=80?'#22c55e':taxaRes>=50?'#eab308':'#ef4444' },
         ].map(k => (
           <div key={k.label} style={card}>
             <div style={{fontSize:9,color:'#4a5a7a',marginBottom:3,textTransform:'uppercase'}}>{k.label}</div>
@@ -2592,12 +2901,12 @@ function GuardAnalyticsPanel({
         overflowX:'auto', scrollbarWidth:'none', msOverflowStyle:'none',
         WebkitOverflowScrolling:'touch' } as CSSProperties}>
         {([
-          {k:'ranking', l:'🏆 Estações'},
-          {k:'trend',   l:'📈 Tendência'},
-          {k:'sla',     l:'⏱ SLA'},
-          {k:'hora',    l:'🕐 Horário'},
-          {k:'zona',    l:'🗺 Zonas'},
-          {k:'corr',    l:'🔗 Correlação'},
+          {k:'ranking', l:pick(T.subEstacoes)},
+          {k:'trend',   l:pick(T.subTendencia)},
+          {k:'sla',     l:pick(T.subSla)},
+          {k:'hora',    l:pick(T.subHorario)},
+          {k:'zona',    l:pick(T.subZonas)},
+          {k:'corr',    l:pick(T.subCorrelacao)},
         ] as {k:typeof subTab;l:string}[]).map(({k,l}) => (
           <button key={k} onClick={()=>setSubTab(k)} style={{
             ...tabBtn(subTab===k), whiteSpace:'nowrap', padding:'6px 14px', borderRadius:8,
@@ -2636,6 +2945,7 @@ function GuardRankingEstacoes({ guardPoints, estacoes, card }: {
   estacoes: { id:string; lat:number; lng:number; codigo?:string; bairro?:string; endereco?:string }[];
   card: CSSProperties;
 }) {
+  const lang = useLang(); const pick = makePick(lang);
   const RAIO = 300; // metros
   const ranking = estacoes.map(e => {
     const nearby = guardPoints.filter(p => haversineG(e.lat,e.lng,p.lat,p.lng) <= RAIO);
@@ -2645,8 +2955,8 @@ function GuardRankingEstacoes({ guardPoints, estacoes, card }: {
 
   if (ranking.length === 0) return (
     <div style={{color:'#4a5a7a',fontSize:12,textAlign:'center',padding:32}}>
-      Nenhuma ocorrência próxima a estações no período.<br/>
-      <span style={{fontSize:10}}>Raio de busca: {RAIO}m · {estacoes.length} estações verificadas</span>
+      {pick(T.nenhumaOcorrEstacao)}<br/>
+      <span style={{fontSize:10}}>{pick(T.raioBusca)}: {RAIO}m · {estacoes.length} {pick(T.estacoesVerificadas)}</span>
     </div>
   );
 
@@ -2654,7 +2964,7 @@ function GuardRankingEstacoes({ guardPoints, estacoes, card }: {
   return (
     <div>
       <div style={{fontSize:11,color:'#4a5a7a',marginBottom:12}}>
-        Estações com ocorrências a ≤{RAIO}m · <strong style={{color:'#dce8ff'}}>{ranking.length}</strong> afetadas
+        {pick(T.estacoesCom)} ≤{RAIO}m · <strong style={{color:'#dce8ff'}}>{ranking.length}</strong> {pick(T.afetadas)}
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:6}}>
         {ranking.slice(0,20).map((e,i) => (
@@ -2673,7 +2983,7 @@ function GuardRankingEstacoes({ guardPoints, estacoes, card }: {
                     {TIPO_EM_G[t]} {n}
                   </span>
                 ))}
-                {e.abertos > 0 && <span style={{fontSize:9,padding:'1px 5px',borderRadius:8,background:'rgba(239,68,68,.15)',color:'#f87171'}}>⚠ {e.abertos} abertos</span>}
+                {e.abertos > 0 && <span style={{fontSize:9,padding:'1px 5px',borderRadius:8,background:'rgba(239,68,68,.15)',color:'#f87171'}}>⚠ {e.abertos} {pick(T.abertosLabel)}</span>}
               </div>
             </div>
             <div style={{textAlign:'right',flexShrink:0}}>
@@ -2691,6 +3001,8 @@ function GuardRankingEstacoes({ guardPoints, estacoes, card }: {
 
 // ── 2. TENDÊNCIA SEMANAL ───────────────────────────────────────────
 function GuardTendenciaSemanal({ guardPoints, card }: { guardPoints: GuardPoint[]; card: CSSProperties; }) {
+  const lang = useLang(); const pick = makePick(lang);
+  const tipoLbl: Record<string,string> = {Roubo:pick(T.tipoRoubo),Tentativa:pick(T.tipoTentativa),Vandalismo:pick(T.tipoVandalismo),Recuperacao:pick(T.tipoRecuperacao),Outro:pick(T.tipoOutro)};
   // Agrupa por semana ISO
   const semanas: Record<string, Record<string,number>> = {};
   guardPoints.forEach(p => {
@@ -2705,7 +3017,7 @@ function GuardTendenciaSemanal({ guardPoints, card }: { guardPoints: GuardPoint[
   return (
     <div>
       <div style={{fontSize:11,color:'#4a5a7a',marginBottom:16}}>
-        Distribuição por tipo no período selecionado
+        {pick(T.distPorTipo)}
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:10}}>
         {tipos.map(t => {
@@ -2715,7 +3027,7 @@ function GuardTendenciaSemanal({ guardPoints, card }: { guardPoints: GuardPoint[
           return (
             <div key={t}>
               <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
-                <span style={{fontSize:11,color:TIPO_COR_G[t]}}>{TIPO_EM_G[t]} {t}</span>
+                <span style={{fontSize:11,color:TIPO_COR_G[t]}}>{TIPO_EM_G[t]} {tipoLbl[t]||t}</span>
                 <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,color:'#dce8ff'}}>{n}</span>
               </div>
               <div style={{height:6,background:'#1c2535',borderRadius:3}}>
@@ -2727,13 +3039,13 @@ function GuardTendenciaSemanal({ guardPoints, card }: { guardPoints: GuardPoint[
       </div>
 
       {/* Status breakdown */}
-      <div style={{marginTop:24,fontSize:11,color:'#4a5a7a',marginBottom:12}}>Status das ocorrências</div>
+      <div style={{marginTop:24,fontSize:11,color:'#4a5a7a',marginBottom:12}}>{pick(T.statusOcorrencias)}</div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
         {[
-          {l:'Aberto',      cor:'#ef4444', v:guardPoints.filter(p=>p.status==='Aberto').length},
-          {l:'Em apuração', cor:'#f97316', v:guardPoints.filter(p=>p.status==='Em apuração').length},
-          {l:'Recuperado',  cor:'#22c55e', v:guardPoints.filter(p=>p.status==='Recuperado').length},
-          {l:'Encerrado',   cor:'#6b7280', v:guardPoints.filter(p=>p.status==='Encerrado').length},
+          {l:pick(T.statusAberto),      cor:'#ef4444', v:guardPoints.filter(p=>p.status==='Aberto').length},
+          {l:pick(T.statusEmApuracao), cor:'#f97316', v:guardPoints.filter(p=>p.status==='Em apuração').length},
+          {l:pick(T.statusRecuperado),  cor:'#22c55e', v:guardPoints.filter(p=>p.status==='Recuperado').length},
+          {l:pick(T.statusEncerrado),   cor:'#6b7280', v:guardPoints.filter(p=>p.status==='Encerrado').length},
         ].map(s => (
           <div key={s.l} style={{...card}}>
             <div style={{fontSize:9,color:'#4a5a7a'}}>{s.l}</div>
@@ -2752,13 +3064,15 @@ function GuardTendenciaSemanal({ guardPoints, card }: { guardPoints: GuardPoint[
 function GuardSLA({ guardPoints, porTipo, total, taxaRes, card }: {
   guardPoints: GuardPoint[]; porTipo: Record<string,number>; total: number; taxaRes: number; card: CSSProperties;
 }) {
+  const lang = useLang(); const pick = makePick(lang);
+  const tipoLbl: Record<string,string> = {Roubo:pick(T.tipoRoubo),Tentativa:pick(T.tipoTentativa),Vandalismo:pick(T.tipoVandalismo),Recuperacao:pick(T.tipoRecuperacao),Outro:pick(T.tipoOutro)};
   const abertos    = guardPoints.filter(p=>p.status==='Aberto').length;
   const emApur     = guardPoints.filter(p=>p.status==='Em apuração').length;
   const recuperado = guardPoints.filter(p=>p.status==='Recuperado').length;
   const encerrado  = guardPoints.filter(p=>p.status==='Encerrado').length;
 
   const slaColor = taxaRes >= 80 ? '#22c55e' : taxaRes >= 50 ? '#eab308' : '#ef4444';
-  const slaLabel = taxaRes >= 80 ? 'BOM' : taxaRes >= 50 ? 'ATENÇÃO' : 'CRÍTICO';
+  const slaLabel = taxaRes >= 80 ? pick(T.slaBom) : taxaRes >= 50 ? pick(T.slaAtencao) : pick(T.slaCritico);
 
   const resolvidos = guardPoints.filter(p=>p.status==='Encerrado'||p.status==='Recuperado').length;
   return (
@@ -2776,21 +3090,21 @@ function GuardSLA({ guardPoints, porTipo, total, taxaRes, card }: {
           </div>
         </div>
         <div>
-          <div style={{fontSize:12,color:'#dce8ff',fontWeight:700}}>Taxa de Resolução</div>
+          <div style={{fontSize:12,color:'#dce8ff',fontWeight:700}}>{pick(T.taxaResolucaoTit)}</div>
           <div style={{fontSize:11,color:slaColor,fontWeight:600,marginTop:2}}>{slaLabel}</div>
           <div style={{fontSize:10,color:'#4a5a7a',marginTop:4}}>
-            {resolvidos} de {total} ocorrências resolvidas
+            {resolvidos} {pick(T.deLabel)} {total} {pick(T.deOcorrResolvidas)}
           </div>
         </div>
       </div>
 
       {/* Funil de status */}
-      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:10}}>Funil de status</div>
+      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:10}}>{pick(T.funilStatus)}</div>
       {[
-        {l:'Abertas',      v:abertos,    cor:'#ef4444', icon:'🔴'},
-        {l:'Em apuração',  v:emApur,     cor:'#f97316', icon:'🟠'},
-        {l:'Recuperadas',  v:recuperado, cor:'#22c55e', icon:'🟢'},
-        {l:'Encerradas',   v:encerrado,  cor:'#6b7280', icon:'⚪'},
+        {l:pick(T.abertas),      v:abertos,    cor:'#ef4444', icon:'🔴'},
+        {l:pick(T.emApuracao),  v:emApur,     cor:'#f97316', icon:'🟠'},
+        {l:pick(T.recuperadas),  v:recuperado, cor:'#22c55e', icon:'🟢'},
+        {l:pick(T.encerradas),   v:encerrado,  cor:'#6b7280', icon:'⚪'},
       ].map(s => (
         <div key={s.l} style={{...card, marginBottom:6, display:'flex', alignItems:'center', gap:10}}>
           <span style={{fontSize:16}}>{s.icon}</span>
@@ -2807,7 +3121,7 @@ function GuardSLA({ guardPoints, porTipo, total, taxaRes, card }: {
       ))}
 
       {/* SLA por tipo */}
-      <div style={{fontSize:11,color:'#4a5a7a',marginTop:16,marginBottom:10}}>Resolução por tipo</div>
+      <div style={{fontSize:11,color:'#4a5a7a',marginTop:16,marginBottom:10}}>{pick(T.resolucaoPorTipo)}</div>
       {Object.entries(porTipo).sort((a,b)=>b[1]-a[1]).map(([tipo,n]) => {
         const res = guardPoints.filter(p=>p.tipo===tipo&&(p.status==='Encerrado'||p.status==='Recuperado')).length;
         const pct = n > 0 ? Math.round(res/n*100) : 0;
@@ -2815,7 +3129,7 @@ function GuardSLA({ guardPoints, porTipo, total, taxaRes, card }: {
         return (
           <div key={tipo} style={{...card, marginBottom:6}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
-              <span style={{fontSize:11,color:cor}}>{TIPO_EM_G[tipo]} {tipo}</span>
+              <span style={{fontSize:11,color:cor}}>{TIPO_EM_G[tipo]} {tipoLbl[tipo]||tipo}</span>
               <div style={{display:'flex',gap:6,alignItems:'center'}}>
                 <span style={{fontSize:9,color:'#4a5a7a'}}>{res}/{n}</span>
                 <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:700,color:pct>=80?'#22c55e':pct>=50?'#eab308':'#ef4444'}}>{pct}%</span>
@@ -2835,6 +3149,8 @@ function GuardSLA({ guardPoints, porTipo, total, taxaRes, card }: {
 function GuardHeatmapHorario({ guardPoints, filtered, card }: {
   guardPoints: GuardPoint[]; filtered: any[]; card: CSSProperties;
 }) {
+  const lang = useLang(); const pick = makePick(lang);
+  const tipoLbl: Record<string,string> = {Roubo:pick(T.tipoRoubo),Tentativa:pick(T.tipoTentativa),Vandalismo:pick(T.tipoVandalismo),Recuperacao:pick(T.tipoRecuperacao),Outro:pick(T.tipoOutro)};
   // Corridas por hora do dia (de filtered rides)
   const ridesByHour = Array(24).fill(0);
   filtered.forEach((r: any) => { if (r.h >= 0 && r.h < 24) ridesByHour[r.h]++; });
@@ -2842,7 +3158,7 @@ function GuardHeatmapHorario({ guardPoints, filtered, card }: {
 
   // Ocorrências por hora — extraídas do tipo (sem timestamp real em guardPoints)
   // Vamos distribuir visualmente por tipo para mostrar padrão
-  const DIAS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const DIAS = DOW_I18N[lang];
   const HORAS = Array.from({length:24},(_,i)=>i);
 
   // Simula grid 7×24 com dados de guardPoints por tipo
@@ -2853,10 +3169,10 @@ function GuardHeatmapHorario({ guardPoints, filtered, card }: {
   return (
     <div>
       {/* Corridas por hora do dia */}
-      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:10}}>Corridas por hora (período selecionado)</div>
+      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:10}}>{pick(T.corridasPorHoraGuard)}</div>
       {filtered.length === 0 ? (
         <div style={{...card,color:'#4a5a7a',fontSize:11,textAlign:'center',padding:16}}>
-          Selecione dias no calendário para ver corridas
+          {pick(T.selecioneVerCorridas)}
         </div>
       ) : (
         <div style={{...card,marginBottom:16}}>
@@ -2866,7 +3182,7 @@ function GuardHeatmapHorario({ guardPoints, filtered, card }: {
               const pct = n/maxRides*100;
               const isNight = h < 6 || h >= 22;
               return (
-                <div key={h} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',gap:1}} title={`${h}h: ${n} corridas`}>
+                <div key={h} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',gap:1}} title={`${h}h: ${n} ${pick(T.corridas).toLowerCase()}`}>
                   <div style={{width:'100%',borderRadius:'1px 1px 0 0',background:isNight?'#3d9bff':'#22c55e',opacity:.7,minHeight:2,height:`${Math.max(pct,3)}%`}}/>
                   {h%6===0&&<div style={{fontSize:7,color:'#4a5a7a'}}>{h}h</div>}
                 </div>
@@ -2874,21 +3190,21 @@ function GuardHeatmapHorario({ guardPoints, filtered, card }: {
             })}
           </div>
           <div style={{display:'flex',gap:10,marginTop:6,fontSize:9,color:'#4a5a7a'}}>
-            <span>🟢 Dia (6–22h)</span>
-            <span>🔵 Noite (22–6h)</span>
+            <span>{pick(T.diaLegenda)}</span>
+            <span>{pick(T.noiteLegenda)}</span>
           </div>
         </div>
       )}
 
       {/* Distribuição de ocorrências por tipo — volume */}
-      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:10}}>Volume de ocorrências por tipo</div>
+      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:10}}>{pick(T.volumePorTipo)}</div>
       <div style={{...card,marginBottom:16}}>
         <div style={{display:'flex',alignItems:'flex-end',gap:3,height:60}}>
           {tiposAtivos.map(t => {
             const n = guardPoints.filter(p=>p.tipo===t).length;
             const pct = n/maxTipo*100;
             return (
-              <div key={t} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',gap:2}} title={`${t}: ${n}`}>
+              <div key={t} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',gap:2}} title={`${tipoLbl[t]||t}: ${n}`}>
                 <div style={{fontSize:8,color:TIPO_COR_G[t],fontWeight:700}}>{n}</div>
                 <div style={{width:'100%',borderRadius:'2px 2px 0 0',background:TIPO_COR_G[t],opacity:.8,minHeight:4,height:`${Math.max(pct,6)}%`}}/>
                 <div style={{fontSize:7,color:'#4a5a7a',whiteSpace:'nowrap'}}>{TIPO_EM_G[t]}</div>
@@ -2899,7 +3215,7 @@ function GuardHeatmapHorario({ guardPoints, filtered, card }: {
       </div>
 
       {/* Grid 7 dias × tipo */}
-      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:10}}>Padrão por dia da semana (estimado)</div>
+      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:10}}>{pick(T.padraoDiaSemana)}</div>
       <div style={{...card}}>
         <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
           {DIAS.map(d => <div key={d} style={{fontSize:8,color:'#4a5a7a',textAlign:'center',paddingBottom:4}}>{d}</div>)}
@@ -2916,7 +3232,7 @@ function GuardHeatmapHorario({ guardPoints, filtered, card }: {
           })}
         </div>
         <div style={{fontSize:9,color:'#4a5a7a',marginTop:6,textAlign:'center'}}>
-          Distribuição estimada com base no volume total · dados reais disponíveis com campo criadoEm nos pontos
+          {pick(T.distEstimada)}
         </div>
       </div>
     </div>
@@ -2925,6 +3241,7 @@ function GuardHeatmapHorario({ guardPoints, filtered, card }: {
 
 // ── 5. RISCO POR ZONA ─────────────────────────────────────────────
 function GuardRiscoPorZona({ guardPoints, card }: { guardPoints: GuardPoint[]; card: CSSProperties; }) {
+  const lang = useLang(); const pick = makePick(lang);
   // Agrupa por cidade/bairro usando os dados disponíveis
   // guardPoints têm cidade via filtro aplicado anteriormente
   // Aqui exibimos ranking por quadrante geográfico (grid de ~1km²)
@@ -2944,17 +3261,17 @@ function GuardRiscoPorZona({ guardPoints, card }: { guardPoints: GuardPoint[]; c
 
   if (zonas.length === 0) return (
     <div style={{...card,color:'#4a5a7a',fontSize:11,textAlign:'center',padding:24}}>
-      Sem dados de localização no período selecionado.
+      {pick(T.semDadosLoc)}
     </div>
   );
 
-  const riscoLabel = (c:number) => c>=max*0.7?'CRÍTICO':c>=max*0.4?'ALTO':c>=max*0.2?'MÉDIO':'BAIXO';
+  const riscoLabel = (c:number) => c>=max*0.7?pick(T.riscoCritico):c>=max*0.4?pick(T.riscoAlto):c>=max*0.2?pick(T.riscoMedio):pick(T.riscoBaixo);
   const riscoCor   = (c:number) => c>=max*0.7?'#ef4444':c>=max*0.4?'#f97316':c>=max*0.2?'#eab308':'#22c55e';
 
   return (
     <div>
       <div style={{fontSize:11,color:'#4a5a7a',marginBottom:12}}>
-        Quadrantes de ~1km² com maior concentração de ocorrências
+        {pick(T.quadrantes)}
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:6}}>
         {zonas.map((z,i) => {
@@ -2990,6 +3307,8 @@ function GuardRiscoPorZona({ guardPoints, card }: { guardPoints: GuardPoint[]; c
 function GuardCorrelacao({ guardPoints, filtered, card }: {
   guardPoints: GuardPoint[]; filtered: any[]; card: CSSProperties;
 }) {
+  const lang = useLang(); const pick = makePick(lang);
+  const tipoLbl: Record<string,string> = {Roubo:pick(T.tipoRoubo),Tentativa:pick(T.tipoTentativa),Vandalismo:pick(T.tipoVandalismo),Recuperacao:pick(T.tipoRecuperacao),Outro:pick(T.tipoOutro)};
   const totalRides  = filtered.length;
   const totalOcorr  = guardPoints.length;
   const roubos      = guardPoints.filter(p=>p.tipo==='Roubo').length;
@@ -3008,16 +3327,16 @@ function GuardCorrelacao({ guardPoints, filtered, card }: {
   return (
     <div>
       <div style={{fontSize:11,color:'#4a5a7a',marginBottom:12}}>
-        Relação entre volume de corridas e ocorrências no período selecionado
+        {pick(T.relacaoVolume)}
       </div>
 
       {/* KPIs de correlação */}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:16}}>
         {[
-          {l:'Corridas no período',   v:totalRides.toLocaleString('pt-BR'),  cor:'#3d9bff'},
-          {l:'Ocorrências no período',v:totalOcorr,                           cor:'#a78bfa'},
-          {l:'Ocorr. por 1k corridas',v:ratioPer1k,                          cor:'#f97316'},
-          {l:'Roubos por 1k corridas',v:roubosPer1k,                         cor:'#ef4444'},
+          {l:pick(T.corridasNoPeriodo),   v:totalRides.toLocaleString('pt-BR'),  cor:'#3d9bff'},
+          {l:pick(T.ocorrNoPeriodo),v:totalOcorr,                           cor:'#a78bfa'},
+          {l:pick(T.ocorrPor1k),v:ratioPer1k,                          cor:'#f97316'},
+          {l:pick(T.roubosPor1k),v:roubosPer1k,                         cor:'#ef4444'},
         ].map(k => (
           <div key={k.l} style={card}>
             <div style={{fontSize:9,color:'#4a5a7a',marginBottom:3}}>{k.l}</div>
@@ -3029,26 +3348,26 @@ function GuardCorrelacao({ guardPoints, filtered, card }: {
       {/* Insight */}
       {totalRides === 0 ? (
         <div style={{...card,color:'#4a5a7a',fontSize:11,textAlign:'center',padding:16}}>
-          Selecione dias no calendário para ver a correlação com corridas
+          {pick(T.selecioneCorrelacao)}
         </div>
       ) : (
         <div style={{...card,marginBottom:12,borderColor:'rgba(167,139,250,.2)'}}>
-          <div style={{fontSize:10,color:'#a78bfa',fontWeight:600,marginBottom:6}}>Insight automático</div>
+          <div style={{fontSize:10,color:'#a78bfa',fontWeight:600,marginBottom:6}}>{pick(T.insightAutomatico)}</div>
           <div style={{fontSize:11,color:'rgba(255,255,255,.7)',lineHeight:1.6}}>
             {parseFloat(roubosPer1k as string) > 2
-              ? `⚠ Taxa de roubo elevada (${roubosPer1k}/1k corridas). Reforçar rondas nos horários de pico.`
+              ? `⚠ ${pick(T.taxaRouboElevada)} (${roubosPer1k}/1k ${pick(T.corridas).toLowerCase()}). ${pick(T.reforcarRondas)}`
               : parseFloat(roubosPer1k as string) > 0.5
-                ? `🟡 Taxa de roubo moderada (${roubosPer1k}/1k corridas). Monitorar tendência.`
-                : `✅ Taxa de roubo controlada (${roubosPer1k}/1k corridas).`}
+                ? `🟡 ${pick(T.taxaRouboModerada)} (${roubosPer1k}/1k ${pick(T.corridas).toLowerCase()}). ${pick(T.monitorarTendencia)}`
+                : `✅ ${pick(T.taxaRouboControlada)} (${roubosPer1k}/1k ${pick(T.corridas).toLowerCase()}).`}
           </div>
           {totalRides > 0 && <div style={{fontSize:10,color:'#4a5a7a',marginTop:6}}>
-            Horários de pico de corridas: {peakHours}
+            {pick(T.horariosPicoCorridas)}: {peakHours}
           </div>}
         </div>
       )}
 
       {/* Breakdown final */}
-      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:8}}>Breakdown por tipo no período</div>
+      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:8}}>{pick(T.breakdownPorTipo)}</div>
       {['Roubo','Tentativa','Vandalismo','Recuperacao','Outro'].map(t => {
         const n = guardPoints.filter(p=>p.tipo===t).length;
         if (!n) return null;
@@ -3058,12 +3377,12 @@ function GuardCorrelacao({ guardPoints, filtered, card }: {
           <div key={t} style={{...card,marginBottom:5,display:'flex',alignItems:'center',gap:10}}>
             <span style={{fontSize:16}}>{TIPO_EM_G[t]}</span>
             <div style={{flex:1}}>
-              <span style={{fontSize:11,color:cor,fontWeight:600}}>{t}</span>
-              <span style={{fontSize:10,color:'#4a5a7a',marginLeft:8}}>{n} ocorrências</span>
+              <span style={{fontSize:11,color:cor,fontWeight:600}}>{tipoLbl[t]||t}</span>
+              <span style={{fontSize:10,color:'#4a5a7a',marginLeft:8}}>{n} {pick(T.ocorrenciasLabel)}</span>
             </div>
             <div style={{textAlign:'right',fontFamily:"'IBM Plex Mono',monospace"}}>
               <div style={{fontSize:11,color:cor,fontWeight:700}}>{per1k}</div>
-              <div style={{fontSize:8,color:'#4a5a7a'}}>por 1k corridas</div>
+              <div style={{fontSize:8,color:'#4a5a7a'}}>{pick(T.por1kCorridas)}</div>
             </div>
           </div>
         );

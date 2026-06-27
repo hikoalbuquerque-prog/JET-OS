@@ -14,8 +14,22 @@ import {
   onSnapshot, serverTimestamp, Timestamp, doc, updateDoc,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { uploadComRetry } from '../lib/uploadUtils';
+import { comprimirImagem, capturarFotoNativa } from '../lib/imageUtils';
+import { isAndroidNative } from '../lib/gps-native';
 import { capturarPosicaoUnica } from '../lib/gps-background';
+
+// Compressão HEIC-safe (ver lib/imageUtils). Converte HEIC→JPEG antes de comprimir,
+// evitando o bug de foto "quebrada" (HEIC enviado como .jpg que o WebView não renderiza).
+async function comprimir(file: File, maxW = 1280, q = 0.82): Promise<File> {
+  try {
+    return await comprimirImagem(file, maxW, q);
+  } catch (e) {
+    console.warn('[comprimir] falha ao processar imagem, enviando original', e);
+    return file;
+  }
+}
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -109,15 +123,30 @@ export default function TurnoRegistro({ uid, nome, cidade, role, visivel, onFech
     });
   }, [visivel]);
 
-  const handleFoto = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const blob = file.slice(0, file.size, file.type);
-    setFotoBlob(blob);
+  const processarFoto = useCallback(async (file: File) => {
+    const comp = await comprimir(file); // HEIC→JPEG + compressão antes de guardar/enviar
+    setFotoBlob(comp);
     const reader = new FileReader();
     reader.onload = ev => setFotoBase64(ev.target?.result as string);
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(comp);
   }, []);
+
+  const handleFoto = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processarFoto(file);
+  }, [processarFoto]);
+
+  // Abre a câmera: no app nativo usa a câmera do Capacitor (JPEG garantido);
+  // na web cai no <input capture> como antes.
+  const abrirCamera = useCallback(async () => {
+    if (isAndroidNative()) {
+      let f: File | null = null;
+      try { f = await capturarFotoNativa(); } catch {}
+      if (f) { await processarFoto(f); return; }
+    }
+    fotoRef.current?.click();
+  }, [processarFoto]);
 
   const registrar = useCallback(async (acao: TurnoAcao) => {
     if (!fotoBlob && acao === 'entrada') { setMsg('Tire uma foto para confirmar a entrada'); return; }
@@ -137,14 +166,29 @@ export default function TurnoRegistro({ uid, nome, cidade, role, visivel, onFech
           fotoSaidaUrl: fotoUrl,
           latSaida: gps?.lat, lngSaida: gps?.lng,
         });
+        // dual-write Supabase
+        supabase.from('turnos').update({
+          aberto: false,
+          saida_em: new Date().toISOString(),
+          foto_saida_url: fotoUrl,
+          lat_saida: gps?.lat, lng_saida: gps?.lng,
+        }).eq('id', turnoAberto.id).then(({ error }) => { if (error) console.error('[TurnoRegistro] update turnos:', error.message); });
         setMsg('✓ Saída registrada');
       } else {
-        await addDoc(collection(db, 'turnos'), {
+        const docRef = await addDoc(collection(db, 'turnos'), {
           uid, nome, acao, funcao, turno,
           fotoUrl,
           lat: gps?.lat, lng: gps?.lng, accuracy: gps?.accuracy,
           cidade, registradoEm: serverTimestamp(), aberto: true,
         } satisfies Omit<TurnoRecord, 'id'>);
+        // dual-write Supabase
+        supabase.from('turnos').upsert({
+          id: docRef.id,
+          uid, nome, acao, funcao, turno,
+          foto_url: fotoUrl,
+          lat: gps?.lat, lng: gps?.lng, accuracy: gps?.accuracy,
+          cidade, registrado_em: new Date().toISOString(), aberto: true,
+        }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[TurnoRegistro] upsert turnos:', error.message); });
         setMsg('✓ Entrada registrada');
       }
       setFotoBase64(null); setFotoBlob(null);
@@ -226,7 +270,7 @@ export default function TurnoRegistro({ uid, nome, cidade, role, visivel, onFech
 
         {/* Foto */}
         <input ref={fotoRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={handleFoto} />
-        <div style={S.fotoBox} onClick={() => fotoRef.current?.click()}>
+        <div style={S.fotoBox} onClick={abrirCamera}>
           {fotoBase64
             ? <img src={fotoBase64} style={{ width:'100%', maxHeight:180, objectFit:'cover', borderRadius:8 }} alt="foto" />
             : <div style={{ color:'rgba(255,255,255,.3)', fontSize:12 }}>📷 Toque para tirar foto{!turnoAberto ? ' de entrada' : ' de saída'}</div>

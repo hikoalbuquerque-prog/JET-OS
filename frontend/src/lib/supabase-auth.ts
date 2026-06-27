@@ -1,46 +1,66 @@
 // frontend/src/lib/supabase-auth.ts
 //
-// Migração (strangler) — dual-auth. Helpers para estabelecer/encerrar a sessão
-// Supabase em paralelo ao Firebase. O Firebase segue como auth primário (autoriza
-// as leituras do Firestore enquanto os dados não migraram); o Supabase passa a ter
-// uma sessão REAL em produção, necessária para o GPS nativo (Edge Function ingest-gps)
-// e para os módulos já migrados — sem depender das credenciais de teste.
-//
+// Helpers de auth Supabase: constantes (SUPA_REFRESH_KEY para sessão GPS),
+// carregamento de perfil (fallback por firebase_uid), e encerramento de sessão.
+// A lógica de LOGIN está centralizada em useAuth.ts (auth flip C.9).
 // A senha é verificada pela Edge Function auth-login (migração preguiçosa: confere no
-// Firebase no 1º login e grava no Supabase). Tudo aqui é NÃO-FATAL: se falhar, o login
-// Firebase segue normal (o GPS Supabase pode ficar sem sessão, mas não derruba o usuário).
+// Firebase no 1o login e grava no Supabase).
 
 import { supabase } from './supabase';
 
-// Chave durável do refresh token Supabase. O client usa persistSession:false (o serviço
-// GPS nativo é o ÚNICO que renova — ver supabase.ts), então a sessão vive só em memória e
-// se perde em qualquer remount/reload. Guardamos o refresh token aqui para o handoff do GPS
-// nativo sobreviver até o início do turno, SEM ligar autoRefreshToken (não há conflito de
-// rotação: o JS nunca renova; só entrega o seed ao serviço nativo).
+// Chave durável do refresh token da SESSÃO B — dedicada ao serviço GPS nativo. Família de
+// refresh token INDEPENDENTE da sessão A (cliente JS). O cliente JS agora persiste e renova
+// a SUA sessão (sessão A — persistSession:true/autoRefreshToken:true em supabase.ts) no
+// storageKey 'jet-os-supabase-auth'; esta chave guarda só o seed da sessão B, que o GPS
+// nativo lê (sobrevive a remount/reload). Como as famílias são distintas, renovar A não
+// invalida o token do GPS.
 export const SUPA_REFRESH_KEY = 'jet_supa_refresh';
 
-// Estabelece a sessão Supabase a partir do mesmo e-mail/senha do login Firebase.
-export async function estabelecerSessaoSupabase(email: string, senha: string): Promise<void> {
-  if (!import.meta.env.VITE_SUPABASE_URL) return; // Supabase não configurado neste build
+// NOTA: estabelecerSessaoSupabase foi removida — a lógica de login agora está
+// centralizada em useAuth.ts (auth flip C.9). O login chama a Edge Function
+// auth-login diretamente e usa setSession() para estabelecer as sessões A e B.
+
+// ── Onda C (groundwork, REVERSÍVEL) ──────────────────────────────────────────
+// Flag de provedor de AUTH/AUTORIZAÇÃO. Liga SÓ a fonte do perfil (role/paises/nome):
+// quando 'supabase', o useAuth carrega o perfil de public.usuarios em vez de Firestore.
+// O Firebase Auth segue PRIMÁRIO (sessão + escritas + GPS intactos) — isto NÃO é o flip
+// de login (C.8) nem aposenta o Firebase (C.9). Reversível: basta 'firebase'/remover.
+//   localStorage.setItem('jet_auth_provider','supabase')  // liga só pra você
+export const authProviderSupabase = (): boolean => {
   try {
-    const { data, error } = await supabase.functions.invoke('auth-login', {
-      body: { email, password: senha },
-    });
-    if (error) { console.warn('[supa-auth] auth-login falhou:', error.message); return; }
-    const session = (data as any)?.session;
-    if (!session?.access_token || !session?.refresh_token) {
-      console.warn('[supa-auth] auth-login sem sessão:', data); return;
-    }
-    await supabase.auth.setSession({
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-    });
-    // Durável: o GPS nativo lê este refresh token como seed (sobrevive a remount/reload).
-    try { localStorage.setItem(SUPA_REFRESH_KEY, session.refresh_token); } catch { /* sem localStorage */ }
-    console.log('[supa-auth] sessão Supabase estabelecida', (data as any)?.migrated ? '(migrada)' : '');
-  } catch (e: any) {
-    console.warn('[supa-auth] erro ao estabelecer sessão:', e?.message || e);
-  }
+    const v = localStorage.getItem('jet_auth_provider');
+    if (v === 'supabase') return true;
+    if (v === 'firebase') return false;
+  } catch { /* sem localStorage */ }
+  return (import.meta.env.VITE_AUTH_PROVIDER as string) !== 'firebase';
+};
+
+// Perfil do app a partir de public.usuarios (Supabase), buscando por firebase_uid.
+// IMPORTANTE: mantém `uid` = firebase_uid (as escritas seguem no Firestore e filtram por
+// uid Firebase). `paises` cai no fallback Firestore enquanto a coluna não for backfillada.
+// Retorna null se não achar (o chamador faz fallback ao Firestore — segurança).
+export async function carregarPerfilSupabase(
+  firebaseUid: string,
+  paisesFallback?: string[],
+): Promise<{ uid: string; email: string; nome: string; role: string; paises: string[] } | null> {
+  const { data, error } = await supabase
+    .from('usuarios')
+    .select('email, nome, role, paises, ativo, firebase_uid')
+    .eq('firebase_uid', firebaseUid)
+    .maybeSingle();
+  if (error) { console.warn('[supa-auth] carregarPerfil falhou:', error.message); return null; }
+  if (!data) return null;
+  if (data.ativo === false) return null; // desativado — trata como sem perfil
+  const paises = (Array.isArray(data.paises) && data.paises.length)
+    ? data.paises
+    : (paisesFallback ?? []);
+  return {
+    uid: firebaseUid,
+    email: data.email || '',
+    nome: data.nome || '',
+    role: data.role || 'viewer',
+    paises,
+  };
 }
 
 // Encerra a sessão Supabase e PARA o GPS nativo. Parar o GPS no logout é essencial:

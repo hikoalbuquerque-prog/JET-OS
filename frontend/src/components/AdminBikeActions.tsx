@@ -3,12 +3,37 @@
 // Cria tarefas diretamente no Firestore (coleção "tarefas")
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   collection, addDoc, query, where, getDocs, serverTimestamp, orderBy, limit,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
+import { usuariosReadSupabase, fetchUsuarios } from '../lib/usuarios-supabase';
 import { colorForParking, PARKING_COLOR_HEX } from '../lib/parking-colors';
 import { classifyBike } from '../lib/bike-classify';
+
+// ─── i18n ─────────────────────────────────────────────────────────────────────
+
+const T = {
+  titulo_trazer:   { pt:'🚚 Trazer patinete ao ponto',   en:'🚚 Bring scooter to point',       es:'🚚 Llevar patinete al punto',      ru:'🚚 Доставить самокат к точке' },
+  titulo_mover:    { pt:'📍 Levar patinete a um ponto',   en:'📍 Take scooter to a point',      es:'📍 Llevar patinete a un punto',    ru:'📍 Отвезти самокат к точке' },
+  titulo_organizar:{ pt:'📦 Organizar ponto',            en:'📦 Organize point',               es:'📦 Organizar punto',               ru:'📦 Организовать точку' },
+  selecione_patinete: { pt:'Selecione um patinete',       en:'Select a scooter',                es:'Selecciona un patinete',           ru:'Выберите самокат' },
+  selecione_destino:  { pt:'Selecione um ponto destino',  en:'Select a destination point',      es:'Selecciona un punto destino',      ru:'Выберите точку назначения' },
+  tarefa_criada:   { pt:'✓ Tarefa criada',                en:'✓ Task created',                  es:'✓ Tarea creada',                   ru:'✓ Задача создана' },
+  erro:            { pt:'Erro: ',                          en:'Error: ',                         es:'Error: ',                          ru:'Ошибка: ' },
+  patinete:        { pt:'Patinete',                        en:'Scooter',                         es:'Patinete',                         ru:'Самокат' },
+  buscar_id:       { pt:'Buscar por identificador…',       en:'Search by identifier…',           es:'Buscar por identificador…',        ru:'Поиск по идентификатору…' },
+  ponto_organizar: { pt:'Ponto a organizar',              en:'Point to organize',               es:'Punto a organizar',                ru:'Точка для организации' },
+  ponto_destino:   { pt:'Ponto destino',                  en:'Destination point',               es:'Punto destino',                    ru:'Точка назначения' },
+  buscar_ponto:    { pt:'Buscar ponto…',                  en:'Search point…',                   es:'Buscar punto…',                    ru:'Поиск точки…' },
+  bikes:           { pt:'bikes',                           en:'bikes',                           es:'bikes',                            ru:'самокаты' },
+  atribuir_worker: { pt:'Atribuir a worker (opcional)',   en:'Assign to worker (optional)',     es:'Asignar a operario (opcional)',    ru:'Назначить исполнителю (необязательно)' },
+  nao_atribuir:    { pt:'— Não atribuir agora —',         en:'— Do not assign now —',           es:'— No asignar ahora —',             ru:'— Не назначать сейчас —' },
+  criando:         { pt:'⏳ Criando…',                     en:'⏳ Creating…',                     es:'⏳ Creando…',                       ru:'⏳ Создание…' },
+  criar_tarefa:    { pt:'✓ Criar tarefa',                 en:'✓ Create task',                   es:'✓ Crear tarea',                    ru:'✓ Создать задачу' },
+};
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -58,6 +83,10 @@ export default function AdminBikeActions({
   modo, cidade, gestorUid, gestorNome,
   parkingAlvo, bikeAlvo, parkings, bikes, onFechar, onCriado,
 }: Props) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language||'pt').slice(0,2)) as 'pt'|'en'|'es'|'ru');
+  const pick = (o:{pt:string;en:string;es:string;ru:string}) => o[lang] ?? o.pt;
+
   const [buscaBike,    setBuscaBike]    = useState('');
   const [buscaParking, setBuscaParking] = useState('');
   const [bikeSel,      setBikeSel]      = useState<BikeRef | null>(bikeAlvo ?? null);
@@ -69,13 +98,19 @@ export default function AdminBikeActions({
 
   // Carrega workers disponíveis
   useEffect(() => {
-    getDocs(query(
-      collection(db, 'usuarios'),
-      where('cidade', '==', cidade),
-      where('role', 'in', ['campo', 'logistica', 'motorista']),
-    )).then(snap => {
-      setWorkers(snap.docs.map(d => ({ uid: d.id, nome: d.data().nome ?? d.data().email ?? d.id })));
-    }).catch(() => {});
+    if (usuariosReadSupabase()) {
+      fetchUsuarios({ cidade, role_in: ['campo', 'logistica', 'motorista'] })
+        .then(users => { setWorkers(users.map(u => ({ uid: u.uid, nome: u.nome ?? u.email ?? u.uid }))); })
+        .catch(() => {});
+    } else {
+      getDocs(query(
+        collection(db, 'usuarios'),
+        where('cidade', '==', cidade),
+        where('role', 'in', ['campo', 'logistica', 'motorista']),
+      )).then(snap => {
+        setWorkers(snap.docs.map(d => ({ uid: d.id, nome: d.data().nome ?? d.data().email ?? d.id })));
+      }).catch(() => {});
+    }
   }, [cidade]);
 
   // Bikes disponíveis próximas ao parking alvo, ordenadas por distância
@@ -113,8 +148,8 @@ export default function AdminBikeActions({
   }, [parkings, bikeAlvo, buscaParking]);
 
   const criar = useCallback(async () => {
-    if (!bikeSel && modo !== 'organizar') { setMsg('Selecione um patinete'); return; }
-    if (!parkingSel && modo !== 'mover_bike') { setMsg('Selecione um ponto destino'); return; }
+    if (!bikeSel && modo !== 'organizar') { setMsg(pick(T.selecione_patinete)); return; }
+    if (!parkingSel && modo !== 'mover_bike') { setMsg(pick(T.selecione_destino)); return; }
     setCriando(true); setMsg('');
     try {
       const base = {
@@ -125,7 +160,7 @@ export default function AdminBikeActions({
       };
       let docRef;
       if (modo === 'trazer_bike' || modo === 'mover_bike') {
-        docRef = await addDoc(collection(db, 'tarefas'), {
+        const payload = {
           ...base,
           kind: 'PATINETE',
           titulo: `Levar ${bikeSel!.identifier ?? bikeSel!.id.slice(-6)} → ${parkingSel!.name}`,
@@ -135,10 +170,27 @@ export default function AdminBikeActions({
           parkingId: parkingSel!.id, parkingNome: parkingSel!.name,
           parkingLat: parkingSel!.latitude, parkingLng: parkingSel!.longitude,
           targetCount: (parkingSel!.target_bikes_count ?? 0) - (parkingSel!.availableCount ?? 0),
-        });
+        };
+        docRef = await addDoc(collection(db, 'tarefas'), payload);
+        // dual-write Supabase
+        supabase.from('tarefas').upsert({
+          id: docRef.id,
+          cidade, criado_por: gestorUid, status: 'pendente',
+          assignee_uid: workerSel || null,
+          assignee_nome: workers.find(w => w.uid === workerSel)?.nome ?? null,
+          prioridade: 3, gerado_por_gojet: true,
+          kind: 'PATINETE',
+          titulo: payload.titulo,
+          descricao: payload.descricao,
+          bike_identifier: bikeSel!.identifier ?? bikeSel!.id,
+          bike_lat: bikeSel!.location_lat, bike_lng: bikeSel!.location_lng,
+          parking_id: parkingSel!.id, parking_nome: parkingSel!.name,
+          parking_lat: parkingSel!.latitude, parking_lng: parkingSel!.longitude,
+          target_count: (parkingSel!.target_bikes_count ?? 0) - (parkingSel!.availableCount ?? 0),
+        }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[AdminBikeActions] upsert tarefas:', error.message); });
       } else {
         // ORGANIZACAO — cria tarefa para o ponto inteiro
-        docRef = await addDoc(collection(db, 'tarefas'), {
+        const payload = {
           ...base,
           kind: 'ORGANIZACAO',
           titulo: `Organizar ${parkingSel!.name}`,
@@ -146,20 +198,35 @@ export default function AdminBikeActions({
           parkingId: parkingSel!.id, parkingNome: parkingSel!.name,
           parkingLat: parkingSel!.latitude, parkingLng: parkingSel!.longitude,
           targetCount: (parkingSel!.target_bikes_count ?? 0) - (parkingSel!.availableCount ?? 0),
-        });
+        };
+        docRef = await addDoc(collection(db, 'tarefas'), payload);
+        // dual-write Supabase
+        supabase.from('tarefas').upsert({
+          id: docRef.id,
+          cidade, criado_por: gestorUid, status: 'pendente',
+          assignee_uid: workerSel || null,
+          assignee_nome: workers.find(w => w.uid === workerSel)?.nome ?? null,
+          prioridade: 3, gerado_por_gojet: true,
+          kind: 'ORGANIZACAO',
+          titulo: payload.titulo,
+          descricao: payload.descricao,
+          parking_id: parkingSel!.id, parking_nome: parkingSel!.name,
+          parking_lat: parkingSel!.latitude, parking_lng: parkingSel!.longitude,
+          target_count: (parkingSel!.target_bikes_count ?? 0) - (parkingSel!.availableCount ?? 0),
+        }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[AdminBikeActions] upsert tarefas:', error.message); });
       }
-      setMsg('✓ Tarefa criada');
+      setMsg(pick(T.tarefa_criada));
       onCriado?.(docRef.id);
       setTimeout(() => onFechar(), 1200);
     } catch (e: any) {
-      setMsg('Erro: ' + e.message);
+      setMsg(pick(T.erro) + e.message);
     } finally { setCriando(false); }
-  }, [bikeSel, parkingSel, workerSel, modo, cidade, gestorUid, workers, onCriado, onFechar]);
+  }, [bikeSel, parkingSel, workerSel, modo, cidade, gestorUid, workers, onCriado, onFechar, pick]);
 
   const TITULO: Record<Modo, string> = {
-    trazer_bike: '🚚 Trazer patinete ao ponto',
-    mover_bike:  '📍 Levar patinete a um ponto',
-    organizar:   '📦 Organizar ponto',
+    trazer_bike: pick(T.titulo_trazer),
+    mover_bike:  pick(T.titulo_mover),
+    organizar:   pick(T.titulo_organizar),
   };
 
   const S = {
@@ -183,8 +250,8 @@ export default function AdminBikeActions({
         {/* Seleção de bike (para trazer_bike ou mover_bike) */}
         {(modo === 'trazer_bike' || modo === 'mover_bike') && !bikeAlvo && (
           <>
-            <label style={S.label}>Patinete</label>
-            <input style={S.inp} placeholder="Buscar por identificador…" value={buscaBike} onChange={e=>setBuscaBike(e.target.value)} />
+            <label style={S.label}>{pick(T.patinete)}</label>
+            <input style={S.inp} placeholder={pick(T.buscar_id)} value={buscaBike} onChange={e=>setBuscaBike(e.target.value)} />
             <div style={{ maxHeight:180, overflowY:'auto' }}>
               {bikesDisponiveis.map(b => (
                 <div key={b.id} style={S.item(bikeSel?.id===b.id)} onClick={()=>setBikeSel(b)}>
@@ -212,14 +279,14 @@ export default function AdminBikeActions({
         {/* Seleção de parking destino */}
         {(modo !== 'mover_bike' || bikeSel) && (
           <>
-            <label style={S.label}>{modo==='organizar'?'Ponto a organizar':'Ponto destino'}</label>
+            <label style={S.label}>{modo==='organizar'?pick(T.ponto_organizar):pick(T.ponto_destino)}</label>
             {!parkingAlvo && (
-              <input style={S.inp} placeholder="Buscar ponto…" value={buscaParking} onChange={e=>setBuscaParking(e.target.value)} />
+              <input style={S.inp} placeholder={pick(T.buscar_ponto)} value={buscaParking} onChange={e=>setBuscaParking(e.target.value)} />
             )}
             {parkingAlvo ? (
               <div style={{ background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.2)', borderRadius:8, padding:'8px 12px', marginBottom:12 }}>
                 <div style={{ fontSize:12, color:'#ef4444', fontWeight:700 }}>📍 {parkingAlvo.name}</div>
-                <div style={{ fontSize:10, color:'rgba(255,255,255,.4)' }}>{parkingAlvo.availableCount ?? 0} / {parkingAlvo.target_bikes_count ?? '—'} bikes</div>
+                <div style={{ fontSize:10, color:'rgba(255,255,255,.4)' }}>{parkingAlvo.availableCount ?? 0} / {parkingAlvo.target_bikes_count ?? '—'} {pick(T.bikes)}</div>
               </div>
             ) : (
               <div style={{ maxHeight:180, overflowY:'auto' }}>
@@ -233,7 +300,7 @@ export default function AdminBikeActions({
                         {p.monitor && <span style={{ fontSize:9, background:'rgba(167,139,250,.15)', color:'#a78bfa', borderRadius:3, padding:'1px 4px' }}>MON</span>}
                       </div>
                       <div style={{ fontSize:10, color:'rgba(255,255,255,.4)', marginTop:2, paddingLeft:14 }}>
-                        {p.availableCount ?? 0} / {p.target_bikes_count ?? '—'} bikes
+                        {p.availableCount ?? 0} / {p.target_bikes_count ?? '—'} {pick(T.bikes)}
                       </div>
                     </div>
                   );
@@ -246,10 +313,10 @@ export default function AdminBikeActions({
         {/* Atribuir worker (opcional) */}
         {workers.length > 0 && (
           <>
-            <label style={S.label}>Atribuir a worker (opcional)</label>
+            <label style={S.label}>{pick(T.atribuir_worker)}</label>
             <select value={workerSel} onChange={e=>setWorkerSel(e.target.value)}
               style={{ ...S.inp, appearance:'none' }}>
-              <option value="">— Não atribuir agora —</option>
+              <option value="">{pick(T.nao_atribuir)}</option>
               {workers.map(w => <option key={w.uid} value={w.uid}>{w.nome}</option>)}
             </select>
           </>
@@ -258,7 +325,7 @@ export default function AdminBikeActions({
         {msg && <div style={{ fontSize:12, color: msg.startsWith('✓')?'#22c55e':'#ef4444', marginBottom:10, textAlign:'center' }}>{msg}</div>}
 
         <button style={S.btn('#a78bfa')} disabled={criando} onClick={criar}>
-          {criando ? '⏳ Criando…' : '✓ Criar tarefa'}
+          {criando ? pick(T.criando) : pick(T.criar_tarefa)}
         </button>
       </div>
     </div>

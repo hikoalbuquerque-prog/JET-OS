@@ -12,7 +12,6 @@
 // Para o teste do PORTÃO, gere um APK com VITE_GPS_PROVIDER=supabase e valide em campo.
 
 import { registerPlugin } from '@capacitor/core';
-import { auth } from './firebase';
 
 interface GpsTrackerPlugin {
   start(opts: {
@@ -42,7 +41,7 @@ const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) || '';
 const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || '';
 
 const GPS_PROVIDER: 'firebase' | 'supabase' =
-  (import.meta.env.VITE_GPS_PROVIDER as string) === 'supabase' ? 'supabase' : 'firebase';
+  (import.meta.env.VITE_GPS_PROVIDER as string) === 'firebase' ? 'firebase' : 'supabase';
 
 export function isAndroidNative(): boolean {
   const cap = (window as any)?.Capacitor;
@@ -109,7 +108,8 @@ export async function iniciarGpsNativo(uid: string, slotId: string | null): Prom
     return;
   }
 
-  // Firebase (padrão atual)
+  // Firebase (fallback)
+  const { auth } = await import('./firebase');
   const user = auth.currentUser;
   const refreshToken = (user as any)?.refreshToken as string | undefined;
   if (!refreshToken) throw new Error('Sem refresh token — usuário não autenticado');

@@ -39,6 +39,7 @@ exports.relatorioGuardSemanal = exports.enviarRelatorioManual = void 0;
 // Já importado no index.ts via: export * from './relatorios';
 const relatorio_1 = require("./relatorio");
 const admin = __importStar(require("firebase-admin"));
+const config_supabase_1 = require("./config-supabase");
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 // ─── helpers de data ─────────────────────────────────────────────────
@@ -87,6 +88,28 @@ async function buscarOcorrencias(ini, fim) {
 }
 async function getTelegramConfig() {
     const db = admin.firestore();
+    // 0a. Supabase-first: telegram_config table (Onda G)
+    try {
+        const { getTelegramConfigSupa } = await Promise.resolve().then(() => __importStar(require('./telegram-supabase')));
+        const supaCfg = await getTelegramConfigSupa('global');
+        if (supaCfg) {
+            const token = String(supaCfg.bot_token || '').trim();
+            const chatId = String(supaCfg.relatorios_chat_id || supaCfg.guard_chat_id || supaCfg.perdas_chat_id || '').trim();
+            console.log('[telegram-config] Supabase telegram_config → token:', token ? 'OK' : 'VAZIO', 'chatId:', chatId || 'VAZIO');
+            if (token && chatId)
+                return { token, chatId };
+        }
+    }
+    catch { /* fallback */ }
+    // 0b. Supabase app_settings/telegram
+    const supa = await (0, config_supabase_1.getAppSetting)('telegram');
+    if (supa) {
+        const token = String(supa.bot_token || supa.botToken || '').trim();
+        const chatId = String(supa.chat_id || supa.chatId || supa.relatorios_chat_id || supa.relatoriosChatId || '').trim();
+        console.log('[telegram-config] Supabase app_settings/telegram → token:', token ? 'OK' : 'VAZIO', 'chatId:', chatId || 'VAZIO');
+        if (token && chatId)
+            return { token, chatId };
+    }
     // 1. config/telegram — onde o DashboardManager salva (bot_token + chat_id)
     const legadoSnap = await db.collection('config').doc('telegram').get();
     if (legadoSnap.exists) {
@@ -757,6 +780,7 @@ exports.enviarRelatorioManual = (0, https_1.onCall)({
     timeoutSeconds: 120,
     memory: '256MiB',
     region: 'southamerica-east1',
+    maxInstances: 10,
     cors: [
         'https://jet-os-1.web.app',
         'https://jet-os-1.firebaseapp.com',
@@ -772,7 +796,7 @@ exports.enviarRelatorioManual = (0, https_1.onCall)({
 });
 // ─── Schedules ────────────────────────────────────────────────────────
 // Guard semanal — toda segunda às 7h (reporta dom anterior → sab anterior)
-exports.relatorioGuardSemanal = (0, scheduler_1.onSchedule)({ schedule: '0 7 * * 1', timeZone: 'America/Sao_Paulo', memory: '512MiB', timeoutSeconds: 300 }, async () => {
+exports.relatorioGuardSemanal = (0, scheduler_1.onSchedule)({ schedule: '0 7 * * 1', timeZone: 'America/Sao_Paulo', memory: '512MiB', timeoutSeconds: 300, maxInstances: 10 }, async () => {
     // Calcula dom anterior → sab anterior (semana passada completa)
     const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
     // Hoje é segunda → sábado passado = 2 dias atrás, domingo passado = 8 dias atrás

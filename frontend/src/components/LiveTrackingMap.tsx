@@ -2,13 +2,34 @@
 // Mapa ao vivo de prestadores de campo — dots coloridos, tooltip, histórico de rota
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   collection, query, where, onSnapshot, orderBy, limit,
   Timestamp, getDocs,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { gpsProviderSupabase, fetchGpsAtual } from '../lib/gps-supabase';
 import L from 'leaflet';
 import GpsRotaPanel from './GpsRotaPanel';
+
+// i18n — objeto de traduções (pt fonte fiel)
+const TR = {
+  campoAoVivo:   { pt: 'Campo ao vivo', en: 'Live field', es: 'Campo en vivo', ru: 'Поле в реальном времени' },
+  online:        { pt: 'Online', en: 'Online', es: 'En línea', ru: 'В сети' },
+  idle:          { pt: 'Idle', en: 'Idle', es: 'Inactivo', ru: 'Простой' },
+  semGpsCurto:   { pt: 'S/ GPS', en: 'No GPS', es: 'Sin GPS', ru: 'Без GPS' },
+  todos:         { pt: 'Todos', en: 'All', es: 'Todos', ru: 'Все' },
+  semOperadores: { pt: 'Sem operadores', en: 'No operators', es: 'Sin operadores', ru: 'Нет операторов' },
+  verRota:       { pt: 'Ver rota', en: 'View route', es: 'Ver ruta', ru: 'Показать маршрут' },
+  // STATUS_LABEL
+  emExecucao:    { pt: 'em execução', en: 'in progress', es: 'en ejecución', ru: 'в работе' },
+  statusIdle:    { pt: 'idle', en: 'idle', es: 'inactivo', ru: 'простой' },
+  semGps10min:   { pt: 'sem GPS >10min', en: 'no GPS >10min', es: 'sin GPS >10min', ru: 'без GPS >10 мин' },
+  // popup
+  atualizadoHa:  { pt: 'atualizado há', en: 'updated', es: 'actualizado hace', ru: 'обновлено' },
+  atualizadoHaSuf: { pt: '', en: 'ago', es: '', ru: 'назад' },
+  verRotaDoDia:  { pt: 'Ver rota do dia', en: 'View today\'s route', es: 'Ver ruta del día', ru: 'Маршрут за день' },
+};
 
 interface Props {
   cidade: string;
@@ -50,10 +71,10 @@ const STATUS_COR: Record<string, string> = {
   sem_gps: '#ef4444',
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  online: 'em execução',
-  idle: 'idle',
-  sem_gps: 'sem GPS >10min',
+const STATUS_TR_KEY: Record<string, keyof typeof TR> = {
+  online: 'emExecucao',
+  idle: 'statusIdle',
+  sem_gps: 'semGps10min',
 };
 
 function fmtIdade(criadoEm: any): string {
@@ -76,6 +97,10 @@ function workerCircleHtml(cor: string, letra: string): string {
 }
 
 export default function LiveTrackingMap({ cidade, usuario }: Props) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
+  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
+
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [rotaWorker, setRotaWorker] = useState<{ uid: string; nome: string } | null>(null);
   const [filtroStatus, setFiltroStatus] = useState<'todos' | 'online' | 'idle' | 'sem_gps'>('todos');
@@ -111,9 +136,32 @@ export default function LiveTrackingMap({ cidade, usuario }: Props) {
     return () => { m.remove(); mapaRef.current = null; };
   }, []);
 
-  // onSnapshot em gps_logistica
+  // GPS data — Supabase polling (Onda D) ou Firestore onSnapshot (fallback)
   useEffect(() => {
     if (!cidade) return;
+
+    if (gpsProviderSupabase()) {
+      // Supabase: polling a cada 10s
+      let alive = true;
+      const poll = () => {
+        fetchGpsAtual(60).then(pts => {
+          if (!alive) return;
+          const filtered = pts.filter(p => !p.cidade || p.cidade === cidade || p.cidade === '');
+          const byUid = new Map<string, Worker>();
+          for (const p of filtered) {
+            if (!byUid.has(p.uid) || (p.criadoEm?.seconds ?? 0) > (byUid.get(p.uid)!.criadoEm?.seconds ?? 0)) {
+              byUid.set(p.uid, { uid: p.uid, lat: p.lat, lng: p.lng, criadoEm: p.criadoEm, velocidade: p.velocidade ?? undefined, nome: p.nome, cidade: p.cidade });
+            }
+          }
+          setWorkers([...byUid.values()]);
+        });
+      };
+      poll();
+      const id = setInterval(poll, 10_000);
+      return () => { alive = false; clearInterval(id); };
+    }
+
+    // Firestore fallback
     const desde = new Date(Date.now() - 60 * 60_000); // última hora
     const q = query(
       collection(db, 'gps_logistica'),
@@ -159,6 +207,8 @@ export default function LiveTrackingMap({ cidade, usuario }: Props) {
       const nomeDisplay = nome.split(' ')[0];
       const idade = fmtIdade(w.criadoEm);
       const velTxt = w.velocidade != null ? `${w.velocidade.toFixed(1)} km/h` : '—';
+      const statusLabel = pick(TR[STATUS_TR_KEY[status]] as { pt: string; en: string; es: string; ru: string });
+      const idadeSuf = pick(TR.atualizadoHaSuf);
 
       const popupHtml = `
         <div style="font-family:Inter,sans-serif;font-size:12px;min-width:170px;">
@@ -167,15 +217,15 @@ export default function LiveTrackingMap({ cidade, usuario }: Props) {
           </div>
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
             <div style="width:8px;height:8px;border-radius:50%;background:${cor};flex-shrink:0;"></div>
-            <span style="color:#374151;">${STATUS_LABEL[status]}</span>
+            <span style="color:#374151;">${statusLabel}</span>
           </div>
-          <div style="color:#6b7280;font-size:11px;margin-bottom:2px;">⏱ atualizado há ${idade}</div>
+          <div style="color:#6b7280;font-size:11px;margin-bottom:2px;">⏱ ${pick(TR.atualizadoHa)} ${idade}${idadeSuf ? ' ' + idadeSuf : ''}</div>
           <div style="color:#6b7280;font-size:11px;margin-bottom:6px;">🚀 ${velTxt}</div>
           <button
             onclick="window._jetOpenRota && window._jetOpenRota('${w.uid}','${nome}')"
             style="background:#1a6fd4;border:none;color:#fff;padding:4px 10px;
               border-radius:6px;font-size:11px;cursor:pointer;font-weight:600;"
-          >Ver rota do dia</button>
+          >${pick(TR.verRotaDoDia)}</button>
         </div>
       `;
 
@@ -197,7 +247,7 @@ export default function LiveTrackingMap({ cidade, usuario }: Props) {
         markers.set(w.uid, m);
       }
     }
-  }, [workers]);
+  }, [workers, lang]);
 
   // Expõe callback global para o popup
   useEffect(() => {
@@ -226,12 +276,12 @@ export default function LiveTrackingMap({ cidade, usuario }: Props) {
         {/* KPIs */}
         <div style={{ padding: '12px 14px', borderBottom: `1px solid ${T.bdr}` }}>
           <div style={{ fontSize: 9, fontWeight: 700, color: T.dim, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>
-            Campo ao vivo
+            {pick(TR.campoAoVivo)}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            <KpiBadge cor={T.green} n={cntOnline} label="Online" />
-            <KpiBadge cor={T.yellow} n={cntIdle} label="Idle" />
-            <KpiBadge cor={T.red} n={cntSemGps} label="S/ GPS" />
+            <KpiBadge cor={T.green} n={cntOnline} label={pick(TR.online)} />
+            <KpiBadge cor={T.yellow} n={cntIdle} label={pick(TR.idle)} />
+            <KpiBadge cor={T.red} n={cntSemGps} label={pick(TR.semGpsCurto)} />
           </div>
         </div>
 
@@ -248,7 +298,7 @@ export default function LiveTrackingMap({ cidade, usuario }: Props) {
                 color: filtroStatus === f ? '#fff' : T.dim2,
               }}
             >
-              {f === 'todos' ? 'Todos' : f === 'sem_gps' ? 'S/ GPS' : f.charAt(0).toUpperCase() + f.slice(1)}
+              {f === 'todos' ? pick(TR.todos) : f === 'sem_gps' ? pick(TR.semGpsCurto) : f === 'online' ? pick(TR.online) : pick(TR.idle)}
             </button>
           ))}
         </div>
@@ -256,7 +306,7 @@ export default function LiveTrackingMap({ cidade, usuario }: Props) {
         {/* Lista */}
         <div style={{ flex: 1, overflowY: 'auto', scrollbarWidth: 'thin' }}>
           {workersFiltrados.length === 0 ? (
-            <div style={{ padding: 14, fontSize: 11, color: T.dim }}>Sem operadores</div>
+            <div style={{ padding: 14, fontSize: 11, color: T.dim }}>{pick(TR.semOperadores)}</div>
           ) : (
             workersFiltrados
               .sort((a, b) => (b.criadoEm?.seconds ?? 0) - (a.criadoEm?.seconds ?? 0))
@@ -280,13 +330,13 @@ export default function LiveTrackingMap({ cidade, usuario }: Props) {
                         {nome}
                       </div>
                       <div style={{ fontSize: 9, color: T.dim }}>
-                        {STATUS_LABEL[status]} · {fmtIdade(w.criadoEm)}
+                        {pick(TR[STATUS_TR_KEY[status]] as { pt: string; en: string; es: string; ru: string })} · {fmtIdade(w.criadoEm)}
                         {w.velocidade != null && ` · ${w.velocidade.toFixed(0)} km/h`}
                       </div>
                     </div>
                     <button
                       onClick={e => { e.stopPropagation(); setRotaWorker({ uid: w.uid, nome: w.nome ?? w.uid }); }}
-                      title="Ver rota"
+                      title={pick(TR.verRota)}
                       style={{
                         background: 'none', border: 'none', color: T.bluel,
                         fontSize: 12, cursor: 'pointer', padding: '2px 4px',

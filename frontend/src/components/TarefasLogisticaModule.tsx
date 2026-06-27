@@ -4,13 +4,18 @@
 //           Histórico CSV · Worker Home · Mudar destino · Realtime onSnapshot
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   collection, query, where, orderBy, onSnapshot,
   addDoc, updateDoc, doc, getDoc, serverTimestamp, getDocs, limit,
   Timestamp, writeBatch,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { logisticaWriteSupabase, criarTurnoLogisticaSupabase } from '../lib/onda-b-supabase';
+import { usuariosReadSupabase, fetchUsuarios } from '../lib/usuarios-supabase';
 import { uploadComRetry } from '../lib/uploadUtils';
+import { comprimirImagem, capturarFotoNativa } from '../lib/imageUtils';
+import { isAndroidNative } from '../lib/gps-native';
 
 // GPS background — importado dinamicamente para não quebrar se Capacitor não disponível
 let _gpsStarted = false;
@@ -169,19 +174,15 @@ function navegar(lat: number, lng: number, app: 'maps' | 'waze') {
     : window.open(`https://maps.google.com/?q=${lat},${lng}`, '_blank');
 }
 
+// Compressão HEIC-safe (ver lib/imageUtils). Converte HEIC→JPEG antes de comprimir,
+// evitando o bug de foto "quebrada" (HEIC enviado como .jpg que o WebView não renderiza).
 async function comprimir(file: File, maxW = 1280, q = 0.82): Promise<File> {
   try {
-    const bm = await createImageBitmap(file);
-    const r  = Math.min(1, maxW / bm.width);
-    const c  = document.createElement('canvas');
-    c.width  = Math.round(bm.width * r);
-    c.height = Math.round(bm.height * r);
-    c.getContext('2d')?.drawImage(bm, 0, 0, c.width, c.height);
-    bm.close?.();
-    const blob = await new Promise<Blob | null>(res => c.toBlob(res, 'image/jpeg', q));
-    if (!blob) return file;
-    return new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' });
-  } catch { return file; }
+    return await comprimirImagem(file, maxW, q);
+  } catch (e) {
+    console.warn('[comprimir] falha ao processar imagem, enviando original', e);
+    return file;
+  }
 }
 
 function exportCSV(tarefas: TarefaLogistica[], agentes: Map<string, string>) {
@@ -249,6 +250,222 @@ const S = {
   },
 };
 
+// ─── i18n (pt/en/es/ru) ───────────────────────────────────────────────────────
+// Padrão sem JSON: objeto T no escopo do módulo + helper pick() por subcomponente.
+
+type Lang = 'pt' | 'en' | 'es' | 'ru';
+type Tr = { pt: string; en: string; es: string; ru: string };
+
+const T = {
+  // KIND labels
+  kindPonto:        { pt: 'Encher ponto',   en: 'Fill point',      es: 'Llenar punto',     ru: 'Заполнить точку' },
+  kindPatinete:     { pt: 'Mover patinete', en: 'Move scooter',    es: 'Mover patinete',   ru: 'Переместить самокат' },
+  kindOrganizacao:  { pt: 'Organizar',      en: 'Organize',        es: 'Organizar',        ru: 'Организовать' },
+  kindCargaBateria: { pt: 'Bateria baixa',  en: 'Low battery',     es: 'Batería baja',     ru: 'Низкий заряд' },
+  // STATUS labels
+  stPendente:    { pt: 'Pendente',    en: 'Pending',      es: 'Pendiente',    ru: 'Ожидает' },
+  stEmExecucao:  { pt: 'Em execução', en: 'In progress',  es: 'En ejecución', ru: 'Выполняется' },
+  stConcluida:   { pt: 'Concluída',   en: 'Completed',    es: 'Completada',   ru: 'Завершено' },
+  stCancelada:   { pt: 'Cancelada',   en: 'Cancelled',    es: 'Cancelada',    ru: 'Отменено' },
+  // PRIO labels
+  prioBaixa:    { pt: 'Baixa',      en: 'Low',       es: 'Baja',      ru: 'Низкий' },
+  prioNormal:   { pt: 'Normal',     en: 'Normal',    es: 'Normal',    ru: 'Обычный' },
+  prioAlta:     { pt: 'Alta',       en: 'High',      es: 'Alta',      ru: 'Высокий' },
+  prioUrgente:  { pt: 'Urgente',    en: 'Urgent',    es: 'Urgente',   ru: 'Срочно' },
+  prioCritica:  { pt: '🚨 CRÍTICA', en: '🚨 CRITICAL', es: '🚨 CRÍTICA', ru: '🚨 КРИТИЧНО' },
+  // Header / tabs
+  tituloModulo: { pt: '📦 Tarefas Logística', en: '📦 Logistics Tasks', es: '📦 Tareas Logística', ru: '📦 Задачи логистики' },
+  telaCheia:    { pt: 'Tela cheia', en: 'Fullscreen', es: 'Pantalla completa', ru: 'Полный экран' },
+  abaInicio:    { pt: '🏠 Início',    en: '🏠 Home',      es: '🏠 Inicio',     ru: '🏠 Главная' },
+  abaMinhas:    { pt: '📋 Minhas',    en: '📋 Mine',      es: '📋 Mías',       ru: '📋 Мои' },
+  abaKanban:    { pt: '📊 Kanban',    en: '📊 Kanban',    es: '📊 Kanban',     ru: '📊 Канбан' },
+  abaCriar:     { pt: '➕ Criar',     en: '➕ Create',    es: '➕ Crear',      ru: '➕ Создать' },
+  abaStats:     { pt: '📈 Stats',     en: '📈 Stats',     es: '📈 Stats',      ru: '📈 Статистика' },
+  abaHistorico: { pt: '📂 Histórico', en: '📂 History',   es: '📂 Historial',  ru: '📂 История' },
+  // WorkerHome
+  gpsSemSinal:    { pt: 'GPS sem sinal', en: 'No GPS signal', es: 'Sin señal GPS', ru: 'Нет GPS-сигнала' },
+  gpsAtive:       { pt: 'Ative a localização nas configurações do celular', en: 'Enable location in your phone settings', es: 'Activa la ubicación en los ajustes del teléfono', ru: 'Включите геолокацию в настройках телефона' },
+  ola:            { pt: 'Olá', en: 'Hi', es: 'Hola', ru: 'Привет' },
+  trabalhando:    { pt: 'TRABALHANDO', en: 'WORKING', es: 'TRABAJANDO', ru: 'В РАБОТЕ' },
+  parado:         { pt: 'PARADO', en: 'STOPPED', es: 'PARADO', ru: 'ОСТАНОВЛЕНО' },
+  ha:             { pt: 'Há', en: 'For', es: 'Hace', ru: 'Уже' },
+  enviandoFoto:   { pt: '📸 Enviando foto...', en: '📸 Uploading photo...', es: '📸 Enviando foto...', ru: '📸 Отправка фото...' },
+  pararTrabalho:  { pt: '⏸ Parar trabalho', en: '⏸ Stop work', es: '⏸ Parar trabajo', ru: '⏸ Остановить работу' },
+  iniciarTrabalho:{ pt: '▶ Iniciar trabalho + Foto', en: '▶ Start work + Photo', es: '▶ Iniciar trabajo + Foto', ru: '▶ Начать работу + Фото' },
+  fotoTurnoAlt:   { pt: 'Foto turno', en: 'Shift photo', es: 'Foto turno', ru: 'Фото смены' },
+  fotoTurnoReg:   { pt: '📸 Foto de início de turno registrada', en: '📸 Shift start photo recorded', es: '📸 Foto de inicio de turno registrada', ru: '📸 Фото начала смены сохранено' },
+  localCompart:   { pt: '📍 Sua localização está sendo compartilhada', en: '📍 Your location is being shared', es: '📍 Tu ubicación está siendo compartida', ru: '📍 Ваше местоположение передаётся' },
+  tarefasAtivas:  { pt: 'TAREFAS ATIVAS', en: 'ACTIVE TASKS', es: 'TAREAS ACTIVAS', ru: 'АКТИВНЫЕ ЗАДАЧИ' },
+  nenhumaPendente:{ pt: '✅ Nenhuma tarefa pendente no momento', en: '✅ No pending tasks at the moment', es: '✅ Ninguna tarea pendiente por ahora', ru: '✅ Нет ожидающих задач' },
+  // MinhasTarefas / filtros
+  filtTodas:      { pt: 'Todas', en: 'All', es: 'Todas', ru: 'Все' },
+  semTarefaFiltro:{ pt: 'Nenhuma tarefa neste filtro', en: 'No tasks in this filter', es: 'Ninguna tarea en este filtro', ru: 'Нет задач по этому фильтру' },
+  // Kanban
+  vencidas:       { pt: '⏰ Vencidas', en: '⏰ Overdue', es: '⏰ Vencidas', ru: '⏰ Просрочено' },
+  buscarTarefa:   { pt: '🔍 Buscar tarefa, ponto ou agente...', en: '🔍 Search task, point or agent...', es: '🔍 Buscar tarea, punto o agente...', ru: '🔍 Поиск задачи, точки или агента...' },
+  filtTodos:      { pt: 'Todos', en: 'All', es: 'Todos', ru: 'Все' },
+  todosAgentes:   { pt: '👤 Todos os agentes', en: '👤 All agents', es: '👤 Todos los agentes', ru: '👤 Все агенты' },
+  semAgente:      { pt: 'Sem agente', en: 'No agent', es: 'Sin agente', ru: 'Без агента' },
+  prazoVencido:   { pt: '⏰ Prazo vencido', en: '⏰ Overdue', es: '⏰ Plazo vencido', ru: '⏰ Срок истёк' },
+  limpar:         { pt: '✕ Limpar', en: '✕ Clear', es: '✕ Limpiar', ru: '✕ Очистить' },
+  nenhumaEncontrada:{ pt: 'Nenhuma tarefa encontrada', en: 'No tasks found', es: 'Ninguna tarea encontrada', ru: 'Задачи не найдены' },
+  // TarefaCard
+  verNoMapa:      { pt: 'Ver no mapa', en: 'View on map', es: 'Ver en el mapa', ru: 'Показать на карте' },
+  patAbrev:       { pt: 'pat.', en: 'sct.', es: 'pat.', ru: 'сам.' },
+  vencidaBadge:   { pt: '⏰ Vencida', en: '⏰ Overdue', es: '⏰ Vencida', ru: '⏰ Просрочено' },
+  // TarefaDetalhe
+  voltar:         { pt: '← Voltar', en: '← Back', es: '← Volver', ru: '← Назад' },
+  atualizado:     { pt: 'Atualizado!', en: 'Updated!', es: '¡Actualizado!', ru: 'Обновлено!' },
+  progresso:      { pt: 'Progresso', en: 'Progress', es: 'Progreso', ru: 'Прогресс' },
+  ver:            { pt: '📸 ver', en: '📸 view', es: '📸 ver', ru: '📸 смотреть' },
+  googleMaps:     { pt: '🗺 Google Maps', en: '🗺 Google Maps', es: '🗺 Google Maps', ru: '🗺 Google Maps' },
+  waze:           { pt: '🚗 Waze', en: '🚗 Waze', es: '🚗 Waze', ru: '🚗 Waze' },
+  mudarDestinoTip:{ pt: 'Mudar destino clicando num ponto do mapa GoJet', en: 'Change destination by clicking a point on the GoJet map', es: 'Cambiar destino haciendo clic en un punto del mapa GoJet', ru: 'Изменить пункт назначения, кликнув по точке на карте GoJet' },
+  fotos:          { pt: 'FOTOS', en: 'PHOTOS', es: 'FOTOS', ru: 'ФОТО' },
+  fotoChegada:    { pt: '📸 Chegada', en: '📸 Arrival', es: '📸 Llegada', ru: '📸 Прибытие' },
+  fotoConclusao:  { pt: '✅ Conclusão', en: '✅ Completion', es: '✅ Conclusión', ru: '✅ Завершение' },
+  aguarde:        { pt: 'Aguarde...', en: 'Please wait...', es: 'Espera...', ru: 'Подождите...' },
+  tirarFotoChegada:{ pt: 'Tirar foto de chegada (Iniciar)', en: 'Take arrival photo (Start)', es: 'Tomar foto de llegada (Iniciar)', ru: 'Сделать фото прибытия (Начать)' },
+  iniciarSemFoto: { pt: '▶ Iniciar sem foto', en: '▶ Start without photo', es: '▶ Iniciar sin foto', ru: '▶ Начать без фото' },
+  registrarEntregaParcial:{ pt: 'REGISTRAR ENTREGA PARCIAL', en: 'RECORD PARTIAL DELIVERY', es: 'REGISTRAR ENTREGA PARCIAL', ru: 'ЗАПИСАТЬ ЧАСТИЧНУЮ ДОСТАВКУ' },
+  patinetesEntregues:{ pt: 'Patinetes entregues:', en: 'Scooters delivered:', es: 'Patinetes entregados:', ru: 'Доставлено самокатов:' },
+  enviando:       { pt: 'Enviando...', en: 'Uploading...', es: 'Enviando...', ru: 'Отправка...' },
+  registrarEntregaFoto:{ pt: 'Registrar', en: 'Record', es: 'Registrar', ru: 'Записать' },
+  entregaComFoto: { pt: 'entrega(s) com foto', en: 'delivery(ies) with photo', es: 'entrega(s) con foto', ru: 'доставку(и) с фото' },
+  fotoConclusaoBtn:{ pt: 'Foto de conclusão (Concluir)', en: 'Completion photo (Finish)', es: 'Foto de conclusión (Finalizar)', ru: 'Фото завершения (Завершить)' },
+  concluirSemFoto:{ pt: '✓ Concluir sem foto', en: '✓ Finish without photo', es: '✓ Finalizar sin foto', ru: '✓ Завершить без фото' },
+  cancelarTarefa: { pt: '🗑 Cancelar tarefa', en: '🗑 Cancel task', es: '🗑 Cancelar tarea', ru: '🗑 Отменить задачу' },
+  confirmCancelar:{ pt: 'Cancelar tarefa?', en: 'Cancel task?', es: '¿Cancelar tarea?', ru: 'Отменить задачу?' },
+  reatribuirTarefa:{ pt: '🔄 Reatribuir tarefa', en: '🔄 Reassign task', es: '🔄 Reasignar tarea', ru: '🔄 Переназначить задачу' },
+  reatribuirPara: { pt: 'REATRIBUIR PARA', en: 'REASSIGN TO', es: 'REASIGNAR A', ru: 'ПЕРЕНАЗНАЧИТЬ НА' },
+  agenteAtual:    { pt: 'Agente atual:', en: 'Current agent:', es: 'Agente actual:', ru: 'Текущий агент:' },
+  selecionarAgente:{ pt: '— Selecionar agente —', en: '— Select agent —', es: '— Seleccionar agente —', ru: '— Выбрать агента —' },
+  cancelar:       { pt: 'Cancelar', en: 'Cancel', es: 'Cancelar', ru: 'Отмена' },
+  salvando:       { pt: '⏳ Salvando...', en: '⏳ Saving...', es: '⏳ Guardando...', ru: '⏳ Сохранение...' },
+  confirmar:      { pt: '✓ Confirmar', en: '✓ Confirm', es: '✓ Confirmar', ru: '✓ Подтвердить' },
+  historico:      { pt: 'HISTÓRICO', en: 'HISTORY', es: 'HISTORIAL', ru: 'ИСТОРИЯ' },
+  detalhes:       { pt: 'DETALHES', en: 'DETAILS', es: 'DETALLES', ru: 'ДЕТАЛИ' },
+  dCriado:        { pt: 'Criado', en: 'Created', es: 'Creado', ru: 'Создано' },
+  dPrazo:         { pt: 'Prazo', en: 'Due date', es: 'Plazo', ru: 'Срок' },
+  dIniciado:      { pt: 'Iniciado', en: 'Started', es: 'Iniciado', ru: 'Начато' },
+  dConcluido:     { pt: 'Concluído', en: 'Completed', es: 'Concluido', ru: 'Завершено' },
+  dDuracao:       { pt: 'Duração', en: 'Duration', es: 'Duración', ru: 'Длительность' },
+  dAgente:        { pt: 'Agente', en: 'Agent', es: 'Agente', ru: 'Агент' },
+  dReatribuido:   { pt: 'Reatribuído em', en: 'Reassigned on', es: 'Reasignado en', ru: 'Переназначено' },
+  dGeradoPor:     { pt: 'Gerado por', en: 'Generated by', es: 'Generado por', ru: 'Создано' },
+  geradoAuto:     { pt: 'GoJet automático', en: 'GoJet automatic', es: 'GoJet automático', ru: 'GoJet автоматически' },
+  geradoManual:   { pt: 'Manual', en: 'Manual', es: 'Manual', ru: 'Вручную' },
+  // Audit log labels
+  alCriada:       { pt: 'Criada', en: 'Created', es: 'Creada', ru: 'Создано' },
+  alReatribuida:  { pt: 'Reatribuída', en: 'Reassigned', es: 'Reasignada', ru: 'Переназначено' },
+  alEntregaParcial:{ pt: 'Entrega parcial', en: 'Partial delivery', es: 'Entrega parcial', ru: 'Частичная доставка' },
+  alDestino:      { pt: 'Destino', en: 'Destination', es: 'Destino', ru: 'Назначение' },
+  // TarefaDetalhe ok messages
+  okChegada:      { pt: 'Chegada registrada! Tarefa iniciada.', en: 'Arrival recorded! Task started.', es: '¡Llegada registrada! Tarea iniciada.', ru: 'Прибытие записано! Задача начата.' },
+  okConcluida:    { pt: 'Tarefa concluída!', en: 'Task completed!', es: '¡Tarea completada!', ru: 'Задача завершена!' },
+  okMeta:         { pt: '✅ Meta atingida! Tarefa concluída.', en: '✅ Target reached! Task completed.', es: '✅ ¡Meta alcanzada! Tarea completada.', ru: '✅ Цель достигнута! Задача завершена.' },
+  entregues:      { pt: 'entregue(s). Total:', en: 'delivered. Total:', es: 'entregado(s). Total:', ru: 'доставлено. Всего:' },
+  okReatribuido:  { pt: 'Reatribuído para', en: 'Reassigned to', es: 'Reasignado a', ru: 'Переназначено на' },
+  okDestino:      { pt: 'Destino atualizado!', en: 'Destination updated!', es: '¡Destino actualizado!', ru: 'Назначение обновлено!' },
+  // CriarTarefa
+  tituloObrig:    { pt: 'Título obrigatório', en: 'Title required', es: 'Título obligatorio', ru: 'Требуется название' },
+  pontoGoJet:     { pt: '🛴 Ponto GoJet', en: '🛴 GoJet point', es: '🛴 Punto GoJet', ru: '🛴 Точка GoJet' },
+  modoManual:     { pt: '✏️ Manual', en: '✏️ Manual', es: '✏️ Manual', ru: '✏️ Вручную' },
+  lblTipo:        { pt: 'TIPO', en: 'TYPE', es: 'TIPO', ru: 'ТИП' },
+  disponiveis:    { pt: 'disponíveis', en: 'available', es: 'disponibles', ru: 'доступно' },
+  zeradoBadge:    { pt: ' — ZERADO 🚨', en: ' — EMPTY 🚨', es: ' — VACÍO 🚨', ru: ' — ПУСТО 🚨' },
+  trocar:         { pt: '✕ Trocar', en: '✕ Change', es: '✕ Cambiar', ru: '✕ Сменить' },
+  buscarPontoGoJet:{ pt: '🔍 Buscar ponto GoJet...', en: '🔍 Search GoJet point...', es: '🔍 Buscar punto GoJet...', ru: '🔍 Поиск точки GoJet...' },
+  soCriticos:     { pt: '🔴 Só críticos', en: '🔴 Critical only', es: '🔴 Solo críticos', ru: '🔴 Только критичные' },
+  todosPontos:    { pt: '📍 Todos', en: '📍 All', es: '📍 Todos', ru: '📍 Все' },
+  carregandoPontos:{ pt: 'Carregando pontos...', en: 'Loading points...', es: 'Cargando puntos...', ru: 'Загрузка точек...' },
+  snapshotIndisp: { pt: 'Snapshot GoJet não disponível.', en: 'GoJet snapshot not available.', es: 'Snapshot GoJet no disponible.', ru: 'Снимок GoJet недоступен.' },
+  ativeOverlay:   { pt: 'Ative o overlay GoJet no mapa para atualizar.', en: 'Enable the GoJet overlay on the map to refresh.', es: 'Activa la capa GoJet en el mapa para actualizar.', ru: 'Включите слой GoJet на карте для обновления.' },
+  dispAbrev:      { pt: 'disp.', en: 'avail.', es: 'disp.', ru: 'дост.' },
+  faltam:         { pt: 'faltam', en: 'missing', es: 'faltan', ru: 'не хватает' },
+  zerado:         { pt: 'ZERADO', en: 'EMPTY', es: 'VACÍO', ru: 'ПУСТО' },
+  pontosUseBusca: { pt: 'pontos. Use a busca para filtrar.', en: 'points. Use search to filter.', es: 'puntos. Usa la búsqueda para filtrar.', ru: 'точек. Используйте поиск для фильтрации.' },
+  maisPontos:     { pt: 'pontos', en: 'points', es: 'puntos', ru: 'точек' },
+  lblPontoEndereco:{ pt: 'PONTO / ENDEREÇO', en: 'POINT / ADDRESS', es: 'PUNTO / DIRECCIÓN', ru: 'ТОЧКА / АДРЕС' },
+  phPontoEndereco:{ pt: 'Ex: Ibirapuera Portão 6', en: 'Ex: Ibirapuera Gate 6', es: 'Ej: Ibirapuera Portón 6', ru: 'Напр.: Ibirapuera ворота 6' },
+  lblPatLevar:    { pt: 'PATINETES A LEVAR', en: 'SCOOTERS TO BRING', es: 'PATINETES A LLEVAR', ru: 'САМОКАТЫ К ДОСТАВКЕ' },
+  deficitAuto:    { pt: 'Déficit automático:', en: 'Auto deficit:', es: 'Déficit automático:', ru: 'Авто-дефицит:' },
+  phEx5:          { pt: 'Ex: 5', en: 'Ex: 5', es: 'Ej: 5', ru: 'Напр.: 5' },
+  lblIdentifier:  { pt: 'IDENTIFIER DA PATINETE', en: 'SCOOTER IDENTIFIER', es: 'IDENTIFICADOR DEL PATINETE', ru: 'ИДЕНТИФИКАТОР САМОКАТА' },
+  lblTitulo:      { pt: 'TÍTULO', en: 'TITLE', es: 'TÍTULO', ru: 'НАЗВАНИЕ' },
+  phTitulo:       { pt: 'Título da tarefa', en: 'Task title', es: 'Título de la tarea', ru: 'Название задачи' },
+  lblDescricao:   { pt: 'DESCRIÇÃO (opcional)', en: 'DESCRIPTION (optional)', es: 'DESCRIPCIÓN (opcional)', ru: 'ОПИСАНИЕ (необязательно)' },
+  lblPrioridade:  { pt: 'PRIORIDADE', en: 'PRIORITY', es: 'PRIORIDAD', ru: 'ПРИОРИТЕТ' },
+  lblAtribuir:    { pt: 'ATRIBUIR A', en: 'ASSIGN TO', es: 'ASIGNAR A', ru: 'НАЗНАЧИТЬ НА' },
+  semAtribuicao:  { pt: '— Sem atribuição —', en: '— Unassigned —', es: '— Sin asignar —', ru: '— Без назначения —' },
+  lblPrazo:       { pt: 'PRAZO', en: 'DUE DATE', es: 'PLAZO', ru: 'СРОК' },
+  prazoAutoTxt:   { pt: 'auto', en: 'auto', es: 'auto', ru: 'авто' },
+  prazoOpcional:  { pt: 'opcional', en: 'optional', es: 'opcional', ru: 'необязательно' },
+  criando:        { pt: '⏳ Criando...', en: '⏳ Creating...', es: '⏳ Creando...', ru: '⏳ Создание...' },
+  criarTarefaBtn: { pt: '✅ Criar tarefa', en: '✅ Create task', es: '✅ Crear tarea', ru: '✅ Создать задачу' },
+  // Dashboard
+  per7d:          { pt: '7 dias', en: '7 days', es: '7 días', ru: '7 дней' },
+  per30d:         { pt: '30 dias', en: '30 days', es: '30 días', ru: '30 дней' },
+  perTudo:        { pt: 'Tudo', en: 'All', es: 'Todo', ru: 'Всё' },
+  kpiTotal:       { pt: 'Total tarefas', en: 'Total tasks', es: 'Total tareas', ru: 'Всего задач' },
+  kpiConcluidas:  { pt: 'Concluídas', en: 'Completed', es: 'Completadas', ru: 'Завершено' },
+  kpiTaxa:        { pt: 'Taxa conclusão', en: 'Completion rate', es: 'Tasa de conclusión', ru: 'Доля завершения' },
+  kpiDuracao:     { pt: 'Duração média', en: 'Avg. duration', es: 'Duración media', ru: 'Ср. длительность' },
+  porTipo:        { pt: 'POR TIPO', en: 'BY TYPE', es: 'POR TIPO', ru: 'ПО ТИПУ' },
+  rankingAgentes: { pt: 'RANKING AGENTES', en: 'AGENT RANKING', es: 'RANKING AGENTES', ru: 'РЕЙТИНГ АГЕНТОВ' },
+  porTarefa:      { pt: 'min/tarefa', en: 'min/task', es: 'min/tarea', ru: 'мин/задача' },
+  semDados:       { pt: 'Sem dados', en: 'No data', es: 'Sin datos', ru: 'Нет данных' },
+  topPontos:      { pt: 'TOP PONTOS', en: 'TOP POINTS', es: 'TOP PUNTOS', ru: 'ТОП ТОЧЕК' },
+  // Historico
+  todosStatus:    { pt: 'Todos status', en: 'All statuses', es: 'Todos los estados', ru: 'Все статусы' },
+  todosTipos:     { pt: 'Todos tipos', en: 'All types', es: 'Todos los tipos', ru: 'Все типы' },
+  histTodosAgentes:{ pt: 'Todos agentes', en: 'All agents', es: 'Todos los agentes', ru: 'Все агенты' },
+  buscar:         { pt: '🔍 Buscar...', en: '🔍 Search...', es: '🔍 Buscar...', ru: '🔍 Поиск...' },
+  tarefasPag:     { pt: 'tarefas · pág', en: 'tasks · page', es: 'tareas · pág', ru: 'задач · стр.' },
+  anterior:       { pt: '‹ Anterior', en: '‹ Previous', es: '‹ Anterior', ru: '‹ Назад' },
+  proxima:        { pt: 'Próxima ›', en: 'Next ›', es: 'Siguiente ›', ru: 'Далее ›' },
+  // Micro
+  carregando:     { pt: 'Carregando...', en: 'Loading...', es: 'Cargando...', ru: 'Загрузка...' },
+  // Extras adicionados na conclusão da tradução
+  nenhumaPendenteMomento:{ pt: '✅ Nenhuma tarefa pendente no momento', en: '✅ No pending tasks at the moment', es: '✅ Ninguna tarea pendiente por ahora', ru: '✅ Нет ожидающих задач' },
+  lblLat:         { pt: 'LAT', en: 'LAT', es: 'LAT', ru: 'ШИР' },
+  lblLng:         { pt: 'LNG', en: 'LNG', es: 'LNG', ru: 'ДОЛ' },
+  prazoAutoLabel: { pt: 'auto', en: 'auto', es: 'auto', ru: 'авто' },
+  exportCsv:      { pt: '⬇ CSV', en: '⬇ CSV', es: '⬇ CSV', ru: '⬇ CSV' },
+  // Audit log com interpolação
+  alCriadaTxt:    { pt: 'Criada', en: 'Created', es: 'Creada', ru: 'Создано' },
+  alReatribuidaTxt:{ pt: 'Reatribuída', en: 'Reassigned', es: 'Reasignada', ru: 'Переназначено' },
+  alEntregaParcialTxt:{ pt: 'Entrega parcial', en: 'Partial delivery', es: 'Entrega parcial', ru: 'Частичная доставка' },
+  alDestinoTxt:   { pt: 'Destino', en: 'Destination', es: 'Destino', ru: 'Назначение' },
+  tituloLevar:    { pt: '→ levar', en: '→ bring', es: '→ llevar', ru: '→ доставить' },
+} satisfies Record<string, Tr>;
+
+// Labels traduzíveis dos enums (não altera os enums/cores em KIND/STATUS/PRIO).
+const KIND_TR: Record<TarefaKind, Tr> = {
+  PONTO:         T.kindPonto,
+  PATINETE:      T.kindPatinete,
+  ORGANIZACAO:   T.kindOrganizacao,
+  CARGA_BATERIA: T.kindCargaBateria,
+};
+const STATUS_TR: Record<TarefaStatus, Tr> = {
+  pendente:    T.stPendente,
+  em_execucao: T.stEmExecucao,
+  concluida:   T.stConcluida,
+  cancelada:   T.stCancelada,
+};
+const PRIO_TR: Record<number, Tr> = {
+  1: T.prioBaixa,
+  2: T.prioNormal,
+  3: T.prioAlta,
+  4: T.prioUrgente,
+  5: T.prioCritica,
+};
+const useLang = (): Lang => {
+  const { i18n } = useTranslation();
+  return (((i18n.language || 'pt').slice(0, 2)) as Lang);
+};
+const pickL = (o: Tr, lang: Lang) => o[lang] ?? o.pt;
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -256,6 +473,9 @@ const S = {
 export default function TarefasLogisticaModule({
   usuario, cidade, pais, onFechar, parkingInicial, tarefaAbertaId, onSelecionarDestino,
 }: Props) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
   type Aba = 'home' | 'minhas' | 'kanban' | 'criar' | 'dashboard' | 'historico';
   const [aba, setAba]               = useState<Aba>(isAdminRole(usuario.role) ? 'kanban' : 'home');
   const [tarefas, setTarefas]       = useState<TarefaLogistica[]>([]);
@@ -289,10 +509,16 @@ export default function TarefasLogisticaModule({
 
   useEffect(() => {
     if (!isAdminRole(usuario.role)) return;
-    getDocs(query(collection(db,'usuarios'), where('role','in',['logistica','campo','charger','scalt'])))
-      .then(snap => setAgentes(snap.docs.map(d => {
-        const x = d.data(); return { uid: d.id, nome: x.nome||x.email, email: x.email };
-      }))).catch(() => {});
+    if (usuariosReadSupabase()) {
+      fetchUsuarios({ role_in: ['logistica','campo','charger','scalt'] })
+        .then(users => setAgentes(users.map(u => ({ uid: u.uid, nome: u.nome||u.email, email: u.email }))))
+        .catch(() => {});
+    } else {
+      getDocs(query(collection(db,'usuarios'), where('role','in',['logistica','campo','charger','scalt'])))
+        .then(snap => setAgentes(snap.docs.map(d => {
+          const x = d.data(); return { uid: d.id, nome: x.nome||x.email, email: x.email };
+        }))).catch(() => {});
+    }
   }, [usuario.role]);
 
   if (tarefaSel) return (
@@ -305,12 +531,12 @@ export default function TarefasLogisticaModule({
   );
 
   const abas: { k: Aba; l: string; roles: string[] }[] = [
-    { k: 'home',       l: '🏠 Início',     roles: ['logistica','campo','charger'] },
-    { k: 'minhas',     l: '📋 Minhas',      roles: ['logistica','campo','charger','admin','gestor','supergestor'] },
-    { k: 'kanban',     l: '📊 Kanban',      roles: ['admin','gestor','supergestor'] },
-    { k: 'criar',      l: '➕ Criar',       roles: ['admin','gestor','supergestor'] },
-    { k: 'dashboard',  l: '📈 Stats',       roles: ['admin','gestor','supergestor'] },
-    { k: 'historico',  l: '📂 Histórico',   roles: ['admin','gestor','supergestor'] },
+    { k: 'home',       l: pick(T.abaInicio),    roles: ['logistica','campo','charger'] },
+    { k: 'minhas',     l: pick(T.abaMinhas),    roles: ['logistica','campo','charger','admin','gestor','supergestor'] },
+    { k: 'kanban',     l: pick(T.abaKanban),    roles: ['admin','gestor','supergestor'] },
+    { k: 'criar',      l: pick(T.abaCriar),     roles: ['admin','gestor','supergestor'] },
+    { k: 'dashboard',  l: pick(T.abaStats),     roles: ['admin','gestor','supergestor'] },
+    { k: 'historico',  l: pick(T.abaHistorico), roles: ['admin','gestor','supergestor'] },
   ];
   const abasFiltradas = abas.filter(a => a.roles.some(r => usuario.role.includes(r) || a.roles.includes(usuario.role)));
 
@@ -322,7 +548,7 @@ export default function TarefasLogisticaModule({
       <div style={S.header}>
         <button onClick={onFechar} style={S.ghost}>✕</button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#dce8ff' }}>📦 Tarefas Logística</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#dce8ff' }}>{pick(T.tituloModulo)}</div>
           <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)' }}>{cidade}</div>
         </div>
         {pendentes > 0 && (
@@ -330,7 +556,7 @@ export default function TarefasLogisticaModule({
             padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{pendentes}</div>
         )}
         {isAdminRole(usuario.role) && (
-          <button onClick={() => setFullscreen(v => !v)} style={S.ghost} title="Tela cheia">
+          <button onClick={() => setFullscreen(v => !v)} style={S.ghost} title={pick(T.telaCheia)}>
             {fullscreen ? '⊡' : '⊞'}
           </button>
         )}
@@ -370,6 +596,9 @@ function WorkerHome({ tarefas, usuario, onAbrirTarefa }: {
   tarefas: TarefaLogistica[]; usuario: Props['usuario'];
   onAbrirTarefa: (t: TarefaLogistica) => void;
 }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
   const [trabalhando, setTrabalhando] = useState(
     () => localStorage.getItem('jet:worker-status') === 'working'
   );
@@ -412,6 +641,24 @@ function WorkerHome({ tarefas, usuario, onAbrirTarefa }: {
       void stopGPSTracking();
     } else {
       // Solicita foto antes de iniciar
+      void iniciarCaptura();
+    }
+  };
+
+  // Captura a foto de início. No app nativo usa a CÂMERA do Capacitor (devolve JPEG —
+  // evita o HEIC que o WebView não renderiza, ver lib/imageUtils). Na web, usa o <input>.
+  const iniciarCaptura = async () => {
+    if (isAndroidNative()) {
+      let f: File | null = null;
+      try {
+        f = await capturarFotoNativa();
+      } catch (e) {
+        console.warn('[turno] câmera nativa indisponível, fallback p/ input', e);
+        fileRef.current?.click();
+        return;
+      }
+      if (f) await iniciarComFoto(f); // usuário cancelou a câmera → f null → não inicia
+    } else {
       fileRef.current?.click();
     }
   };
@@ -425,12 +672,17 @@ function WorkerHome({ tarefas, usuario, onAbrirTarefa }: {
       const url  = await uploadComRetry(comp, path);
       // Salva no Firestore (best-effort)
       try {
-        await addDoc(collection(db, 'turnos_logistica'), {
+        const turnoDoc = {
           uid: usuario.uid, nome: usuario.nome ?? usuario.email,
           fotoUrl: url, acao: 'inicio',
           criadoEm: serverTimestamp(),
           cidade: '',
-        });
+        };
+        const ref = await addDoc(collection(db, 'turnos_logistica'), turnoDoc);
+        // Cutover de writes (Onda C): dual-write Supabase atrás de flag (best-effort).
+        if (logisticaWriteSupabase()) {
+          criarTurnoLogisticaSupabase(ref.id, turnoDoc).catch(err => console.error('[log-write] turno Supabase:', err));
+        }
       } catch { /* best-effort */ }
       localStorage.setItem('jet:worker-status', 'working');
       localStorage.setItem('jet:worker-started-at', agora.toISOString());
@@ -463,9 +715,9 @@ function WorkerHome({ tarefas, usuario, onAbrirTarefa }: {
         }}>
           <span style={{ fontSize: 22 }}>📵</span>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 12, color: '#fca5a5' }}>GPS sem sinal</div>
+            <div style={{ fontWeight: 700, fontSize: 12, color: '#fca5a5' }}>{pick(T.gpsSemSinal)}</div>
             <div style={{ fontSize: 10, color: 'rgba(255,255,255,.5)', marginTop: 2 }}>
-              Ative a localização nas configurações do celular
+              {pick(T.gpsAtive)}
             </div>
           </div>
         </div>
@@ -476,18 +728,18 @@ function WorkerHome({ tarefas, usuario, onAbrirTarefa }: {
         border: `1px solid ${trabalhando ? 'rgba(16,185,129,.3)' : 'rgba(255,255,255,.08)'}`,
         marginBottom: 16, textAlign: 'center' as const }}>
         <div style={{ fontSize: 12, color: 'rgba(255,255,255,.4)', marginBottom: 8 }}>
-          Olá, {(usuario.nome ?? usuario.email ?? '').split(' ')[0]}! 👋
+          {pick(T.ola)}, {(usuario.nome ?? usuario.email ?? '').split(' ')[0]}! 👋
         </div>
         <div style={{ fontSize: 28, marginBottom: 4 }}>
           {trabalhando ? '🟢' : '⚪'}
         </div>
         <div style={{ fontSize: 16, fontWeight: 700, color: trabalhando ? '#10b981' : '#6b7280',
           marginBottom: trabalhando ? 4 : 12 }}>
-          {trabalhando ? 'TRABALHANDO' : 'PARADO'}
+          {trabalhando ? pick(T.trabalhando) : pick(T.parado)}
         </div>
         {trabalhando && elapsed && (
           <div style={{ fontSize: 12, color: 'rgba(255,255,255,.4)', marginBottom: 12 }}>
-            Há {elapsed}
+            {pick(T.ha)} {elapsed}
           </div>
         )}
         <input ref={fileRef} type="file" accept="image/*" capture="environment"
@@ -502,20 +754,20 @@ function WorkerHome({ tarefas, usuario, onAbrirTarefa }: {
           width: '100%', fontSize: 14, padding: '12px',
           opacity: uploadingFoto ? 0.6 : 1,
         }}>
-          {uploadingFoto ? '📸 Enviando foto...' : trabalhando ? '⏸ Parar trabalho' : '▶ Iniciar trabalho + Foto'}
+          {uploadingFoto ? pick(T.enviandoFoto) : trabalhando ? pick(T.pararTrabalho) : pick(T.iniciarTrabalho)}
         </button>
         {fotoTurno && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 }}>
-            <img src={fotoTurno} alt="Foto turno" style={{ width: 48, height: 48,
+            <img src={fotoTurno} alt={pick(T.fotoTurnoAlt)} style={{ width: 48, height: 48,
               objectFit: 'cover', borderRadius: 8 }} />
             <span style={{ fontSize: 10, color: 'rgba(255,255,255,.4)' }}>
-              📸 Foto de início de turno registrada
+              {pick(T.fotoTurnoReg)}
             </span>
           </div>
         )}
         {trabalhando && (
           <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', marginTop: 8 }}>
-            📍 Sua localização está sendo compartilhada
+            {pick(T.localCompart)}
           </div>
         )}
       </div>
@@ -524,7 +776,7 @@ function WorkerHome({ tarefas, usuario, onAbrirTarefa }: {
       {ativas.length > 0 && (
         <>
           <div style={{ ...S.lbl, marginBottom: 10 }}>
-            TAREFAS ATIVAS ({ativas.length})
+            {pick(T.tarefasAtivas)} ({ativas.length})
           </div>
           {ativas.sort((a,b) => (b.prioridade??3)-(a.prioridade??3)).map(t => (
             <TarefaCard key={t.id} tarefa={t} onClick={() => onAbrirTarefa(t)} />
@@ -534,7 +786,7 @@ function WorkerHome({ tarefas, usuario, onAbrirTarefa }: {
 
       {ativas.length === 0 && trabalhando && (
         <div style={{ textAlign: 'center', color: 'rgba(255,255,255,.3)', padding: '20px 0', fontSize: 12 }}>
-          ✅ Nenhuma tarefa pendente no momento
+          {pick(T.nenhumaPendenteMomento)}
         </div>
       )}
     </div>
@@ -549,6 +801,9 @@ function MinhasTarefas({ tarefas, loading, usuario, onAbrirTarefa }: {
   tarefas: TarefaLogistica[]; loading: boolean;
   usuario: Props['usuario']; onAbrirTarefa: (t: TarefaLogistica) => void;
 }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
   const [filtro, setFiltro] = useState<TarefaStatus | 'todas'>('todas');
   const minhas = tarefas.filter(t => t.assigneeUid === usuario.uid || isAdminRole(usuario.role));
   const filtradas = filtro === 'todas' ? minhas : minhas.filter(t => t.status === filtro);
@@ -565,15 +820,14 @@ function MinhasTarefas({ tarefas, loading, usuario, onAbrirTarefa }: {
             background: filtro === f ? '#3b82f6' : 'rgba(255,255,255,.06)',
             color: filtro === f ? '#fff' : 'rgba(255,255,255,.4)',
           }}>
-            {f === 'todas' ? `Todas (${minhas.length})`
-              : f === 'em_execucao' ? `Em execução (${minhas.filter(t=>t.status===f).length})`
-              : `${STATUS[f].label} (${minhas.filter(t=>t.status===f).length})`}
+            {f === 'todas' ? `${pick(T.filtTodas)} (${minhas.length})`
+              : `${pick(STATUS_TR[f])} (${minhas.filter(t=>t.status===f).length})`}
           </button>
         ))}
       </div>
 
       {filtradas.length === 0
-        ? <Empty msg="Nenhuma tarefa neste filtro" />
+        ? <Empty msg={pick(T.semTarefaFiltro)} />
         : filtradas.sort((a,b)=>(b.prioridade??3)-(a.prioridade??3)).map(t => (
             <TarefaCard key={t.id} tarefa={t} onClick={() => onAbrirTarefa(t)} showAssignee={isAdminRole(usuario.role)} />
           ))
@@ -590,6 +844,9 @@ function KanbanBoard({ tarefas, loading, fullscreen, onAbrirTarefa, agentes }: {
   tarefas: TarefaLogistica[]; loading: boolean; agentes: { uid: string; nome: string }[];
   fullscreen: boolean; onAbrirTarefa: (t: TarefaLogistica) => void;
 }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
   const [busca,        setBusca       ] = useState('');
   const [filtroKind,   setFiltroKind  ] = useState<TarefaKind | 'todas'>('todas');
   const [filtroAgente, setFiltroAgente] = useState('');
@@ -627,7 +884,7 @@ function KanbanBoard({ tarefas, loading, fullscreen, onAbrirTarefa, agentes }: {
             <div key={s} style={{ flex: 1, background: '#111827', borderRadius: 8,
               padding: '8px 10px', border: `1px solid ${STATUS[s].cor}25` }}>
               <div style={{ fontSize: 20, fontWeight: 800, color: STATUS[s].cor }}>{n}</div>
-              <div style={{ fontSize: 9, color: 'rgba(255,255,255,.35)' }}>{STATUS[s].label}</div>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,.35)' }}>{pick(STATUS_TR[s])}</div>
             </div>
           );
         })}
@@ -637,14 +894,14 @@ function KanbanBoard({ tarefas, loading, fullscreen, onAbrirTarefa, agentes }: {
             padding: '8px 10px', border: '1px solid #ef444430', cursor: 'pointer' }}
             onClick={() => setSoPrazoVenc(v => !v)}>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#ef4444' }}>{v}</div>
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,.35)' }}>⏰ Vencidas</div>
+            <div style={{ fontSize: 9, color: 'rgba(255,255,255,.35)' }}>{pick(T.vencidas)}</div>
           </div>
         ) : null; })()}
       </div>
 
       {/* Filtros */}
       <input value={busca} onChange={e => setBusca(e.target.value)}
-        placeholder="🔍 Buscar tarefa, ponto ou agente..."
+        placeholder={pick(T.buscarTarefa)}
         style={{ ...S.inp, marginBottom: 8 }} />
 
       {/* Linha 1: tipo */}
@@ -654,14 +911,14 @@ function KanbanBoard({ tarefas, loading, fullscreen, onAbrirTarefa, agentes }: {
           fontSize: 10, fontWeight: 600, flexShrink: 0,
           background: filtroKind === 'todas' ? '#3b82f6' : 'rgba(255,255,255,.06)',
           color: filtroKind === 'todas' ? '#fff' : 'rgba(255,255,255,.4)',
-        }}>Todos</button>
+        }}>{pick(T.filtTodos)}</button>
         {(Object.keys(KIND) as TarefaKind[]).map(k => (
           <button key={k} onClick={() => setFiltroKind(k)} style={{
             padding: '4px 10px', borderRadius: 16, border: 'none', cursor: 'pointer',
             fontSize: 10, fontWeight: 600, flexShrink: 0,
             background: filtroKind === k ? KIND[k].cor : 'rgba(255,255,255,.06)',
             color: filtroKind === k ? '#fff' : 'rgba(255,255,255,.4)',
-          }}>{KIND[k].icon} {KIND[k].label}</button>
+          }}>{KIND[k].icon} {pick(KIND_TR[k])}</button>
         ))}
       </div>
 
@@ -669,8 +926,8 @@ function KanbanBoard({ tarefas, loading, fullscreen, onAbrirTarefa, agentes }: {
       <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
         <select value={filtroAgente} onChange={e => setFiltroAgente(e.target.value)}
           style={{ ...S.inp, width: 'auto', flex: 1, minWidth: 140, marginBottom: 0, colorScheme: 'dark', appearance: 'none' as const }}>
-          <option value="">👤 Todos os agentes</option>
-          <option value="__sem__">Sem agente</option>
+          <option value="">{pick(T.todosAgentes)}</option>
+          <option value="__sem__">{pick(T.semAgente)}</option>
           {agentes.map(a => <option key={a.uid} value={a.uid}>{a.nome}</option>)}
         </select>
         <button onClick={() => setSoPrazoVenc(v => !v)} style={{
@@ -678,12 +935,12 @@ function KanbanBoard({ tarefas, loading, fullscreen, onAbrirTarefa, agentes }: {
           fontSize: 10, fontWeight: 600, flexShrink: 0,
           background: soPrazoVenc ? '#ef4444' : 'rgba(255,255,255,.06)',
           color: soPrazoVenc ? '#fff' : 'rgba(255,255,255,.4)',
-        }}>⏰ Prazo vencido</button>
+        }}>{pick(T.prazoVencido)}</button>
         {(busca || filtroKind !== 'todas' || filtroAgente || soPrazoVenc) && (
           <button onClick={() => { setBusca(''); setFiltroKind('todas'); setFiltroAgente(''); setSoPrazoVenc(false); }} style={{
             padding: '4px 10px', borderRadius: 16, border: '1px solid rgba(255,255,255,.15)',
             background: 'transparent', color: 'rgba(255,255,255,.4)', fontSize: 10, cursor: 'pointer',
-          }}>✕ Limpar</button>
+          }}>{pick(T.limpar)}</button>
         )}
       </div>
 
@@ -708,7 +965,7 @@ function KanbanBoard({ tarefas, loading, fullscreen, onAbrirTarefa, agentes }: {
         </>
       )}
 
-      {filtradas.length === 0 && <Empty msg="Nenhuma tarefa encontrada" />}
+      {filtradas.length === 0 && <Empty msg={pick(T.nenhumaEncontrada)} />}
     </div>
   );
 }
@@ -717,13 +974,16 @@ function KanbanCol({ status, items, onAbrirTarefa }: {
   status: TarefaStatus; items: TarefaLogistica[];
   onAbrirTarefa: (t: TarefaLogistica) => void;
 }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
   const m = STATUS[status];
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: m.cor,
         marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ width: 8, height: 8, borderRadius: '50%', background: m.cor, display: 'inline-block' }} />
-        {m.label} ({items.length})
+        {pick(STATUS_TR[status])} ({items.length})
       </div>
       {items.sort((a,b) => (b.prioridade??3)-(a.prioridade??3)).map(t => (
         <TarefaCard key={t.id} tarefa={t} onClick={() => onAbrirTarefa(t)} showAssignee compact />
@@ -740,6 +1000,9 @@ function TarefaCard({ tarefa, onClick, compact, showAssignee }: {
   tarefa: TarefaLogistica; onClick: () => void;
   compact?: boolean; showAssignee?: boolean;
 }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
   const k = KIND[tarefa.kind]; const s = STATUS[tarefa.status]; const p = PRIO[tarefa.prioridade??3];
   const progresso = tarefa.targetCount && tarefa.targetCount > 0
     ? Math.min(100, Math.round(((tarefa.deliveredCount??0)/tarefa.targetCount)*100)) : null;
@@ -763,7 +1026,7 @@ function TarefaCard({ tarefa, onClick, compact, showAssignee }: {
         </div>
         {hasCoords && (
           <button
-            title="Ver no mapa"
+            title={pick(T.verNoMapa)}
             onClick={e => {
               e.stopPropagation();
               window.dispatchEvent(new CustomEvent('jetMapFocus', {
@@ -779,7 +1042,7 @@ function TarefaCard({ tarefa, onClick, compact, showAssignee }: {
         )}
         <span style={{ fontSize: 9, background: `${p.cor}20`, color: p.cor,
           padding: '1px 5px', borderRadius: 4, fontWeight: 700, flexShrink: 0 }}>
-          {p.label}
+          {pick(PRIO_TR[tarefa.prioridade??3])}
         </span>
       </div>
 
@@ -788,7 +1051,7 @@ function TarefaCard({ tarefa, onClick, compact, showAssignee }: {
           📍 {tarefa.parkingNome}
           {tarefa.targetCount != null && (
             <span style={{ color: '#3b82f6' }}>
-              {' '}— {tarefa.deliveredCount??0}/{tarefa.targetCount} pat.
+              {' '}— {tarefa.deliveredCount??0}/{tarefa.targetCount} {pick(T.patAbrev)}
             </span>
           )}
         </div>
@@ -804,7 +1067,7 @@ function TarefaCard({ tarefa, onClick, compact, showAssignee }: {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <span style={{ fontSize: 9, background: `${s.cor}20`, color: s.cor,
-          padding: '1px 5px', borderRadius: 4, fontWeight: 600 }}>{s.label}</span>
+          padding: '1px 5px', borderRadius: 4, fontWeight: 600 }}>{pick(STATUS_TR[tarefa.status])}</span>
         {showAssignee && tarefa.assigneeNome && (
           <span style={{ fontSize: 10, color: 'rgba(255,255,255,.3)' }}>
             👤 {tarefa.assigneeNome.split(' ')[0]}
@@ -815,7 +1078,7 @@ function TarefaCard({ tarefa, onClick, compact, showAssignee }: {
           const diff = ms - Date.now();
           const vencida = diff < 0 && !['concluida','cancelada'].includes(tarefa.status);
           const urgente = diff > 0 && diff < 2 * 3_600_000;
-          const label = vencida ? '⏰ Vencida'
+          const label = vencida ? pick(T.vencidaBadge)
             : urgente ? `⚠️ ${Math.ceil(diff/60000)}min`
             : `📅 ${fmtTs(tarefa.due_at)}`;
           return (
@@ -843,6 +1106,9 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
   onVoltar: () => void; onAtualizar: (t?: TarefaLogistica) => void;
   onSelecionarDestino?: Props['onSelecionarDestino'];
 }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
   const [tarefa, setTarefa] = useState(tarefaInicial);
   const [busy, setBusy]     = useState(false);
   const [erro, setErro]     = useState('');
@@ -901,7 +1167,7 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
           { ...evento, ts: serverTimestamp(), uid: usuario.uid, nome: usuario.nome ?? usuario.email ?? '' }
         );
       }
-      setOk('Atualizado!'); setTimeout(() => setOk(''), 2000);
+      setOk(pick(T.atualizado)); setTimeout(() => setOk(''), 2000);
     } catch (e: any) { setErro(e.message); }
     finally { setBusy(false); }
   };
@@ -915,10 +1181,10 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
 
       if (fotoTipo === 'chegada') {
         await atualizar({ fotoChegadaUrl: url, status: 'em_execucao', iniciadoEm: serverTimestamp() });
-        setOk('Chegada registrada! Tarefa iniciada.');
+        setOk(pick(T.okChegada));
       } else if (fotoTipo === 'conclusao') {
         await atualizar({ fotoConclusaoUrl: url, status: 'concluida', concluidoEm: serverTimestamp() });
-        setOk('Tarefa concluída!');
+        setOk(pick(T.okConcluida));
       } else {
         // Entrega parcial
         await registrarEntrega(url);
@@ -943,7 +1209,7 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
       entregas: [...(tarefa.entregas ?? []), entrega],
       ...(concluida ? { status: 'concluida', concluidoEm: serverTimestamp() } : {}),
     });
-    setOk(concluida ? `✅ Meta atingida! Tarefa concluída.` : `+${qtdEntrega} entregue(s). Total: ${novoEntregue}/${tarefa.targetCount}`);
+    setOk(concluida ? pick(T.okMeta) : `+${qtdEntrega} ${pick(T.entregues)} ${novoEntregue}/${tarefa.targetCount}`);
   };
 
   const reatribuir = async () => {
@@ -975,7 +1241,7 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
         const fn = hc(gf(ga(), 'southamerica-east1'), 'notificarTarefaAtribuida');
         await fn({ assigneeUid: ag.uid, tarefaId: tarefa.id, titulo: tarefa.titulo, kind: tarefa.kind, parkingNome: tarefa.parkingNome ?? null, cidade: tarefa.cidade }).catch(() => {});
       } catch { /* best-effort */ }
-      setOk(`Reatribuído para ${ag.nome}`);
+      setOk(`${pick(T.okReatribuido)} ${ag.nome}`);
       setShowReatrib(false); setNovoAgente('');
     } catch (e: any) { setErro(e.message); }
     finally { setBusy(false); }
@@ -991,7 +1257,7 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
         parkingLng: parking.longitude ?? parking.lng,
         destinoAlteradoEm: serverTimestamp(),
       });
-      setOk('Destino atualizado!');
+      setOk(pick(T.okDestino));
     });
     onVoltar();
   };
@@ -1009,12 +1275,12 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
         style={{ display: 'none' }} onChange={handleFoto} />
 
       <div style={S.header}>
-        <button onClick={onVoltar} style={S.ghost}>← Voltar</button>
+        <button onClick={onVoltar} style={S.ghost}>{pick(T.voltar)}</button>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: '#dce8ff' }}>
             {k.icon} {tarefa.titulo}
           </div>
-          <div style={{ fontSize: 10, color: s.cor }}>{s.label}</div>
+          <div style={{ fontSize: 10, color: s.cor }}>{pick(STATUS_TR[tarefa.status])}</div>
         </div>
       </div>
 
@@ -1026,7 +1292,7 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
         {progresso !== null && (
           <div style={{ background: '#111827', borderRadius: 10, padding: 12, marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 11, color: 'rgba(255,255,255,.4)' }}>Progresso</span>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,.4)' }}>{pick(T.progresso)}</span>
               <span style={{ fontSize: 12, fontWeight: 700,
                 color: progresso >= 100 ? '#10b981' : '#3b82f6' }}>
                 {tarefa.deliveredCount??0} / {tarefa.targetCount}
@@ -1043,11 +1309,11 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8,
                     fontSize: 11, color: 'rgba(255,255,255,.4)', padding: '4px 0',
                     borderBottom: '1px solid rgba(255,255,255,.05)' }}>
-                    <span>+{e.qtd} pat.</span>
+                    <span>+{e.qtd} {pick(T.patAbrev)}</span>
                     <span>{fmtTs(e.entregueEm)}</span>
                     {e.fotoUrl && (
                       <a href={e.fotoUrl} target="_blank" rel="noreferrer"
-                        style={{ marginLeft: 'auto', color: '#3b82f6', fontSize: 10 }}>📸 ver</a>
+                        style={{ marginLeft: 'auto', color: '#3b82f6', fontSize: 10 }}>{pick(T.ver)}</a>
                     )}
                   </div>
                 ))}
@@ -1069,14 +1335,14 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
             )}
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button onClick={() => navegar(lat, lng, 'maps')} style={{ ...S.btn('#1a73e8'), flex: 1 }}>
-                🗺 Google Maps
+                {pick(T.googleMaps)}
               </button>
               <button onClick={() => navegar(lat, lng, 'waze')} style={{ ...S.btn('#05c8f0'), flex: 1 }}>
-                🚗 Waze
+                {pick(T.waze)}
               </button>
               {isAdminRole(usuario.role) && onSelecionarDestino && (
                 <button onClick={mudarDestino} style={{ ...S.btn('#f97316', true), flexShrink: 0 }}
-                  title="Mudar destino clicando num ponto do mapa GoJet">
+                  title={pick(T.mudarDestinoTip)}>
                   🎯
                 </button>
               )}
@@ -1095,9 +1361,9 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
         {/* Fotos existentes */}
         {(tarefa.fotoChegadaUrl || tarefa.fotoConclusaoUrl) && (
           <div style={{ background: '#111827', borderRadius: 10, padding: 12, marginBottom: 12 }}>
-            <div style={{ ...S.lbl, marginBottom: 8 }}>FOTOS</div>
+            <div style={{ ...S.lbl, marginBottom: 8 }}>{pick(T.fotos)}</div>
             <div style={{ display: 'flex', gap: 8 }}>
-              {[['fotoChegadaUrl','📸 Chegada'],['fotoConclusaoUrl','✅ Conclusão']].map(([field, label]) => {
+              {[['fotoChegadaUrl',pick(T.fotoChegada)],['fotoConclusaoUrl',pick(T.fotoConclusao)]].map(([field, label]) => {
                 const url = (tarefa as any)[field];
                 return url ? (
                   <a key={field} href={url} target="_blank" rel="noreferrer" style={{ flex: 1 }}>
@@ -1119,10 +1385,10 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
               <>
                 <button disabled={busy} onClick={() => { setFotoTipo('chegada'); fileRef.current?.click(); }}
                   style={{ ...S.btn('#3b82f6'), width: '100%' }}>
-                  📸 {busy ? 'Aguarde...' : 'Tirar foto de chegada (Iniciar)'}
+                  📸 {busy ? pick(T.aguarde) : pick(T.tirarFotoChegada)}
                 </button>
                 <button disabled={busy} onClick={() => atualizar({ status: 'em_execucao', iniciadoEm: serverTimestamp() })}
-                  style={S.ghost}>▶ Iniciar sem foto</button>
+                  style={S.ghost}>{pick(T.iniciarSemFoto)}</button>
               </>
             )}
 
@@ -1131,9 +1397,9 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
                 {/* Entrega parcial (só PONTO com targetCount) */}
                 {tarefa.kind === 'PONTO' && tarefa.targetCount != null && (
                   <div style={{ background: '#111827', borderRadius: 10, padding: 12, marginBottom: 4 }}>
-                    <div style={{ ...S.lbl, marginBottom: 8 }}>REGISTRAR ENTREGA PARCIAL</div>
+                    <div style={{ ...S.lbl, marginBottom: 8 }}>{pick(T.registrarEntregaParcial)}</div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                      <label style={{ fontSize: 11, color: 'rgba(255,255,255,.4)' }}>Patinetes entregues:</label>
+                      <label style={{ fontSize: 11, color: 'rgba(255,255,255,.4)' }}>{pick(T.patinetesEntregues)}</label>
                       <button onClick={() => setQtdEntrega(q => Math.max(1, q-1))}
                         style={S.btn('#374151', true)}>−</button>
                       <span style={{ fontSize: 16, fontWeight: 700, color: '#dce8ff', minWidth: 24,
@@ -1145,26 +1411,26 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
                     <button disabled={busy}
                       onClick={() => { setFotoTipo('entrega'); fileRef.current?.click(); }}
                       style={{ ...S.btn('#f97316'), width: '100%' }}>
-                      📸 {busy ? 'Enviando...' : `Registrar +${qtdEntrega} entrega(s) com foto`}
+                      📸 {busy ? pick(T.enviando) : `${pick(T.registrarEntregaFoto)} +${qtdEntrega} ${pick(T.entregaComFoto)}`}
                     </button>
                   </div>
                 )}
 
                 <button disabled={busy} onClick={() => { setFotoTipo('conclusao'); fileRef.current?.click(); }}
                   style={{ ...S.btn('#10b981'), width: '100%' }}>
-                  ✅ {busy ? 'Enviando...' : 'Foto de conclusão (Concluir)'}
+                  ✅ {busy ? pick(T.enviando) : pick(T.fotoConclusaoBtn)}
                 </button>
                 <button disabled={busy}
                   onClick={() => atualizar({ status: 'concluida', concluidoEm: serverTimestamp() })}
-                  style={S.ghost}>✓ Concluir sem foto</button>
+                  style={S.ghost}>{pick(T.concluirSemFoto)}</button>
               </>
             )}
 
             {podCanc && (
               <button disabled={busy}
-                onClick={() => { if (confirm('Cancelar tarefa?')) atualizar({ status: 'cancelada' }); }}
+                onClick={() => { if (confirm(pick(T.confirmCancelar))) atualizar({ status: 'cancelada' }); }}
                 style={{ ...S.btn('#ef4444', true), width: '100%', marginTop: 8 }}>
-                🗑 Cancelar tarefa
+                {pick(T.cancelarTarefa)}
               </button>
             )}
 
@@ -1174,30 +1440,30 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
                 {!showReatrib ? (
                   <button onClick={() => setShowReatrib(true)}
                     style={{ ...S.ghost, width: '100%' }}>
-                    🔄 Reatribuir tarefa
+                    {pick(T.reatribuirTarefa)}
                   </button>
                 ) : (
                   <div style={{ background: '#111827', borderRadius: 10, padding: 12 }}>
-                    <div style={{ ...S.lbl, marginBottom: 8 }}>REATRIBUIR PARA</div>
+                    <div style={{ ...S.lbl, marginBottom: 8 }}>{pick(T.reatribuirPara)}</div>
                     {tarefa.assigneeNome && (
                       <div style={{ fontSize: 11, color: 'rgba(255,255,255,.35)', marginBottom: 8 }}>
-                        Agente atual: <span style={{ color: 'rgba(255,255,255,.6)' }}>{tarefa.assigneeNome}</span>
+                        {pick(T.agenteAtual)} <span style={{ color: 'rgba(255,255,255,.6)' }}>{tarefa.assigneeNome}</span>
                       </div>
                     )}
                     <select value={novoAgente} onChange={e => setNovoAgente(e.target.value)}
                       style={{ ...S.inp, width: '100%', appearance: 'none' as const, marginBottom: 8 }}>
-                      <option value="">— Selecionar agente —</option>
+                      <option value="">{pick(T.selecionarAgente)}</option>
                       {agentes
                         .filter(a => a.uid !== tarefa.assigneeUid)
                         .map(a => <option key={a.uid} value={a.uid}>{a.nome}</option>)}
                     </select>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button onClick={() => { setShowReatrib(false); setNovoAgente(''); }}
-                        style={{ ...S.ghost, flex: 1 }}>Cancelar</button>
+                        style={{ ...S.ghost, flex: 1 }}>{pick(T.cancelar)}</button>
                       <button disabled={busy || !novoAgente} onClick={reatribuir}
                         style={{ ...S.btn('#6366f1'), flex: 2,
                           opacity: !novoAgente ? 0.4 : 1 }}>
-                        {busy ? '⏳ Salvando...' : '✓ Confirmar'}
+                        {busy ? pick(T.salvando) : pick(T.confirmar)}
                       </button>
                     </div>
                   </div>
@@ -1210,7 +1476,7 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
         {/* Audit log */}
         {auditLog.length > 0 && (
           <div style={{ marginTop: 16, background: '#111827', borderRadius: 10, padding: 12 }}>
-            <div style={{ ...S.lbl, marginBottom: 10 }}>HISTÓRICO</div>
+            <div style={{ ...S.lbl, marginBottom: 10 }}>{pick(T.historico)}</div>
             <div style={{ position: 'relative' }}>
               {/* linha vertical */}
               <div style={{ position: 'absolute', left: 7, top: 4, bottom: 4, width: 2,
@@ -1223,10 +1489,10 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
                   : e.para === 'concluida' ? '#10b981'
                   : e.para === 'cancelada' ? '#ef4444'
                   : '#94a3b8';
-                const label = e.tipo === 'criacao' ? `Criada${e.atribuidoPara ? ` → ${e.atribuidoPara}` : ''}`
-                  : e.tipo === 'reatribuicao' ? `Reatribuída: ${e.de} → ${e.para}`
-                  : e.tipo === 'entrega_parcial' ? `Entrega parcial (+${e.qtd})`
-                  : e.tipo === 'destino_alterado' ? `Destino → ${e.para}`
+                const label = e.tipo === 'criacao' ? `${pick(T.alCriadaTxt)}${e.atribuidoPara ? ` → ${e.atribuidoPara}` : ''}`
+                  : e.tipo === 'reatribuicao' ? `${pick(T.alReatribuidaTxt)}: ${e.de} → ${e.para}`
+                  : e.tipo === 'entrega_parcial' ? `${pick(T.alEntregaParcialTxt)} (+${e.qtd})`
+                  : e.tipo === 'destino_alterado' ? `${pick(T.alDestinoTxt)} → ${e.para}`
                   : e.tipo === 'status' ? `${e.de} → ${e.para}`
                   : e.tipo;
                 return (
@@ -1250,16 +1516,16 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
 
         {/* Meta */}
         <div style={{ marginTop: 16, background: '#111827', borderRadius: 10, padding: 12 }}>
-          <div style={{ ...S.lbl, marginBottom: 8 }}>DETALHES</div>
+          <div style={{ ...S.lbl, marginBottom: 8 }}>{pick(T.detalhes)}</div>
           {[
-            ['Criado', fmtTs(tarefa.criadoEm)],
-            ['Prazo', tarefa.due_at ? fmtTs(tarefa.due_at) : null],
-            ['Iniciado', fmtTs(tarefa.iniciadoEm)],
-            ['Concluído', fmtTs(tarefa.concluidoEm)],
-            ['Duração', fmtDuration(tarefa.iniciadoEm, tarefa.concluidoEm)],
-            ['Agente', tarefa.assigneeNome ?? '—'],
-            ['Reatribuído em', (tarefa as any).reatribuidoEm ? fmtTs((tarefa as any).reatribuidoEm) : null],
-            ['Gerado por', tarefa.geradoPorGoJet ? 'GoJet automático' : 'Manual'],
+            [pick(T.dCriado), fmtTs(tarefa.criadoEm)],
+            [pick(T.dPrazo), tarefa.due_at ? fmtTs(tarefa.due_at) : null],
+            [pick(T.dIniciado), fmtTs(tarefa.iniciadoEm)],
+            [pick(T.dConcluido), fmtTs(tarefa.concluidoEm)],
+            [pick(T.dDuracao), fmtDuration(tarefa.iniciadoEm, tarefa.concluidoEm)],
+            [pick(T.dAgente), tarefa.assigneeNome ?? '—'],
+            [pick(T.dReatribuido), (tarefa as any).reatribuidoEm ? fmtTs((tarefa as any).reatribuidoEm) : null],
+            [pick(T.dGeradoPor), tarefa.geradoPorGoJet ? pick(T.geradoAuto) : pick(T.geradoManual)],
           ].map(([k, v]) => v && v !== '—' ? (
             <div key={k} style={{ display: 'flex', justifyContent: 'space-between',
               fontSize: 11, marginBottom: 4 }}>
@@ -1282,6 +1548,9 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
   agentes: { uid: string; nome: string; email: string }[];
   parkingInicial?: Props['parkingInicial']; onCriada: () => void;
 }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
   // Modo de criação: 'gojet' = selecionar do snapshot | 'manual' = digitar livre
   const [modo, setModo]           = useState<'gojet' | 'manual'>(parkingInicial ? 'gojet' : 'gojet');
   const [kind, setKind]           = useState<TarefaKind>('PONTO');
@@ -1365,9 +1634,9 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
   useEffect(() => {
     const nome = parkSel?.nome ?? parkNome;
     if (!nome) return;
-    const falta = targetCount ? ` → levar ${targetCount} pat.` : '';
+    const falta = targetCount ? ` ${pick(T.tituloLevar)} ${targetCount} ${pick(T.patAbrev)}` : '';
     const zerado = parkSel?.disponivel === 0 ? '🚨 ' : parkSel && parkSel.disponivel != null && parkSel.target != null && parkSel.disponivel < parkSel.target * 0.5 ? '⚠️ ' : '';
-    setTitulo(`${zerado}${KIND[kind].label}: ${nome}${falta}`);
+    setTitulo(`${zerado}${pick(KIND_TR[kind])}: ${nome}${falta}`);
   }, [kind, parkSel, parkNome, targetCount]);
 
   const pontosFiltrados = pontosGoJet
@@ -1387,7 +1656,7 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
     });
 
   const salvar = async () => {
-    if (!titulo.trim()) { setErro('Título obrigatório'); return; }
+    if (!titulo.trim()) { setErro(pick(T.tituloObrig)); return; }
     const lat = parkSel?.lat ?? (parkLat ? parseFloat(parkLat) : null);
     const lng = parkSel?.lng ?? (parkLng ? parseFloat(parkLng) : null);
     setBusy(true); setErro('');
@@ -1453,17 +1722,17 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
           fontSize: 12, fontWeight: 600,
           background: modo === 'gojet' ? '#3b82f6' : 'rgba(255,255,255,.06)',
           color: modo === 'gojet' ? '#fff' : 'rgba(255,255,255,.4)',
-        }}>🛴 Ponto GoJet</button>
+        }}>{pick(T.pontoGoJet)}</button>
         <button onClick={() => setModo('manual')} style={{
           flex: 1, padding: '8px', borderRadius: 8, border: 'none', cursor: 'pointer',
           fontSize: 12, fontWeight: 600,
           background: modo === 'manual' ? '#f97316' : 'rgba(255,255,255,.06)',
           color: modo === 'manual' ? '#fff' : 'rgba(255,255,255,.4)',
-        }}>✏️ Manual</button>
+        }}>{pick(T.modoManual)}</button>
       </div>
 
       {/* Tipo de tarefa */}
-      <Field label="TIPO">
+      <Field label={pick(T.lblTipo)}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' as const }}>
           {(Object.keys(KIND) as TarefaKind[]).map(k => (
             <button key={k} onClick={() => setKind(k)} style={{
@@ -1471,7 +1740,7 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
               fontSize: 11, fontWeight: 600,
               background: kind === k ? KIND[k].cor : 'rgba(255,255,255,.06)',
               color: kind === k ? '#fff' : 'rgba(255,255,255,.4)',
-            }}>{KIND[k].icon} {KIND[k].label}</button>
+            }}>{KIND[k].icon} {pick(KIND_TR[k])}</button>
           ))}
         </div>
       </Field>
@@ -1490,15 +1759,15 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
                   </div>
                   {parkSel.disponivel != null && parkSel.target != null && (
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,.5)', marginTop: 3 }}>
-                      {parkSel.disponivel}/{parkSel.target} disponíveis
-                      {parkSel.disponivel === 0 && <span style={{ color: '#ef4444' }}> — ZERADO 🚨</span>}
+                      {parkSel.disponivel}/{parkSel.target} {pick(T.disponiveis)}
+                      {parkSel.disponivel === 0 && <span style={{ color: '#ef4444' }}>{pick(T.zeradoBadge)}</span>}
                     </div>
                   )}
                 </div>
                 <button onClick={() => { setParkSel(null); setTargetCount(''); }}
                   style={{ background: 'rgba(255,255,255,.08)', border: 'none', color: '#fff',
                     borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontSize: 11 }}>
-                  ✕ Trocar
+                  {pick(T.trocar)}
                 </button>
               </div>
             </div>
@@ -1507,7 +1776,7 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
             <div>
               <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
                 <input value={buscaPonto} onChange={e => setBuscaPonto(e.target.value)}
-                  placeholder="🔍 Buscar ponto GoJet..."
+                  placeholder={pick(T.buscarPontoGoJet)}
                   style={{ ...S.inp, flex: 1 }} />
                 <button onClick={() => setFiltroCriticos(v => !v)} style={{
                   padding: '6px 10px', borderRadius: 8, border: 'none', cursor: 'pointer',
@@ -1515,17 +1784,17 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
                   background: filtroCriticos ? '#ef4444' : 'rgba(255,255,255,.06)',
                   color: filtroCriticos ? '#fff' : 'rgba(255,255,255,.4)',
                 }}>
-                  {filtroCriticos ? '🔴 Só críticos' : '📍 Todos'}
+                  {filtroCriticos ? pick(T.soCriticos) : pick(T.todosPontos)}
                 </button>
               </div>
 
               {loadingPontos ? (
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,.3)', textAlign: 'center', padding: 12 }}>
-                  Carregando pontos...
+                  {pick(T.carregandoPontos)}
                 </div>
               ) : pontosGoJet.length === 0 ? (
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,.3)', textAlign: 'center', padding: 12 }}>
-                  Snapshot GoJet não disponível.<br/>Ative o overlay GoJet no mapa para atualizar.
+                  {pick(T.snapshotIndisp)}<br/>{pick(T.ativeOverlay)}
                 </div>
               ) : (
                 <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid rgba(255,255,255,.08)',
@@ -1556,15 +1825,15 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
                           </div>
                           {target > 0 && (
                             <div style={{ fontSize: 10, color: 'rgba(255,255,255,.35)' }}>
-                              {avail}/{target} disp.
-                              {falta > 0 && <span style={{ color: cor }}> · faltam {falta}</span>}
+                              {avail}/{target} {pick(T.dispAbrev)}
+                              {falta > 0 && <span style={{ color: cor }}> · {pick(T.faltam)} {falta}</span>}
                             </div>
                           )}
                         </div>
                         {zerado && (
                           <span style={{ fontSize: 9, background: '#ef44441a', color: '#ef4444',
                             padding: '2px 5px', borderRadius: 4, fontWeight: 700, flexShrink: 0 }}>
-                            ZERADO
+                            {pick(T.zerado)}
                           </span>
                         )}
                       </button>
@@ -1573,7 +1842,7 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
                   {pontosFiltrados.length > 50 && (
                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', padding: 8,
                       textAlign: 'center' }}>
-                      +{pontosFiltrados.length - 50} pontos. Use a busca para filtrar.
+                      +{pontosFiltrados.length - 50} {pick(T.pontosUseBusca)}
                     </div>
                   )}
                 </div>
@@ -1586,16 +1855,16 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
       {/* Manual */}
       {modo === 'manual' && (
         <>
-          <Field label="PONTO / ENDEREÇO">
-            <input style={S.inp} value={parkNome} placeholder="Ex: Ibirapuera Portão 6"
+          <Field label={pick(T.lblPontoEndereco)}>
+            <input style={S.inp} value={parkNome} placeholder={pick(T.phPontoEndereco)}
               onChange={e => setParkNome(e.target.value)} />
           </Field>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <Field label="LAT" style={{ flex: 1 }}>
+            <Field label={pick(T.lblLat)} style={{ flex: 1 }}>
               <input style={S.inp} value={parkLat} placeholder="-23.588"
                 onChange={e => setParkLat(e.target.value)} />
             </Field>
-            <Field label="LNG" style={{ flex: 1 }}>
+            <Field label={pick(T.lblLng)} style={{ flex: 1 }}>
               <input style={S.inp} value={parkLng} placeholder="-46.641"
                 onChange={e => setParkLng(e.target.value)} />
             </Field>
@@ -1604,31 +1873,31 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
       )}
 
       {kind === 'PONTO' && (
-        <Field label="PATINETES A LEVAR">
+        <Field label={pick(T.lblPatLevar)}>
           <input style={S.inp} type="number" min="1" value={targetCount}
-            placeholder={parkSel?.target != null ? `Déficit automático: ${Math.max(0,(parkSel.target)-(parkSel.disponivel??0))}` : 'Ex: 5'}
+            placeholder={parkSel?.target != null ? `${pick(T.deficitAuto)} ${Math.max(0,(parkSel.target)-(parkSel.disponivel??0))}` : pick(T.phEx5)}
             onChange={e => setTargetCount(e.target.value ? Number(e.target.value) : '')} />
         </Field>
       )}
 
       {kind === 'PATINETE' && (
-        <Field label="IDENTIFIER DA PATINETE">
+        <Field label={pick(T.lblIdentifier)}>
           <input style={S.inp} value={bikeId} placeholder="S.315761"
             onChange={e => setBikeId(e.target.value)} />
         </Field>
       )}
 
-      <Field label="TÍTULO">
-        <input style={S.inp} value={titulo} placeholder="Título da tarefa"
+      <Field label={pick(T.lblTitulo)}>
+        <input style={S.inp} value={titulo} placeholder={pick(T.phTitulo)}
           onChange={e => setTitulo(e.target.value)} />
       </Field>
 
-      <Field label="DESCRIÇÃO (opcional)">
+      <Field label={pick(T.lblDescricao)}>
         <textarea style={{ ...S.inp, height: 56, resize: 'vertical' as const }}
           value={descricao} onChange={e => setDescricao(e.target.value)} />
       </Field>
 
-      <Field label="PRIORIDADE">
+      <Field label={pick(T.lblPrioridade)}>
         <div style={{ display: 'flex', gap: 6 }}>
           {([1,2,3,4,5] as TarefaPrioridade[]).map(p => (
             <button key={p} onClick={() => setPrioridade(p)} style={{
@@ -1636,20 +1905,20 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
               cursor: 'pointer', fontSize: 10, fontWeight: 600,
               background: prioridade === p ? PRIO[p].cor : 'rgba(255,255,255,.06)',
               color: prioridade === p ? '#fff' : 'rgba(255,255,255,.4)',
-            }}>{PRIO[p].label}</button>
+            }}>{pick(PRIO_TR[p])}</button>
           ))}
         </div>
       </Field>
 
-      <Field label="ATRIBUIR A">
+      <Field label={pick(T.lblAtribuir)}>
         <select style={{ ...S.inp, appearance: 'none' as const }}
           value={assigneeUid} onChange={e => setAssigneeUid(e.target.value)}>
-          <option value="">— Sem atribuição —</option>
+          <option value="">{pick(T.semAtribuicao)}</option>
           {agentes.map(a => <option key={a.uid} value={a.uid}>{a.nome}</option>)}
         </select>
       </Field>
 
-      <Field label={`PRAZO${prazoAuto[kind] ? ` (auto: ${prazoAuto[kind]}h)` : ' (opcional)'}`}>
+      <Field label={`${pick(T.lblPrazo)}${prazoAuto[kind] ? ` (${pick(T.prazoAutoTxt)}: ${prazoAuto[kind]}h)` : ` (${pick(T.prazoOpcional)})`}`}>
         <div style={{ display: 'flex', gap: 6 }}>
           <input type="datetime-local" style={{ ...S.inp, flex: 1, colorScheme: 'dark' }}
             value={dueAt} onChange={e => setDueAt(e.target.value)} />
@@ -1667,7 +1936,7 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
         onClick={salvar}
         style={{ ...S.btn(), width: '100%', padding: 12, marginTop: 8,
           opacity: busy || (modo === 'gojet' && !parkSel && kind !== 'PATINETE') ? 0.5 : 1 }}>
-        {busy ? '⏳ Criando...' : '✅ Criar tarefa'}
+        {busy ? pick(T.criando) : pick(T.criarTarefaBtn)}
       </button>
     </div>
   );
@@ -1692,6 +1961,9 @@ function Dashboard({ tarefas, agentes }: {
   tarefas: TarefaLogistica[];
   agentes: { uid: string; nome: string; email: string }[];
 }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
   const [periodo, setPeriodo] = useState<'7d'|'30d'|'todos'>('7d');
 
   const corte = periodo === '7d'  ? Date.now() - 7*86400000
@@ -1750,7 +2022,7 @@ function Dashboard({ tarefas, agentes }: {
     <div style={{ padding: 14 }}>
       {/* Período */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-        {([['7d','7 dias'],['30d','30 dias'],['todos','Tudo']] as const).map(([k,l]) => (
+        {([['7d',pick(T.per7d)],['30d',pick(T.per30d)],['todos',pick(T.perTudo)]] as const).map(([k,l]) => (
           <button key={k} onClick={() => setPeriodo(k)} style={{
             flex: 1, padding: '6px', borderRadius: 8, border: 'none', cursor: 'pointer',
             fontSize: 11, fontWeight: 600,
@@ -1763,10 +2035,10 @@ function Dashboard({ tarefas, agentes }: {
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
         {[
-          { label: 'Total tarefas', val: total, cor: '#3b82f6' },
-          { label: 'Concluídas', val: concluidas.length, cor: '#10b981' },
-          { label: 'Taxa conclusão', val: `${taxa}%`, cor: taxa >= 80 ? '#10b981' : taxa >= 50 ? '#f97316' : '#ef4444' },
-          { label: 'Duração média', val: mediaMin > 0 ? `${mediaMin}min` : '—', cor: '#f59e0b' },
+          { label: pick(T.kpiTotal), val: total, cor: '#3b82f6' },
+          { label: pick(T.kpiConcluidas), val: concluidas.length, cor: '#10b981' },
+          { label: pick(T.kpiTaxa), val: `${taxa}%`, cor: taxa >= 80 ? '#10b981' : taxa >= 50 ? '#f97316' : '#ef4444' },
+          { label: pick(T.kpiDuracao), val: mediaMin > 0 ? `${mediaMin}min` : '—', cor: '#f59e0b' },
         ].map(({ label, val, cor }) => (
           <div key={label} style={{ background: '#111827', borderRadius: 10, padding: 14,
             border: `1px solid ${cor}20` }}>
@@ -1778,7 +2050,7 @@ function Dashboard({ tarefas, agentes }: {
 
       {/* Por tipo */}
       <div style={{ background: '#111827', borderRadius: 10, padding: 12, marginBottom: 12 }}>
-        <div style={{ ...S.lbl, marginBottom: 10 }}>POR TIPO</div>
+        <div style={{ ...S.lbl, marginBottom: 10 }}>{pick(T.porTipo)}</div>
         {(Object.keys(KIND) as TarefaKind[]).map(k => {
           const n = porKind[k] ?? 0; if (!n) return null;
           const pct = total > 0 ? Math.round(n/total*100) : 0;
@@ -1786,7 +2058,7 @@ function Dashboard({ tarefas, agentes }: {
             <div key={k} style={{ marginBottom: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3,
                 fontSize: 11 }}>
-                <span style={{ color: 'rgba(255,255,255,.55)' }}>{KIND[k].icon} {KIND[k].label}</span>
+                <span style={{ color: 'rgba(255,255,255,.55)' }}>{KIND[k].icon} {pick(KIND_TR[k])}</span>
                 <span style={{ color: KIND[k].cor, fontWeight: 600 }}>{n} ({pct}%)</span>
               </div>
               <div style={{ height: 4, background: 'rgba(255,255,255,.08)', borderRadius: 2 }}>
@@ -1799,7 +2071,7 @@ function Dashboard({ tarefas, agentes }: {
 
       {/* Ranking agentes */}
       <div style={{ background: '#111827', borderRadius: 10, padding: 12, marginBottom: 12 }}>
-        <div style={{ ...S.lbl, marginBottom: 10 }}>RANKING AGENTES</div>
+        <div style={{ ...S.lbl, marginBottom: 10 }}>{pick(T.rankingAgentes)}</div>
         {Object.entries(porAgente)
           .sort(([,a],[,b]) => b.concluidas - a.concluidas)
           .slice(0, 8)
@@ -1820,7 +2092,7 @@ function Dashboard({ tarefas, agentes }: {
                     {d.nome}
                   </div>
                   <div style={{ fontSize: 10, color: 'rgba(255,255,255,.35)' }}>
-                    {mediaA > 0 ? `⏱ ${mediaA}min/tarefa` : ''}
+                    {mediaA > 0 ? `⏱ ${mediaA}${pick(T.porTarefa)}` : ''}
                   </div>
                 </div>
                 <div style={{ textAlign: 'right' as const, flexShrink: 0 }}>
@@ -1831,14 +2103,14 @@ function Dashboard({ tarefas, agentes }: {
             );
           })}
         {Object.keys(porAgente).length === 0 && (
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,.3)', textAlign: 'center' }}>Sem dados</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,.3)', textAlign: 'center' }}>{pick(T.semDados)}</div>
         )}
       </div>
 
       {/* Top pontos */}
       {topPontos.length > 0 && (
         <div style={{ background: '#111827', borderRadius: 10, padding: 12 }}>
-          <div style={{ ...S.lbl, marginBottom: 10 }}>TOP PONTOS</div>
+          <div style={{ ...S.lbl, marginBottom: 10 }}>{pick(T.topPontos)}</div>
           {topPontos.map((p,i) => (
             <div key={p.nome} style={{ display: 'flex', justifyContent: 'space-between',
               alignItems: 'center', padding: '6px 0', fontSize: 12,
@@ -1864,6 +2136,9 @@ function Historico({ tarefas, agentes }: {
   tarefas: TarefaLogistica[];
   agentes: { uid: string; nome: string; email: string }[];
 }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
   const [filtroStatus, setFiltroStatus] = useState<TarefaStatus|'todas'>('todas');
   const [filtroKind,   setFiltroKind]   = useState<TarefaKind|'todas'>('todas');
   const [filtroAgente, setFiltroAgente] = useState('');
@@ -1891,25 +2166,25 @@ function Historico({ tarefas, agentes }: {
       {/* Filtros */}
       <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap' as const }}>
         <input value={busca} onChange={e => { setBusca(e.target.value); setPagina(0); }}
-          placeholder="🔍 Buscar..."
+          placeholder={pick(T.buscar)}
           style={{ ...S.inp, flex: 2, minWidth: 120 }} />
         <select style={{ ...S.inp, flex: 1, minWidth: 100, appearance: 'none' as const, colorScheme: 'dark' }}
           value={filtroStatus} onChange={e => { setFiltroStatus(e.target.value as any); setPagina(0); }}>
-          <option value="todas">Todos status</option>
+          <option value="todas">{pick(T.todosStatus)}</option>
           {(Object.keys(STATUS) as TarefaStatus[]).map(s => (
-            <option key={s} value={s}>{STATUS[s].label}</option>
+            <option key={s} value={s}>{pick(STATUS_TR[s])}</option>
           ))}
         </select>
         <select style={{ ...S.inp, flex: 1, minWidth: 100, appearance: 'none' as const, colorScheme: 'dark' }}
           value={filtroKind} onChange={e => { setFiltroKind(e.target.value as any); setPagina(0); }}>
-          <option value="todas">Todos tipos</option>
+          <option value="todas">{pick(T.todosTipos)}</option>
           {(Object.keys(KIND) as TarefaKind[]).map(k => (
-            <option key={k} value={k}>{KIND[k].icon} {KIND[k].label}</option>
+            <option key={k} value={k}>{KIND[k].icon} {pick(KIND_TR[k])}</option>
           ))}
         </select>
         <select style={{ ...S.inp, flex: 1, minWidth: 120, appearance: 'none' as const, colorScheme: 'dark' }}
           value={filtroAgente} onChange={e => { setFiltroAgente(e.target.value); setPagina(0); }}>
-          <option value="">Todos agentes</option>
+          <option value="">{pick(T.histTodosAgentes)}</option>
           {agentes.map(a => <option key={a.uid} value={a.uid}>{a.nome}</option>)}
         </select>
       </div>
@@ -1917,9 +2192,9 @@ function Historico({ tarefas, agentes }: {
       {/* Stats + Export */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         marginBottom: 10, fontSize: 11, color: 'rgba(255,255,255,.4)' }}>
-        <span>{filtradas.length} tarefas · pág {pag+1}/{totalPag}</span>
+        <span>{filtradas.length} {pick(T.tarefasPag)} {pag+1}/{totalPag}</span>
         <button onClick={() => exportCSV(filtradas, agentesMap)}
-          style={{ ...S.btn('#374151', true) }}>⬇ CSV</button>
+          style={{ ...S.btn('#374151', true) }}>{pick(T.exportCsv)}</button>
       </div>
 
       {/* Lista */}
@@ -1943,20 +2218,20 @@ function Historico({ tarefas, agentes }: {
               </div>
               <span style={{ fontSize: 9, background: `${s.cor}20`, color: s.cor,
                 padding: '2px 5px', borderRadius: 4, fontWeight: 600, flexShrink: 0 }}>
-                {s.label}
+                {pick(STATUS_TR[t.status])}
               </span>
             </div>
           </div>
         );
       })}
 
-      {filtradas.length === 0 && <Empty msg="Nenhuma tarefa encontrada" />}
+      {filtradas.length === 0 && <Empty msg={pick(T.nenhumaEncontrada)} />}
 
       {/* Paginação */}
       {totalPag > 1 && (
         <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 12 }}>
-          <button disabled={pag === 0} onClick={() => setPagina(p => p-1)} style={S.ghost}>‹ Anterior</button>
-          <button disabled={pag >= totalPag-1} onClick={() => setPagina(p => p+1)} style={S.ghost}>Próxima ›</button>
+          <button disabled={pag === 0} onClick={() => setPagina(p => p-1)} style={S.ghost}>{pick(T.anterior)}</button>
+          <button disabled={pag >= totalPag-1} onClick={() => setPagina(p => p+1)} style={S.ghost}>{pick(T.proxima)}</button>
         </div>
       )}
     </div>
@@ -1966,8 +2241,11 @@ function Historico({ tarefas, agentes }: {
 // ─── Micro-componentes ────────────────────────────────────────────────────────
 
 function Loading() {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
   return <div style={{ padding: 20, color: 'rgba(255,255,255,.3)', textAlign: 'center', fontSize: 12 }}>
-    Carregando...
+    {pick(T.carregando)}
   </div>;
 }
 

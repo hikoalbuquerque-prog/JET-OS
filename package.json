@@ -1,6 +1,30 @@
 {
   "dependencies": {
-    "firebase-admin": "^13.9.0",
-    "googleapis": "^171.4.0"
-  }
+    "firebase-admin": "^13.10.0",
+    "googleapis": "^171.4.0",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
+    "pptxgenjs": "^4.0.1",
+    "xlsx": "^0.18.5"
+  },
+  "name": "jet-os",
+  "version": "1.0.0",
+  "description": "---",
+  "main": "importar_estacionamentos.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hikoalbuquerque-prog/JET-OS.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/hikoalbuquerque-prog/JET-OS/issues"
+  },
+  "homepage": "https://github.com/hikoalbuquerque-prog/JET-OS#readme"
 }

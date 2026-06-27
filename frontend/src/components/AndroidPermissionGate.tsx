@@ -5,7 +5,16 @@
 // Todos precisam de notificações.
 
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { registerPlugin } from '@capacitor/core';
+
+const T = {
+  location:       { pt: 'Localização', en: 'Location', es: 'Ubicación', ru: 'Местоположение' },
+  locationAlways: { pt: 'Localização o tempo todo', en: 'Location all the time', es: 'Ubicación todo el tiempo', ru: 'Местоположение всегда' },
+  notifications:  { pt: 'Notificações', en: 'Notifications', es: 'Notificaciones', ru: 'Уведомления' },
+  camera:         { pt: 'Câmera', en: 'Camera', es: 'Cámara', ru: 'Камера' },
+  background:     { pt: 'Executar em segundo plano', en: 'Run in background', es: 'Ejecutar en segundo plano', ru: 'Работать в фоновом режиме' },
+};
 
 type PermStatus = 'checking' | 'granted' | 'denied' | 'prompt' | 'limited';
 
@@ -209,6 +218,7 @@ function PermRow({
   icon: string; title: string; desc: string;
   status: PermStatus; onRequest: () => void; loading: boolean;
 }) {
+  const { t } = useTranslation();
   const granted = status === 'granted';
   const denied  = status === 'denied';
 
@@ -220,14 +230,14 @@ function PermRow({
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', lineHeight: 1.4 }}>{desc}</div>
         {denied && (
           <div style={{ fontSize: 10, color: '#f87171', marginTop: 4 }}>
-            Negado. Vá em Configurações → Apps → JET OS → Permissões → Localização → "Permitir o tempo todo"
+            {t('permissions.denied')}
           </div>
         )}
       </div>
       {/* Mostra "Permitir" quando prompt, e "Tentar novamente" quando denied */}
       {!granted && (
         <button onClick={onRequest} disabled={loading} style={S.btn(!loading)}>
-          {loading ? '...' : denied ? '🔄' : 'Permitir'}
+          {loading ? '...' : denied ? '🔄' : t('permissions.allow')}
         </button>
       )}
       {granted && <span style={{ fontSize: 20, flexShrink: 0 }}>✅</span>}
@@ -236,6 +246,9 @@ function PermRow({
 }
 
 export default function AndroidPermissionGate({ role, onReady }: Props) {
+  const { t, i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
+  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
   const needsLocation = FIELD_ROLES.includes(role);
   const [perms, setPerms]             = useState<PermState | null>(null);
   const [loadingLoc, setLoadingLoc]   = useState(false);
@@ -328,7 +341,7 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
           <div style={{ fontSize: 40, marginBottom: 8 }}>🛴</div>
           <div style={{ fontSize: 20, fontWeight: 800, color: '#dce8ff' }}>Jet OS</div>
           <div style={{ fontSize: 13, color: 'rgba(255,255,255,.4)', marginTop: 4, lineHeight: 1.5 }}>
-            Para funcionar corretamente, o app precisa das permissões abaixo.
+            {t('permissions.intro')}
           </div>
         </div>
 
@@ -336,8 +349,8 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
         {needsLocation && (
           <PermRow
             icon="📍"
-            title="Localização"
-            desc="Necessária para registro de turno, GPS em campo e atribuição de tarefas por proximidade."
+            title={pick(T.location)}
+            desc={t('permissions.locationDesc')}
             status={perms.locForeground}
             onRequest={handleLocation}
             loading={loadingLoc}
@@ -348,8 +361,8 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
         {needsLocation && perms.locForeground === 'granted' && perms.locBackground !== 'granted' && (
           <PermRow
             icon="🛰️"
-            title="Localização o tempo todo"
-            desc='Toque em Permitir e escolha "Permitir o tempo todo". Sem isso o GPS para quando o app fica minimizado.'
+            title={pick(T.locationAlways)}
+            desc={t('permissions.locationAlwaysDesc')}
             status={perms.locBackground}
             onRequest={handleBackgroundLocation}
             loading={loadingBg}
@@ -359,8 +372,8 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
         {/* Permissão de notificações */}
         <PermRow
           icon="🔔"
-          title="Notificações"
-          desc="Receba alertas de novas tarefas, atualizações de slot e mensagens da equipe em tempo real."
+          title={pick(T.notifications)}
+          desc={t('permissions.notificationsDesc')}
           status={perms.notifications}
           onRequest={handleNotifications}
           loading={loadingPush}
@@ -370,8 +383,8 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
         {needsLocation && (
           <PermRow
             icon="📷"
-            title="Câmera"
-            desc="Necessária para a foto de entrada do turno e registro de ocorrências."
+            title={pick(T.camera)}
+            desc={t('permissions.cameraDesc')}
             status={perms.camera}
             onRequest={handleCamera}
             loading={loadingCam}
@@ -381,8 +394,8 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
         {/* Isenção de otimização de bateria */}
         <PermRow
           icon="🔋"
-          title="Executar em segundo plano"
-          desc="Mantém o GPS ativo com a tela bloqueada. Sem isso o rastreamento para quando o celular dormir."
+          title={pick(T.background)}
+          desc={t('permissions.backgroundDesc')}
           status={perms.battery}
           onRequest={handleBattery}
           loading={loadingBat}
@@ -394,15 +407,14 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
             borderRadius: 10, padding: '12px 14px', fontSize: 11, color: 'rgba(255,255,255,.5)',
             lineHeight: 1.5, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div>
-              ⚠️ Toque em 🔄 acima após conceder.<br />
-              Ou abra as configurações diretamente:
+              {t('permissions.deniedHint')}
             </div>
             <button
               onClick={abrirConfiguracoes}
               style={{ background: 'rgba(99,102,241,.2)', border: '1px solid rgba(99,102,241,.4)',
                 color: '#a5b4fc', borderRadius: 8, padding: '8px 12px',
                 fontSize: 11, cursor: 'pointer', fontWeight: 600 }}>
-              ⚙️ Abrir configurações do app
+              ⚙️ {t('permissions.openSettings')}
             </button>
           </div>
         )}
@@ -410,11 +422,11 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
         {/* Só continua com TODAS as permissões necessárias concedidas (sem escape) */}
         {locOk && bgOk && pushOk && camOk && batOk ? (
           <button onClick={onReady} style={{ ...S.btn(true), width: '100%', padding: 14 }}>
-            ✓ Continuar
+            ✓ {t('permissions.continue')}
           </button>
         ) : (
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', textAlign: 'center', lineHeight: 1.5 }}>
-            Conceda todas as permissões acima para continuar.
+            {t('permissions.grantAll')}
           </div>
         )}
       </div>

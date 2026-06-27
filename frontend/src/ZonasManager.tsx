@@ -1,9 +1,100 @@
 // ZonasManager.tsx — Módulo completo de gerenciamento de zonas
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { collection, onSnapshot, query, where, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
+import { mapaProviderSupabase, carregarZonasSupabase } from './lib/estacoes-supabase';
 import { db } from './lib/firebase';
 import L from 'leaflet';
 import JSZip from 'jszip';
+
+// ─────────────────────────── i18n (pt / en / es / ru) ───────────────────────────
+// Padrão do TermosUsoGate: objeto T com { pt, en, es, ru }; cada subcomponente que
+// renderiza texto chama localmente useTranslation + pick. PT é a fonte fiel.
+type Lang = 'pt' | 'en' | 'es' | 'ru';
+type Tr = { pt: string; en: string; es: string; ru: string };
+const T = {
+  // EditorVertices
+  vertices:        { pt: 'vértices',                en: 'vertices',                 es: 'vértices',                 ru: 'вершины' },
+  arraste:         { pt: ' Arraste',                en: ' Drag',                    es: ' Arrastra',                ru: ' Перетащить' },
+  paraMover:       { pt: ' para mover ·',           en: ' to move ·',               es: ' para mover ·',            ru: ' чтобы переместить ·' },
+  doisCliques:     { pt: ' 2× clique',              en: ' Double-click',            es: ' 2× clic',                 ru: ' Двойной клик' },
+  paraRemover:     { pt: ' para remover ·',         en: ' to remove ·',             es: ' para eliminar ·',         ru: ' чтобы удалить ·' },
+  cliqueMapa:      { pt: ' Clique mapa',            en: ' Click map',               es: ' Clic en el mapa',         ru: ' Клик по карте' },
+  paraAdicionar:   { pt: ' para adicionar',         en: ' to add',                  es: ' para agregar',            ru: ' чтобы добавить' },
+  cancelar:        { pt: 'Cancelar',                en: 'Cancel',                   es: 'Cancelar',                 ru: 'Отмена' },
+  salvar:          { pt: 'Salvar',                  en: 'Save',                     es: 'Guardar',                  ru: 'Сохранить' },
+  salvando:        { pt: 'Salvando...',             en: 'Saving...',                es: 'Guardando...',             ru: 'Сохранение...' },
+  minVertices:     { pt: 'Zona precisa de pelo menos 3 vértices', en: 'Zone needs at least 3 vertices', es: 'La zona necesita al menos 3 vértices', ru: 'Зоне нужно не менее 3 вершин' },
+  // ZonaForm — labels
+  lblNome:         { pt: 'Nome da área *',          en: 'Area name *',              es: 'Nombre del área *',        ru: 'Название области *' },
+  phNome:          { pt: 'ex: Centro Expandido',    en: 'e.g. Expanded Center',     es: 'ej: Centro Ampliado',      ru: 'напр.: Расширенный центр' },
+  lblGrupo:        { pt: 'Grupo',                   en: 'Group',                    es: 'Grupo',                    ru: 'Группа' },
+  lblPrioridade:   { pt: 'Prioridade',              en: 'Priority',                 es: 'Prioridad',                ru: 'Приоритет' },
+  lblFase:         { pt: 'Fase',                    en: 'Phase',                    es: 'Fase',                     ru: 'Этап' },
+  lblCor:          { pt: 'Cor',                     en: 'Color',                    es: 'Color',                    ru: 'Цвет' },
+  lblZonaAtiva:    { pt: 'Zona ativa',              en: 'Active zone',              es: 'Zona activa',              ru: 'Активная зона' },
+  ativa:           { pt: 'Ativa',                   en: 'Active',                   es: 'Activa',                   ru: 'Активна' },
+  inativa:         { pt: 'Inativa',                 en: 'Inactive',                 es: 'Inactiva',                 ru: 'Неактивна' },
+  salvarAlteracoes:{ pt: 'Salvar alterações',       en: 'Save changes',             es: 'Guardar cambios',          ru: 'Сохранить изменения' },
+  criarZona:       { pt: 'Criar zona',              en: 'Create zone',              es: 'Crear zona',               ru: 'Создать зону' },
+  // GRUPOS
+  grpGeral:        { pt: 'Geral',                   en: 'General',                  es: 'General',                  ru: 'Общая' },
+  grpPrioritario:  { pt: 'Prioritário',             en: 'Priority',                 es: 'Prioritario',              ru: 'Приоритетная' },
+  grpSecundario:   { pt: 'Secundário',              en: 'Secondary',                es: 'Secundario',               ru: 'Второстепенная' },
+  grpExpansao:     { pt: 'Expansão',                en: 'Expansion',                es: 'Expansión',                ru: 'Расширение' },
+  grpPiloto:       { pt: 'Piloto',                  en: 'Pilot',                    es: 'Piloto',                   ru: 'Пилот' },
+  // FASES
+  faseFase1:       { pt: 'Fase 1',                  en: 'Phase 1',                  es: 'Fase 1',                   ru: 'Этап 1' },
+  faseFase2:       { pt: 'Fase 2',                  en: 'Phase 2',                  es: 'Fase 2',                   ru: 'Этап 2' },
+  faseFase3:       { pt: 'Fase 3',                  en: 'Phase 3',                  es: 'Fase 3',                   ru: 'Этап 3' },
+  faseExpansao:    { pt: 'Expansão',                en: 'Expansion',                es: 'Expansión',                ru: 'Расширение' },
+  fasePiloto:      { pt: 'Piloto',                  en: 'Pilot',                    es: 'Piloto',                   ru: 'Пилот' },
+  faseConcluida:   { pt: 'Concluída',               en: 'Completed',                es: 'Completada',               ru: 'Завершено' },
+  // Importação KMZ
+  lendoArquivo:    { pt: '📂 Lendo arquivo...',     en: '📂 Reading file...',       es: '📂 Leyendo archivo...',    ru: '📂 Чтение файла...' },
+  semKml:          { pt: 'Nenhum .kml encontrado no KMZ', en: 'No .kml found in KMZ', es: 'No se encontró .kml en el KMZ', ru: 'В KMZ не найден .kml' },
+  kmzExtraido:     { pt: '✅ KMZ extraído: ',       en: '✅ KMZ extracted: ',       es: '✅ KMZ extraído: ',        ru: '✅ KMZ извлечён: ' },
+  kmlLido:         { pt: '✅ KML lido',             en: '✅ KML read',              es: '✅ KML leído',             ru: '✅ KML прочитан' },
+  zonasEncEsq1:    { pt: '📍 ',                     en: '📍 ',                      es: '📍 ',                      ru: '📍 ' },
+  zonasEncMeio:    { pt: ' zonas encontradas (',    en: ' zones found (',           es: ' zonas encontradas (',     ru: ' зон найдено (' },
+  zonasEncFim:     { pt: ' estações ignoradas)',    en: ' stations ignored)',       es: ' estaciones ignoradas)',   ru: ' станций пропущено)' },
+  zonaImportada:   { pt: 'Zona importada',          en: 'Imported zone',            es: 'Zona importada',           ru: 'Импортированная зона' },
+  pontos:          { pt: ' pontos)',                en: ' points)',                 es: ' puntos)',                 ru: ' точек)' },
+  importSucesso1:  { pt: '\n🎉 ',                   en: '\n🎉 ',                    es: '\n🎉 ',                    ru: '\n🎉 ' },
+  importSucesso2:  { pt: ' zonas importadas com sucesso!', en: ' zones imported successfully!', es: ' zonas importadas con éxito!', ru: ' зон успешно импортировано!' },
+  erro:            { pt: '❌ Erro: ',               en: '❌ Error: ',               es: '❌ Error: ',               ru: '❌ Ошибка: ' },
+  // Modo desenho
+  desenhePontos:   { pt: 'Desenhe pelo menos 3 pontos.', en: 'Draw at least 3 points.', es: 'Dibuja al menos 3 puntos.', ru: 'Нарисуйте не менее 3 точек.' },
+  // Salvar/excluir
+  excluirConfirm:  { pt: 'Excluir esta zona permanentemente?', en: 'Permanently delete this zone?', es: '¿Eliminar esta zona permanentemente?', ru: 'Удалить эту зону навсегда?' },
+  // Painel principal — header
+  zonasHdr:        { pt: 'Zonas — ',                en: 'Zones — ',                 es: 'Zonas — ',                 ru: 'Зоны — ' },
+  editarZona:      { pt: 'Editar zona',             en: 'Edit zone',                es: 'Editar zona',              ru: 'Изменить зону' },
+  novaZona:        { pt: 'Nova zona',               en: 'New zone',                 es: 'Nueva zona',               ru: 'Новая зона' },
+  voltar:          { pt: '← Voltar',                en: '← Back',                   es: '← Volver',                 ru: '← Назад' },
+  // Lista
+  phBuscar:        { pt: 'Buscar zona...',          en: 'Search zone...',           es: 'Buscar zona...',           ru: 'Поиск зоны...' },
+  fTodos:          { pt: 'Todos',                   en: 'All',                      es: 'Todos',                    ru: 'Все' },
+  fAtivos:         { pt: 'Ativos',                  en: 'Active',                   es: 'Activos',                  ru: 'Активные' },
+  fInativos:       { pt: 'Inativos',                en: 'Inactive',                 es: 'Inactivos',                ru: 'Неактивные' },
+  nenhumaZona:     { pt: 'Nenhuma zona encontrada', en: 'No zones found',           es: 'No se encontraron zonas',  ru: 'Зоны не найдены' },
+  semNome:         { pt: '(sem nome)',              en: '(no name)',                es: '(sin nombre)',             ru: '(без названия)' },
+  badgeInativa:    { pt: 'INATIVA',                 en: 'INACTIVE',                 es: 'INACTIVA',                 ru: 'НЕАКТИВНА' },
+  verticesLista:   { pt: ' vértices · P',           en: ' vertices · P',            es: ' vértices · P',            ru: ' вершин · P' },
+  importadoEm:     { pt: 'Importado',               en: 'Imported',                 es: 'Importado',                ru: 'Импортировано' },
+  criadoEm:        { pt: 'Criado',                  en: 'Created',                  es: 'Creado',                   ru: 'Создано' },
+  btnEditar:       { pt: '✏️ Editar',               en: '✏️ Edit',                  es: '✏️ Editar',                ru: '✏️ Изменить' },
+  btnVertices:     { pt: '⬡ Vértices',              en: '⬡ Vertices',               es: '⬡ Vértices',               ru: '⬡ Вершины' },
+  btnDesativar:    { pt: 'Desativar',               en: 'Deactivate',               es: 'Desactivar',               ru: 'Деактивировать' },
+  btnReativar:     { pt: 'Reativar',                en: 'Reactivate',               es: 'Reactivar',                ru: 'Реактивировать' },
+  pontosFechar:    { pt: ' pontos · Duplo clique para fechar', en: ' points · Double-click to close', es: ' puntos · Doble clic para cerrar', ru: ' точек · Двойной клик для закрытия' },
+  cancelarDesenho: { pt: 'Cancelar desenho',        en: 'Cancel drawing',           es: 'Cancelar dibujo',          ru: 'Отменить рисование' },
+  desenharNova:    { pt: '+ Desenhar nova zona',    en: '+ Draw new zone',          es: '+ Dibujar nueva zona',     ru: '+ Нарисовать новую зону' },
+  btnKmz:          { pt: '📂 KMZ',                  en: '📂 KMZ',                   es: '📂 KMZ',                   ru: '📂 KMZ' },
+  fecharLog:       { pt: 'Fechar log',              en: 'Close log',                es: 'Cerrar registro',          ru: 'Закрыть журнал' },
+  pontosDesenhados:{ pt: ' pontos desenhados',      en: ' points drawn',            es: ' puntos dibujados',        ru: ' точек нарисовано' },
+  excluirPerm:     { pt: '🗑 Excluir zona permanentemente', en: '🗑 Permanently delete zone', es: '🗑 Eliminar zona permanentemente', ru: '🗑 Удалить зону навсегда' },
+} satisfies Record<string, Tr>;
 
 interface Zona {
   id: string;
@@ -32,6 +123,23 @@ const CORES  = ['#2563eb','#16a34a','#dc2626','#d97706','#7c3aed','#0891b2','#be
 const FASES  = ['Fase 1','Fase 2','Fase 3','Expansão','Piloto','Concluída'];
 const GRUPOS = ['Geral','Prioritário','Secundário','Expansão','Piloto'];
 
+// Rótulos exibidos para os valores armazenados (NÃO alteram o valor gravado no Firestore).
+const GRUPO_LABEL: Record<string, Tr> = {
+  'Geral':       T.grpGeral,
+  'Prioritário': T.grpPrioritario,
+  'Secundário':  T.grpSecundario,
+  'Expansão':    T.grpExpansao,
+  'Piloto':      T.grpPiloto,
+};
+const FASE_LABEL: Record<string, Tr> = {
+  'Fase 1':    T.faseFase1,
+  'Fase 2':    T.faseFase2,
+  'Fase 3':    T.faseFase3,
+  'Expansão':  T.faseExpansao,
+  'Piloto':    T.fasePiloto,
+  'Concluída': T.faseConcluida,
+};
+
 // ── EDITOR DE VÉRTICES ───────────────────────────────────────────
 function EditorVertices({ zona, onSalvar, onCancelar, mapInstance }: {
   zona: Zona;
@@ -39,6 +147,9 @@ function EditorVertices({ zona, onSalvar, onCancelar, mapInstance }: {
   onCancelar: () => void;
   mapInstance: L.Map | null;
 }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
   const layerRef   = useRef<L.LayerGroup | null>(null);
   const polyRef    = useRef<L.Polygon | null>(null);
   const ptsRef     = useRef<[number,number][]>(zona.poligono.map(p => [p.lat, p.lng] as [number,number]));
@@ -110,7 +221,7 @@ function EditorVertices({ zona, onSalvar, onCancelar, mapInstance }: {
       const removeVertex = (e?: any) => {
         if (e?.originalEvent) { e.originalEvent.preventDefault(); e.originalEvent.stopPropagation(); }
         L.DomEvent.stopPropagation(e || {} as any);
-        if (ptsRef.current.length <= 3) { alert('Zona precisa de pelo menos 3 vértices'); return; }
+        if (ptsRef.current.length <= 3) { alert(pick(T.minVertices)); return; }
         ptsRef.current.splice(idx, 1);
         buildMarkers();
         updatePoly();
@@ -178,16 +289,16 @@ function EditorVertices({ zona, onSalvar, onCancelar, mapInstance }: {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 13, color: '#c084fc', fontWeight: 700 }}>✏️ {zona.nome}</div>
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,.45)', flex: 1 }}>
-          <b style={{ color: '#fff' }}>{count}</b> vértices ·
-          <span style={{ color: '#60a5fa' }}> Arraste</span> para mover ·
-          <span style={{ color: '#f87171' }}> 2× clique</span> para remover ·
-          <span style={{ color: '#6ee7b7' }}> Clique mapa</span> para adicionar
+          <b style={{ color: '#fff' }}>{count}</b> {pick(T.vertices)} ·
+          <span style={{ color: '#60a5fa' }}>{pick(T.arraste)}</span>{pick(T.paraMover)}
+          <span style={{ color: '#f87171' }}>{pick(T.doisCliques)}</span>{pick(T.paraRemover)}
+          <span style={{ color: '#6ee7b7' }}>{pick(T.cliqueMapa)}</span>{pick(T.paraAdicionar)}
         </div>
         <button onClick={onCancelar} style={{
           padding: '7px 14px', background: 'rgba(255,255,255,.06)',
           border: '1px solid rgba(255,255,255,.1)', borderRadius: 8,
           color: 'rgba(255,255,255,.5)', fontSize: 12, cursor: 'pointer'
-        }}>Cancelar</button>
+        }}>{pick(T.cancelar)}</button>
         <button disabled={busy || count < 3} onClick={async () => {
           setBusy(true);
           await onSalvar(ptsRef.current.map(([lat,lng]) => ({ lat, lng })));
@@ -197,7 +308,7 @@ function EditorVertices({ zona, onSalvar, onCancelar, mapInstance }: {
           background: busy || count < 3 ? 'rgba(168,85,247,.2)' : 'linear-gradient(135deg,#7c3aed,#a855f7)',
           border: 'none', borderRadius: 8, color: '#fff',
           fontSize: 12, fontWeight: 600, cursor: busy || count < 3 ? 'not-allowed' : 'pointer'
-        }}>{busy ? 'Salvando...' : 'Salvar'}</button>
+        }}>{busy ? pick(T.salvando) : pick(T.salvar)}</button>
       </div>
     </div>
   );
@@ -209,6 +320,9 @@ function ZonaForm({ zona, onSalvar, onFechar }: {
   onSalvar: (dados: Partial<Zona>) => Promise<void>;
   onFechar: () => void;
 }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
   const [nome,       setNome]       = useState(zona?.nome       || '');
   const [grupo,      setGrupo]      = useState(zona?.grupo      || 'Geral');
   const [fase,       setFase]       = useState(zona?.fase       || 'Fase 1');
@@ -226,24 +340,24 @@ function ZonaForm({ zona, onSalvar, onFechar }: {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div>
-        <label style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 5 }}>Nome da área *</label>
-        <input value={nome} onChange={e => setNome(e.target.value)} placeholder="ex: Centro Expandido" style={inp} />
+        <label style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 5 }}>{pick(T.lblNome)}</label>
+        <input value={nome} onChange={e => setNome(e.target.value)} placeholder={pick(T.phNome)} style={inp} />
       </div>
       <div style={{ display: 'flex', gap: 10 }}>
         <div style={{ flex: 1 }}>
-          <label style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 5 }}>Grupo</label>
+          <label style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 5 }}>{pick(T.lblGrupo)}</label>
           <select value={grupo} onChange={e => setGrupo(e.target.value)} style={{ ...inp, appearance: 'none' }}>
-            {GRUPOS.map(g => <option key={g} value={g}>{g}</option>)}
+            {GRUPOS.map(g => <option key={g} value={g}>{GRUPO_LABEL[g] ? pick(GRUPO_LABEL[g]) : g}</option>)}
           </select>
         </div>
         <div style={{ flex: 1 }}>
-          <label style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 5 }}>Prioridade</label>
+          <label style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 5 }}>{pick(T.lblPrioridade)}</label>
           <input type="number" min="1" max="10" value={prioridade}
             onChange={e => setPrioridade(e.target.value)} style={inp} />
         </div>
       </div>
       <div>
-        <label style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 5 }}>Fase</label>
+        <label style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 5 }}>{pick(T.lblFase)}</label>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {FASES.map(f => (
             <button key={f} onClick={() => setFase(f)} style={{
@@ -251,12 +365,12 @@ function ZonaForm({ zona, onSalvar, onFechar }: {
               background: fase === f ? 'rgba(192,132,252,.2)' : 'rgba(255,255,255,.04)',
               border: `1px solid ${fase === f ? 'rgba(192,132,252,.4)' : 'rgba(255,255,255,.08)'}`,
               color: fase === f ? '#c084fc' : 'rgba(255,255,255,.4)'
-            }}>{f}</button>
+            }}>{FASE_LABEL[f] ? pick(FASE_LABEL[f]) : f}</button>
           ))}
         </div>
       </div>
       <div>
-        <label style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 5 }}>Cor</label>
+        <label style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 5 }}>{pick(T.lblCor)}</label>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {CORES.map(c => (
             <button key={c} onClick={() => setCor(c)} style={{
@@ -268,13 +382,13 @@ function ZonaForm({ zona, onSalvar, onFechar }: {
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <label style={{ fontSize: 11, color: 'rgba(255,255,255,.4)' }}>Zona ativa</label>
+        <label style={{ fontSize: 11, color: 'rgba(255,255,255,.4)' }}>{pick(T.lblZonaAtiva)}</label>
         <button onClick={() => setAtivo(v => !v)} style={{
           padding: '5px 14px', borderRadius: 20, fontSize: 11, cursor: 'pointer',
           background: ativo ? 'rgba(16,185,129,.2)' : 'rgba(255,255,255,.04)',
           border: `1px solid ${ativo ? 'rgba(16,185,129,.4)' : 'rgba(255,255,255,.1)'}`,
           color: ativo ? '#6ee7b7' : 'rgba(255,255,255,.4)'
-        }}>{ativo ? 'Ativa' : 'Inativa'}</button>
+        }}>{ativo ? pick(T.ativa) : pick(T.inativa)}</button>
       </div>
       <button disabled={busy || !nome} onClick={async () => {
         setBusy(true);
@@ -285,12 +399,12 @@ function ZonaForm({ zona, onSalvar, onFechar }: {
         background: busy || !nome ? 'rgba(168,85,247,.2)' : 'linear-gradient(135deg,#7c3aed,#a855f7)',
         border: 'none', borderRadius: 10, color: '#fff',
         fontSize: 13, fontWeight: 600, cursor: busy || !nome ? 'not-allowed' : 'pointer'
-      }}>{busy ? 'Salvando...' : zona?.id ? 'Salvar alterações' : 'Criar zona'}</button>
+      }}>{busy ? pick(T.salvando) : zona?.id ? pick(T.salvarAlteracoes) : pick(T.criarZona)}</button>
 
       <button onClick={onFechar} style={{
         padding: 10, background: 'none', border: 'none',
         color: 'rgba(255,255,255,.3)', fontSize: 12, cursor: 'pointer'
-      }}>Cancelar</button>
+      }}>{pick(T.cancelar)}</button>
     </div>
   );
 }
@@ -299,6 +413,9 @@ function ZonaForm({ zona, onSalvar, onFechar }: {
 type Vista = 'lista' | 'form' | 'nova_form';
 
 export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMapRefresh }: Props) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Tr) => o[lang] ?? o.pt;
   const [zonas,        setZonas]        = useState<Zona[]>([]);
   const [vista,        setVista]        = useState<Vista>('lista');
   const [zonaAtiva,    setZonaAtiva]    = useState<Zona | null>(null);
@@ -316,6 +433,12 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
   // Firestore listener
   useEffect(() => {
     if (!cidade) return;
+    if (mapaProviderSupabase()) {
+      // Fase 2: zonas do Supabase (carga única; sem realtime no piloto).
+      let vivo = true;
+      carregarZonasSupabase([cidade]).then(rows => { if (vivo) setZonas(rows as Zona[]); }).catch(() => {});
+      return () => { vivo = false; };
+    }
     const q = query(collection(db, 'poligonos'), where('cidade', '==', cidade));
     return onSnapshot(q, snap => {
       setZonas(snap.docs.map(d => ({ id: d.id, ...d.data() } as Zona)));
@@ -325,7 +448,7 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
   // ── Importar KMZ/KML ─────────────────────────────────────────────────────
   const importarKMZ = async (file: File) => {
     setImportando(true);
-    setImportLog(['📂 Lendo arquivo...']);
+    setImportLog([pick(T.lendoArquivo)]);
     const log = (msg: string) => setImportLog(prev => [...prev, msg]);
 
     try {
@@ -335,12 +458,12 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
         // KMZ = ZIP com doc.kml dentro
         const zip = await JSZip.loadAsync(file);
         const kmlFile = Object.keys(zip.files).find(n => n.endsWith('.kml'));
-        if (!kmlFile) throw new Error('Nenhum .kml encontrado no KMZ');
+        if (!kmlFile) throw new Error(pick(T.semKml));
         kmlText = await zip.files[kmlFile].async('text');
-        log(`✅ KMZ extraído: ${kmlFile}`);
+        log(`${pick(T.kmzExtraido)}${kmlFile}`);
       } else {
         kmlText = await file.text();
-        log('✅ KML lido');
+        log(pick(T.kmlLido));
       }
 
       const parser = new DOMParser();
@@ -349,7 +472,7 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
       // Extrai só Placemarks com Polygon (ignora Points = estações)
       const placemarks = Array.from(doc.querySelectorAll('Placemark'));
       const zonasPMs   = placemarks.filter(pm => pm.querySelector('Polygon'));
-      log(`📍 ${zonasPMs.length} zonas encontradas (${placemarks.length - zonasPMs.length} estações ignoradas)`);
+      log(`${pick(T.zonasEncEsq1)}${zonasPMs.length}${pick(T.zonasEncMeio)}${placemarks.length - zonasPMs.length}${pick(T.zonasEncFim)}`);
 
       // Mapeia cores dos estilos
       const styles: Record<string, string> = {};
@@ -365,7 +488,7 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
 
       let criadas = 0;
       for (const pm of zonasPMs) {
-        const nome = pm.querySelector('name')?.textContent?.trim() ?? 'Zona importada';
+        const nome = pm.querySelector('name')?.textContent?.trim() ?? pick(T.zonaImportada);
         const styleUrl = pm.querySelector('styleUrl')?.textContent?.trim().replace('#','') ?? '';
         const cor = styles[styleUrl + '-normal'] ?? styles[styleUrl] ?? '#7c3aed';
 
@@ -395,14 +518,13 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
           importadoDe: file.name,
         });
         criadas++;
-        log(`  ✅ ${nome} (${pontos.length} pontos)`);
+        log(`  ✅ ${nome} (${pontos.length}${pick(T.pontos)}`);
       }
 
-      log(`
-🎉 ${criadas} zonas importadas com sucesso!`);
+      log(`${pick(T.importSucesso1)}${criadas}${pick(T.importSucesso2)}`);
       if (onMapRefresh) onMapRefresh();
     } catch (e: any) {
-      setImportLog(prev => [...prev, `❌ Erro: ${e.message}`]);
+      setImportLog(prev => [...prev, `${pick(T.erro)}${e.message}`]);
     } finally {
       setImportando(false);
     }
@@ -440,7 +562,7 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
 
     const onDblClick = (e: L.LeafletMouseEvent) => {
       e.originalEvent.preventDefault();
-      if (pts.length < 3) { alert('Desenhe pelo menos 3 pontos.'); return; }
+      if (pts.length < 3) { alert(pick(T.desenhePontos)); return; }
       setDesenhando(false);
       setVista('nova_form');
       map.off('click', onClick);
@@ -478,7 +600,7 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
   };
 
   const excluirZona = async (id: string) => {
-    if (!confirm('Excluir esta zona permanentemente?')) return;
+    if (!confirm(pick(T.excluirConfirm))) return;
     await deleteDoc(doc(db, 'poligonos', id));
     setVista('lista');
     setZonaAtiva(null);
@@ -528,10 +650,10 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
               background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)',
               borderRadius: 8, color: 'rgba(255,255,255,.6)', padding: '5px 10px',
               fontSize: 12, cursor: 'pointer'
-            }}>← Voltar</button>
+            }}>{pick(T.voltar)}</button>
           ) : null}
           <div style={{ fontSize: 14, fontWeight: 700, color: '#c084fc' }}>
-            {vista === 'lista' ? `Zonas — ${cidade}` : vista === 'form' ? 'Editar zona' : 'Nova zona'}
+            {vista === 'lista' ? `${pick(T.zonasHdr)}${cidade}` : vista === 'form' ? pick(T.editarZona) : pick(T.novaZona)}
           </div>
           <button onClick={onFechar} style={{
             marginLeft: 'auto', background: 'rgba(255,255,255,.06)',
@@ -546,7 +668,7 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
             {/* Controles */}
             <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,.06)', flexShrink: 0 }}>
               <input value={busca} onChange={e => setBusca(e.target.value)}
-                placeholder="Buscar zona..." style={{
+                placeholder={pick(T.phBuscar)} style={{
                   width: '100%', padding: '8px 12px', marginBottom: 8,
                   background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)',
                   borderRadius: 8, color: '#fff', fontSize: 12, outline: 'none', boxSizing: 'border-box'
@@ -558,7 +680,7 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
                     background: filtroAtivo === f ? 'rgba(192,132,252,.2)' : 'rgba(255,255,255,.04)',
                     border: `1px solid ${filtroAtivo === f ? 'rgba(192,132,252,.4)' : 'rgba(255,255,255,.08)'}`,
                     color: filtroAtivo === f ? '#c084fc' : 'rgba(255,255,255,.4)'
-                  }}>{f.charAt(0).toUpperCase() + f.slice(1)}</button>
+                  }}>{f === 'todos' ? pick(T.fTodos) : f === 'ativos' ? pick(T.fAtivos) : pick(T.fInativos)}</button>
                 ))}
               </div>
             </div>
@@ -567,7 +689,7 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
             <div style={{ flex: 1, overflowY: 'auto', padding: '8px 10px' }}>
               {zonasFiltradas.length === 0 && (
                 <div style={{ padding: 20, textAlign: 'center', color: 'rgba(255,255,255,.3)', fontSize: 13 }}>
-                  Nenhuma zona encontrada
+                  {pick(T.nenhumaZona)}
                 </div>
               )}
               {zonasFiltradas.map(z => (
@@ -580,21 +702,21 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                     <div style={{ width: 12, height: 12, borderRadius: 3, background: z.cor, flexShrink: 0 }} />
                     <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', flex: 1 }}>
-                      {z.nome || '(sem nome)'}
+                      {z.nome || pick(T.semNome)}
                     </div>
                     {!z.ativo && (
                       <span style={{ fontSize: 9, color: '#f87171', background: 'rgba(239,68,68,.1)',
                         border: '1px solid rgba(239,68,68,.2)', borderRadius: 4, padding: '1px 5px' }}>
-                        INATIVA
+                        {pick(T.badgeInativa)}
                       </span>
                     )}
                   </div>
                   <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', marginBottom: 4 }}>
-                    {z.grupo} · {z.fase} · {z.poligono?.length || 0} vértices · P{z.prioridade}
+                    {z.grupo && GRUPO_LABEL[z.grupo] ? pick(GRUPO_LABEL[z.grupo]) : z.grupo} · {z.fase && FASE_LABEL[z.fase] ? pick(FASE_LABEL[z.fase]) : z.fase} · {z.poligono?.length || 0}{pick(T.verticesLista)}{z.prioridade}
                   </div>
                   {(z.criadoEm || z.importadoEm) && (
                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,.25)', marginBottom: 8 }}>
-                      📅 {z.importadoEm ? 'Importado' : 'Criado'}: {(() => { try { const dt = z.importadoEm || (z.criadoEm?.toDate ? z.criadoEm.toDate() : new Date(z.criadoEm)); return new Date(dt).toLocaleDateString('pt-BR'); } catch { return '—'; } })()}
+                      📅 {z.importadoEm ? pick(T.importadoEm) : pick(T.criadoEm)}: {(() => { try { const dt = z.importadoEm || (z.criadoEm?.toDate ? z.criadoEm.toDate() : new Date(z.criadoEm)); return new Date(dt).toLocaleDateString('pt-BR'); } catch { return '—'; } })()}
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: 6 }}>
@@ -610,18 +732,18 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
                       flex: 1, padding: '6px', fontSize: 10, cursor: 'pointer',
                       background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.08)',
                       borderRadius: 6, color: 'rgba(255,255,255,.6)'
-                    }}>✏️ Editar</button>
+                    }}>{pick(T.btnEditar)}</button>
                     <button onClick={() => setEditVertices(z)} style={{
                       flex: 1, padding: '6px', fontSize: 10, cursor: 'pointer',
                       background: 'rgba(168,85,247,.1)', border: '1px solid rgba(168,85,247,.2)',
                       borderRadius: 6, color: '#c084fc'
-                    }}>⬡ Vértices</button>
+                    }}>{pick(T.btnVertices)}</button>
                     <button onClick={() => toggleAtivo(z)} style={{
                       flex: 1, padding: '6px', fontSize: 10, cursor: 'pointer',
                       background: z.ativo ? 'rgba(239,68,68,.08)' : 'rgba(16,185,129,.08)',
                       border: `1px solid ${z.ativo ? 'rgba(239,68,68,.2)' : 'rgba(16,185,129,.2)'}`,
                       borderRadius: 6, color: z.ativo ? '#f87171' : '#6ee7b7'
-                    }}>{z.ativo ? 'Desativar' : 'Reativar'}</button>
+                    }}>{z.ativo ? pick(T.btnDesativar) : pick(T.btnReativar)}</button>
                   </div>
                 </div>
               ))}
@@ -632,13 +754,13 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
               {desenhando ? (
                 <div style={{ textAlign: 'center' }}>
                   <div style={{ fontSize: 11, color: '#c084fc', marginBottom: 8 }}>
-                    {novosPontos.length} pontos · Duplo clique para fechar
+                    {novosPontos.length}{pick(T.pontosFechar)}
                   </div>
                   <button onClick={() => { setDesenhando(false); setNovosPontos([]); }} style={{
                     width: '100%', padding: 10,
                     background: 'rgba(239,68,68,.15)', border: '1px solid rgba(239,68,68,.3)',
                     borderRadius: 10, color: '#f87171', fontSize: 12, cursor: 'pointer'
-                  }}>Cancelar desenho</button>
+                  }}>{pick(T.cancelarDesenho)}</button>
                 </div>
               ) : (
                 <>
@@ -651,14 +773,14 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
                       background: 'linear-gradient(135deg,#7c3aed,#a855f7)',
                       border: 'none', borderRadius: 10, color: '#fff',
                       fontSize: 13, fontWeight: 600, cursor: 'pointer'
-                    }}>+ Desenhar nova zona</button>
+                    }}>{pick(T.desenharNova)}</button>
                     <button onClick={() => kmzInputRef.current?.click()} style={{
                       flex: 1, padding: 12,
                       background: 'rgba(168,85,247,.1)',
                       border: '1px solid rgba(168,85,247,.3)',
                       borderRadius: 10, color: '#c084fc',
                       fontSize: 11, fontWeight: 600, cursor: 'pointer'
-                    }}>📂 KMZ</button>
+                    }}>{pick(T.btnKmz)}</button>
                   </div>
                 </>
               )}
@@ -679,7 +801,7 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
                       marginTop: 6, width: '100%', padding: '5px',
                       background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.1)',
                       borderRadius: 6, color: 'rgba(255,255,255,.4)', fontSize: 10, cursor: 'pointer'
-                    }}>Fechar log</button>
+                    }}>{pick(T.fecharLog)}</button>
                   )}
                 </div>
               )}
@@ -696,7 +818,7 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
                 background: 'rgba(16,185,129,.08)', border: '1px solid rgba(16,185,129,.2)',
                 fontSize: 11, color: '#6ee7b7'
               }}>
-                {novosPontos.length} pontos desenhados
+                {novosPontos.length}{pick(T.pontosDesenhados)}
               </div>
             )}
             <ZonaForm
@@ -709,7 +831,7 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
                 width: '100%', marginTop: 12, padding: 10,
                 background: 'rgba(239,68,68,.1)', border: '1px solid rgba(239,68,68,.2)',
                 borderRadius: 10, color: '#f87171', fontSize: 12, cursor: 'pointer'
-              }}>🗑 Excluir zona permanentemente</button>
+              }}>{pick(T.excluirPerm)}</button>
             )}
           </div>
         )}

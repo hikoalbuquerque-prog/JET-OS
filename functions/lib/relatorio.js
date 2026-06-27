@@ -39,6 +39,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.gerarRelatorioGuard = gerarRelatorioGuard;
 exports.enviarRelatorioTelegram = enviarRelatorioTelegram;
 const admin = __importStar(require("firebase-admin"));
+const config_supabase_1 = require("./config-supabase");
+const supabase_rest_1 = require("./lib/supabase-rest");
 // ── TIPOS ──────────────────────────────────────────────────────────────────
 const REPORT_TR = {
     title_daily: { pt: '🛡 JET Guard — Relatório Diário', en: '🛡 JET Guard — Daily Report', es: '🛡 JET Guard — Informe Diario', ru: '🛡 JET Guard — Ежедневный отчёт' },
@@ -159,13 +161,19 @@ const PERDAS_ACUM = {
         { regiao: 'Norte', filial: 'Alagoas (Maceió)', resp: 'Diego Alves', patins: 0, bikes: 0, brpd: 0 },
     ],
 };
-// Busca dados dinâmicos (vand 24h, não enc. 24h, status) do Firestore (guard_config/controle_perdas)
+// Busca dados dinâmicos (vand 24h, não enc. 24h, status) do Supabase (app_settings/controle_perdas) c/ fallback Firestore
 async function buscarDadosDinamicosFiliais() {
     try {
-        const snap = await admin.firestore().collection('guard_config').doc('controle_perdas').get();
-        if (!snap.exists)
-            return {};
-        const filiais = snap.data()?.filiais || [];
+        // Supabase-first
+        const supa = await (0, config_supabase_1.getAppSetting)('controle_perdas');
+        let filiais = supa?.filiais ?? [];
+        // Fallback Firestore
+        if (filiais.length === 0) {
+            const snap = await admin.firestore().collection('guard_config').doc('controle_perdas').get();
+            if (!snap.exists)
+                return {};
+            filiais = snap.data()?.filiais || [];
+        }
         const mapa = {};
         filiais.forEach(f => {
             if (f.filial)
@@ -349,12 +357,35 @@ async function gerarRelatorioGuard(dataStr) {
     dataRef.setHours(0, 0, 0, 0);
     const dataFim = new Date(dataRef);
     dataFim.setHours(23, 59, 59, 999);
-    const snap = await db.collection('ocorrencias')
-        .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(dataRef))
-        .where('criadoEm', '<=', admin.firestore.Timestamp.fromDate(dataFim))
-        .orderBy('criadoEm', 'desc')
-        .get();
-    const docs = snap.docs.map(d => d.data());
+    // Supabase-first, Firestore fallback
+    let docs = [];
+    try {
+        const sbRows = await (0, supabase_rest_1.supabaseGet)('ocorrencias', `select=*&criado_em=gte.${dataRef.toISOString()}&criado_em=lte.${dataFim.toISOString()}&order=criado_em.desc`);
+        if (sbRows && sbRows.length > 0) {
+            docs = sbRows.map(r => ({
+                ...r,
+                criadoEm: r.criado_em ? new Date(r.criado_em) : null,
+                cidade_inicial: r.cidade ?? r.cidade_inicial,
+            }));
+        }
+        else {
+            const snap = await db.collection('ocorrencias')
+                .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(dataRef))
+                .where('criadoEm', '<=', admin.firestore.Timestamp.fromDate(dataFim))
+                .orderBy('criadoEm', 'desc')
+                .get();
+            docs = snap.docs.map(d => d.data());
+        }
+    }
+    catch (e) {
+        console.warn('[relatorio] Supabase ocorrencias falhou, usando Firestore:', e);
+        const snap = await db.collection('ocorrencias')
+            .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(dataRef))
+            .where('criadoEm', '<=', admin.firestore.Timestamp.fromDate(dataFim))
+            .orderBy('criadoEm', 'desc')
+            .get();
+        docs = snap.docs.map(d => d.data());
+    }
     const porTipo = {};
     const porStatus = {};
     const porCidade = {};
@@ -1610,6 +1641,16 @@ document.addEventListener('keydown', function(e) {
 // ── ENVIAR TELEGRAM ────────────────────────────────────────────────────────
 async function getTelegramConfigFromFirestore() {
     try {
+        // Supabase-first (app_settings/telegram)
+        const supa = await (0, config_supabase_1.getAppSetting)('telegram');
+        if (supa) {
+            const token = String(supa.bot_token || supa.botToken || '').trim();
+            const chatId = String(supa.chat_id || supa.chatId || supa.relatorios_chat_id || supa.relatoriosChatId || '').trim();
+            console.log('[telegram-cfg] Supabase app_settings/telegram → token:', token ? 'OK' : 'VAZIO', 'chatId:', chatId || 'VAZIO');
+            if (token && chatId)
+                return { token, chatId };
+        }
+        // Fallback Firestore: config/telegram
         const db = admin.firestore();
         const snap1 = await db.collection('config').doc('telegram').get();
         if (snap1.exists) {
@@ -1653,24 +1694,34 @@ async function enviarRelatorioTelegram(r, lang = 'pt') {
     const ini7d = new Date(agora.getTime() - 7 * 24 * 3600000);
     const iniMes = new Date(agora.getFullYear(), agora.getMonth(), 1);
     const iniAno = new Date(agora.getFullYear(), 0, 1);
-    const [snap24, snap7d, snapMes, snapAcum] = await Promise.all([
-        db.collection('ocorrencias')
-            .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(ini24))
-            .orderBy('criadoEm', 'desc').get(),
-        db.collection('ocorrencias')
-            .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(ini7d))
-            .orderBy('criadoEm', 'desc').get(),
-        db.collection('ocorrencias')
-            .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(iniMes))
-            .orderBy('criadoEm', 'desc').get(),
-        db.collection('ocorrencias')
-            .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(iniAno))
-            .orderBy('criadoEm', 'desc').get(),
+    const mapSbRows = (rows) => rows.map(r => ({
+        ...r,
+        id: r.id ?? r.uid,
+        criadoEm: r.criado_em ? new Date(r.criado_em) : null,
+        cidade_inicial: r.cidade ?? r.cidade_inicial,
+    }));
+    // Helper: Supabase-first query for ocorrencias >= date
+    async function queryOcorrencias(desde) {
+        try {
+            const sbRows = await (0, supabase_rest_1.supabaseGet)('ocorrencias', `select=*&criado_em=gte.${desde.toISOString()}&order=criado_em.desc`);
+            if (sbRows && sbRows.length > 0)
+                return mapSbRows(sbRows);
+        }
+        catch (e) {
+            console.warn('[relatorio-tg] Supabase ocorrencias falhou, usando Firestore:', e);
+        }
+        // Fallback Firestore
+        const snap = await db.collection('ocorrencias')
+            .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(desde))
+            .orderBy('criadoEm', 'desc').get();
+        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+    const [ocs24h, ocs7d, ocsMes, ocsAcum] = await Promise.all([
+        queryOcorrencias(ini24),
+        queryOcorrencias(ini7d),
+        queryOcorrencias(iniMes),
+        queryOcorrencias(iniAno),
     ]);
-    const ocs24h = snap24.docs.map(d => ({ id: d.id, ...d.data() }));
-    const ocs7d = snap7d.docs.map(d => ({ id: d.id, ...d.data() }));
-    const ocsMes = snapMes.docs.map(d => ({ id: d.id, ...d.data() }));
-    const ocsAcum = snapAcum.docs.map(d => ({ id: d.id, ...d.data() }));
     const mensagem = formatarMensagem(lang, r, ocs24h, ocs7d);
     const html = await gerarPdfHtml(r, ocs24h, ocs7d, ocsMes, ocsAcum, lang);
     const filename = `jet_guard_${r.data}.html`;

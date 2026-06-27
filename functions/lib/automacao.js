@@ -49,6 +49,7 @@ exports.gerarTarefasMonitor = exports.gerarSlotsAutomatico = exports.limpezaSnap
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
+const supabase_rest_1 = require("./lib/supabase-rest");
 const db = admin.firestore();
 const CITY_ID = '669f89ebd06775867c31b984';
 const GOJET_BASE = 'https://logistic.gojet.app/api/v0/urent';
@@ -127,14 +128,44 @@ function turnoAtual() {
 // ─── Core: gerar tarefas monitor ─────────────────────────────────────────────
 async function _gerarTarefasMonitor(parkings, turno) {
     const hoje = new Date().toISOString().slice(0, 10);
-    const estacoesSnap = await db.collection('estacoes')
-        .where('tipoMonitor', 'in', ['M1', 'M2', 'M3'])
-        .get();
-    if (estacoesSnap.empty)
+    // Supabase-first for estacoes
+    let estacoesData = [];
+    try {
+        const sbEstacoes = await (0, supabase_rest_1.supabaseGet)('estacoes', 'select=*&tipo_monitor=in.(M1,M2,M3)');
+        if (sbEstacoes && sbEstacoes.length > 0) {
+            estacoesData = sbEstacoes.map((r) => ({
+                id: r.id,
+                nome: r.nome,
+                codigo: r.codigo,
+                lat: r.lat,
+                lng: r.lng,
+                cidade: r.cidade,
+                pais: r.pais,
+                tipoMonitor: r.tipo_monitor,
+                monitorConfig: r.monitor_config ?? {},
+                gojetParkingId: r.gojet_parking_id,
+                endereco: r.endereco,
+            }));
+        }
+        else {
+            // Fallback Firestore
+            const estacoesSnap = await db.collection('estacoes').where('tipoMonitor', 'in', ['M1', 'M2', 'M3']).get();
+            if (estacoesSnap.empty)
+                return;
+            estacoesData = estacoesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+    }
+    catch (e) {
+        console.warn('[tarefasMonitor] Supabase estacoes falhou, fallback Firestore:', e);
+        const estacoesSnap = await db.collection('estacoes').where('tipoMonitor', 'in', ['M1', 'M2', 'M3']).get();
+        if (estacoesSnap.empty)
+            return;
+        estacoesData = estacoesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    }
+    if (estacoesData.length === 0)
         return;
     let criadas = 0;
-    for (const estDoc of estacoesSnap.docs) {
-        const est = { id: estDoc.id, ...estDoc.data() };
+    for (const est of estacoesData) {
         const monConfig = est.monitorConfig ?? {};
         // Encontra parking GoJet correspondente (por gojetParkingId ou proximidade)
         const parking = parkings.find((p) => p.id === est.gojetParkingId ||
@@ -232,38 +263,33 @@ async function _gerarTarefasMonitor(parkings, turno) {
     if (criadas > 0)
         console.log(`[tarefasMonitor] ${criadas} tarefas criadas`);
 }
-// ─── FUNCTION: gerarSlotsAgendado (todo dia 21h) ─────────────────────────────
-//
-// 🚫 DESLIGADO no cutover de Slots para o Supabase (17/06/2026). A geração de slots
-// agora roda no Supabase (Edge Function `gerar-slots` + pg_cron às 00:00 UTC = 21h SP),
-// e o app lê via VITE_ANALYTICS_PROVIDER=supabase. Manter este gerador ATIVO duplicaria
-// os slots nos dois sistemas. Mantido como no-op (em vez de remover o export) para um
-// redeploy parar a geração na hora, sem depender de `firebase functions:delete`.
-// _gerarSlots / gerarSlotsManualFn seguem disponíveis como fallback manual.
-// Para reativar: restaurar o corpo abaixo (e desligar o pg_cron no Supabase).
-exports.gerarSlotsAgendado = (0, scheduler_1.onSchedule)({
-    schedule: '0 21 * * *',
-    timeZone: 'America/Sao_Paulo',
-    region: 'southamerica-east1',
-    memory: '256MiB',
-}, async () => {
-    console.log('[gerarSlotsAgendado] DESLIGADO — geração migrada p/ Supabase (Edge Fn gerar-slots). No-op.');
-    return;
-    // --- corpo original (desativado no cutover) ---
-    // const cfgSnap = await db.collection('slot_config').doc('global').get();
-    // if (!cfgSnap.exists) return;
-    // const cfg = cfgSnap.data() as SlotConfigGlobal;
-    // const dados = await fetchGoJet();
-    // const statsZonas = dados ? calcularStatsZonas(dados.parkings) : {};
-    // await _gerarSlots(cfg, statsZonas);
+// DESATIVADO — geração de slots portada para Edge Function Supabase (gerar-slots).
+// Mantém export para não quebrar deploy, mas é no-op.
+exports.gerarSlotsAgendado = (0, scheduler_1.onSchedule)({ schedule: '0 21 * * *', timeZone: 'America/Sao_Paulo', memory: '256MiB', timeoutSeconds: 120, region: 'southamerica-east1', maxInstances: 10 }, async () => {
+    console.log('[gerarSlotsAgendado] no-op — portado para Edge Function Supabase');
 });
 // ─── Core: gerar slots ────────────────────────────────────────────────────────
 async function _gerarSlots(cfg, statsZonas) {
     const amanha = new Date();
     amanha.setDate(amanha.getDate() + 1);
     const dataStr = amanha.toISOString().slice(0, 10);
-    const overridesSnap = await db.collection('slot_config').doc('overrides').get();
-    const overrides = overridesSnap.exists ? overridesSnap.data() : {};
+    // Supabase-first for slot_config overrides
+    let overrides = {};
+    try {
+        const sbOverrides = await (0, supabase_rest_1.supabaseGetOne)('app_settings', 'select=valor&chave=eq.slot_config_overrides');
+        if (sbOverrides?.valor) {
+            overrides = sbOverrides.valor;
+        }
+        else {
+            const overridesSnap = await db.collection('slot_config').doc('overrides').get();
+            overrides = overridesSnap.exists ? overridesSnap.data() : {};
+        }
+    }
+    catch (e) {
+        console.warn('[gerarSlots] Supabase overrides falhou, fallback Firestore:', e);
+        const overridesSnap = await db.collection('slot_config').doc('overrides').get();
+        overrides = overridesSnap.exists ? overridesSnap.data() : {};
+    }
     const turnoMap = {
         T0: { inicio: '23:00', fim: '07:00' },
         T1: { inicio: '10:00', fim: '15:00' },
@@ -299,14 +325,19 @@ async function _gerarSlots(cfg, statsZonas) {
         }
         try {
             for (let i = 0; i < vagas; i++) {
+                const [yyyy, mm, dd] = dataStr.split('-');
                 await db.collection('slots').add({
                     titulo: `${zonaCfg.cargo === 'charger' ? 'Charger' : 'Scalt'} — ${zonaCfg.zona} ${zonaCfg.turno}`,
                     cargo: zonaCfg.cargo,
-                    cidade: cfg.cidade,
+                    cidade: zonaCfg.cidade || cfg.cidade,
                     pais: cfg.pais,
                     turnoInicio: inicio,
                     turnoFim: fim,
+                    dataSlot: `${dd}/${mm}/${yyyy}`,
+                    turno: zonaCfg.turno,
+                    tipo: zonaCfg.cargo === 'charger' ? 'Charger' : 'Scalt',
                     status: 'aberto',
+                    qtdPessoas: 1,
                     criadoPor: 'scheduler',
                     aceitoPor: null,
                     tarefasIds: [],
@@ -336,6 +367,7 @@ exports.limpezaSnapshots = (0, scheduler_1.onSchedule)({
     schedule: '0 3 * * *',
     timeZone: 'America/Sao_Paulo',
     region: 'southamerica-east1',
+    maxInstances: 10,
 }, async () => {
     const limite = new Date();
     limite.setDate(limite.getDate() - 7);
@@ -354,12 +386,25 @@ exports.limpezaSnapshots = (0, scheduler_1.onSchedule)({
 // ─── FUNCTION: gerarSlotsAutomatico (webhook manual/seguro) ──────────────────
 exports.gerarSlotsAutomatico = (0, https_1.onRequest)(async (req, res) => {
     const secret = req.headers['x-n8n-secret'];
-    const cfgSnap = await db.collection('slot_config').doc('global').get();
-    if (!cfgSnap.exists) {
-        res.status(400).json({ erro: 'sem config' });
-        return;
+    // Supabase-first for slot_config global
+    let cfg = null;
+    try {
+        const sbCfg = await (0, supabase_rest_1.supabaseGetOne)('app_settings', 'select=valor&chave=eq.slot_config_global');
+        if (sbCfg?.valor) {
+            cfg = sbCfg.valor;
+        }
     }
-    const cfg = cfgSnap.data();
+    catch (e) {
+        console.warn('[gerarSlotsAutomatico] Supabase cfg falhou, fallback Firestore:', e);
+    }
+    if (!cfg) {
+        const cfgSnap = await db.collection('slot_config').doc('global').get();
+        if (!cfgSnap.exists) {
+            res.status(400).json({ erro: 'sem config' });
+            return;
+        }
+        cfg = cfgSnap.data();
+    }
     if (secret !== cfg.webhookSecret) {
         res.status(401).json({ erro: 'não autorizado' });
         return;
@@ -372,12 +417,25 @@ exports.gerarSlotsAutomatico = (0, https_1.onRequest)(async (req, res) => {
 // ─── FUNCTION: gerarTarefasMonitor (webhook manual/teste) ────────────────────
 exports.gerarTarefasMonitor = (0, https_1.onRequest)(async (req, res) => {
     const secret = req.headers['x-n8n-secret'];
-    const cfgSnap = await db.collection('slot_config').doc('global').get();
-    if (!cfgSnap.exists) {
-        res.status(400).json({ erro: 'sem config' });
-        return;
+    // Supabase-first for slot_config global
+    let cfg = null;
+    try {
+        const sbCfg = await (0, supabase_rest_1.supabaseGetOne)('app_settings', 'select=valor&chave=eq.slot_config_global');
+        if (sbCfg?.valor) {
+            cfg = sbCfg.valor;
+        }
     }
-    const cfg = cfgSnap.data();
+    catch (e) {
+        console.warn('[gerarTarefasMonitor] Supabase cfg falhou, fallback Firestore:', e);
+    }
+    if (!cfg) {
+        const cfgSnap = await db.collection('slot_config').doc('global').get();
+        if (!cfgSnap.exists) {
+            res.status(400).json({ erro: 'sem config' });
+            return;
+        }
+        cfg = cfgSnap.data();
+    }
     if (secret !== cfg.webhookSecret) {
         res.status(401).json({ erro: 'não autorizado' });
         return;

@@ -5,11 +5,23 @@ import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where } 
 import { db } from '../lib/firebase';
 import L from 'leaflet';
 import { uploadComRetry } from '../lib/uploadUtils';
+import { comprimirImagem } from '../lib/imageUtils';
 import { fnGeocodeForward } from '../lib/firebase';
 import i18n from '../i18n/index';
 import type { Estacao } from '../lib/app-utils';
 import { POIPanel } from './POIPanel';
 import type { POI } from './POIPanel';
+import { supabase } from '../lib/supabase';
+
+// Flag dual-run para zonas (poligonos): localStorage.setItem('jet_zonas_provider','supabase')
+const zonasProviderSupabase = (): boolean => {
+  try {
+    const v = localStorage.getItem('jet_zonas_provider');
+    if (v === 'supabase') return true;
+    if (v === 'firebase') return false;
+  } catch {}
+  return (import.meta.env.VITE_ZONAS_PROVIDER as string) !== 'firebase';
+};
 
 export function PadAssinatura({ onSalvar, onCancelar }: {
   onSalvar: (dataUrl: string) => void;
@@ -125,16 +137,23 @@ export function FotoBotaoDrawer({ lat, lng, onFotoSalva }: {
     }
   };
 
-  // Lê arquivo e converte para base64 imediatamente — antes de qualquer upload
-  const processarArquivo = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = reader.result as string;
-      // Mostrar preview com opção de medir ou salvar direto
-      setPreview({ base64, file });
-    };
-    reader.onerror = () => alert('Erro ao ler foto. Tente novamente.');
-    reader.readAsDataURL(file);
+  // Comprime (HEIC-safe) e converte para base64 — antes de qualquer upload.
+  // Converte HEIC→JPEG antes de comprimir, evitando o bug de foto "quebrada"
+  // (HEIC enviado como .jpg que o WebView não renderiza). Ver lib/imageUtils.
+  const processarArquivo = async (file: File) => {
+    try {
+      const compressed = await comprimirImagem(file);
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = reader.result as string;
+        setPreview({ base64, file: compressed });
+      };
+      reader.onerror = () => alert('Erro ao ler foto. Tente novamente.');
+      reader.readAsDataURL(compressed);
+    } catch (err) {
+      console.error('[FotoBotao] compressão falhou:', err);
+      alert('Erro ao processar foto. Tente novamente.');
+    }
   };
 
   const btn: React.CSSProperties = {
@@ -1301,9 +1320,37 @@ type Tela = 'loading' | 'login' | 'mapa' | 'guard' | 'trocar-senha' | 'prestador
 
 // ── EXPORT ZONAS ─────────────────────────────────────────────────
 export async function exportarZonas(cidade: string, pais: string, formato: 'geojson' | 'csv' | 'wkt', db: any) {
-  const { getDocs, collection, query, where } = await import('firebase/firestore');
-  const snap = await getDocs(query(collection(db, 'poligonos'), where('cidade', 'in', [cidade])));
-  const zonas = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+  let zonas: any[];
+
+  if (zonasProviderSupabase()) {
+    // ── Supabase: lê da view zonas_geo ──
+    const { data, error } = await supabase
+      .from('zonas_geo')
+      .select('*')
+      .eq('cidade', cidade);
+    if (error) throw error;
+    zonas = (data ?? []).map((r: any) => {
+      // Converte GeoJSON string → array [{lat,lng}]
+      let poligono: any[] = [];
+      try {
+        const geo = typeof r.geojson === 'string' ? JSON.parse(r.geojson) : r.geojson;
+        if (geo?.coordinates?.[0]) {
+          poligono = geo.coordinates[0].map((c: number[]) => ({ lat: c[1], lng: c[0] }));
+        }
+      } catch {}
+      return {
+        id: r.firebase_id ?? r.id,
+        nome: r.nome, grupo: r.grupo, fase: r.fase, cor: r.cor,
+        ativo: r.ativo, criadoEm: r.criado_em, importadoEm: null,
+        poligono,
+      };
+    });
+  } else {
+    // ── Firestore (fallback) ──
+    const { getDocs, collection, query, where } = await import('firebase/firestore');
+    const snap = await getDocs(query(collection(db, 'poligonos'), where('cidade', 'in', [cidade])));
+    zonas = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
+  }
 
   let conteudo = '', nomeArquivo = '', tipo = '';
 

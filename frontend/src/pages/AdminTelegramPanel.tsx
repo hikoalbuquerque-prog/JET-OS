@@ -1,8 +1,35 @@
 // src/pages/AdminTelegramPanel.tsx
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { collection, getDocs, doc, updateDoc, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { usuariosReadSupabase, fetchUsuarios } from '../lib/usuarios-supabase';
 import toast from 'react-hot-toast';
+
+// i18n: padrão do TermosUsoGate — texto definido em objeto { pt, en, es, ru }
+// e selecionado pelo idioma atual (sem chaves json). PT é a fonte fiel.
+const T = {
+  title:           { pt: 'Admin Telegram', en: 'Telegram Admin', es: 'Admin Telegram', ru: 'Администрирование Telegram' },
+  subtitle:        { pt: 'Gerenciar grupos e gestores', en: 'Manage groups and managers', es: 'Gestionar grupos y gestores', ru: 'Управление группами и менеджерами' },
+  tabGrupos:       { pt: 'Grupos Telegram', en: 'Telegram Groups', es: 'Grupos de Telegram', ru: 'Группы Telegram' },
+  tabGestores:     { pt: 'Gestores', en: 'Managers', es: 'Gestores', ru: 'Менеджеры' },
+  loading:         { pt: 'Carregando...', en: 'Loading...', es: 'Cargando...', ru: 'Загрузка...' },
+  totalGrupos:     { pt: 'Total: {n} grupos', en: 'Total: {n} groups', es: 'Total: {n} grupos', ru: 'Всего: {n} групп' },
+  totalGestores:   { pt: 'Total: {n} gestores', en: 'Total: {n} managers', es: 'Total: {n} gestores', ru: 'Всего: {n} менеджеров' },
+  semGrupo:        { pt: 'Nenhum grupo cadastrado', en: 'No groups registered', es: 'Ningún grupo registrado', ru: 'Нет зарегистрированных групп' },
+  semGestor:       { pt: 'Nenhum gestor cadastrado', en: 'No managers registered', es: 'Ningún gestor registrado', ru: 'Нет зарегистрированных менеджеров' },
+  labelId:         { pt: 'ID', en: 'ID', es: 'ID', ru: 'ID' },
+  labelTipo:       { pt: 'Tipo', en: 'Type', es: 'Tipo', ru: 'Тип' },
+  labelEmail:      { pt: 'Email', en: 'Email', es: 'Correo', ru: 'Эл. почта' },
+  labelTelegramId: { pt: 'Telegram ID', en: 'Telegram ID', es: 'ID de Telegram', ru: 'Telegram ID' },
+  labelZona:       { pt: 'Zona', en: 'Zone', es: 'Zona', ru: 'Зона' },
+  ativo:           { pt: 'Ativo', en: 'Active', es: 'Activo', ru: 'Активен' },
+  inativo:         { pt: 'Inativo', en: 'Inactive', es: 'Inactivo', ru: 'Неактивен' },
+  footer:          { pt: 'Admin Panel - Gerenciar Telegram e Gestores', en: 'Admin Panel - Manage Telegram and Managers', es: 'Panel de Administración - Gestionar Telegram y Gestores', ru: 'Панель администратора — управление Telegram и менеджерами' },
+  toastGrupoOk:    { pt: 'Grupo atualizado', en: 'Group updated', es: 'Grupo actualizado', ru: 'Группа обновлена' },
+  toastErroLoad:   { pt: 'Erro ao carregar dados', en: 'Error loading data', es: 'Error al cargar los datos', ru: 'Ошибка загрузки данных' },
+  toastErroGrupo:  { pt: 'Erro ao atualizar grupo', en: 'Error updating group', es: 'Error al actualizar el grupo', ru: 'Ошибка обновления группы' },
+};
 
 interface GrupoTelegram {
   id: string;
@@ -24,6 +51,10 @@ interface GestorInfo {
 }
 
 export default function AdminTelegramPanel() {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
+  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
+
   const [grupos, setGrupos] = useState<GrupoTelegram[]>([]);
   const [gestores, setGestores] = useState<GestorInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,17 +77,22 @@ export default function AdminTelegramPanel() {
       setGrupos(gruposData);
 
       // Carregar gestores
-      const gestoresSnap = await getDocs(
-        query(collection(db, 'usuarios'), where('role', 'in', ['gestor', 'admin']))
-      );
-      const gestoresData: GestorInfo[] = [];
-      gestoresSnap.forEach((doc) => {
-        gestoresData.push({ id: doc.id, ...doc.data() } as GestorInfo);
-      });
-      setGestores(gestoresData);
+      if (usuariosReadSupabase()) {
+        const gestoresData = await fetchUsuarios({ role_in: ['gestor', 'admin'] });
+        setGestores(gestoresData.map(g => ({ ...g, id: g.uid })) as GestorInfo[]);
+      } else {
+        const gestoresSnap = await getDocs(
+          query(collection(db, 'usuarios'), where('role', 'in', ['gestor', 'admin']))
+        );
+        const gestoresData: GestorInfo[] = [];
+        gestoresSnap.forEach((doc) => {
+          gestoresData.push({ id: doc.id, ...doc.data() } as GestorInfo);
+        });
+        setGestores(gestoresData);
+      }
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
-      toast.error('Erro ao carregar dados');
+      toast.error(pick(T.toastErroLoad));
     } finally {
       setLoading(false);
     }
@@ -70,10 +106,10 @@ export default function AdminTelegramPanel() {
       setGrupos(
         grupos.map((g) => (g.id === grupoId ? { ...g, ativo: !g.ativo } : g))
       );
-      toast.success('Grupo atualizado');
+      toast.success(pick(T.toastGrupoOk));
     } catch (error) {
       console.error('Erro:', error);
-      toast.error('Erro ao atualizar grupo');
+      toast.error(pick(T.toastErroGrupo));
     }
   };
 
@@ -82,8 +118,8 @@ export default function AdminTelegramPanel() {
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">Admin Telegram</h1>
-          <p className="text-slate-400">Gerenciar grupos e gestores</p>
+          <h1 className="text-3xl font-bold text-white mb-2">{pick(T.title)}</h1>
+          <p className="text-slate-400">{pick(T.subtitle)}</p>
         </div>
 
         {/* Tabs */}
@@ -96,7 +132,7 @@ export default function AdminTelegramPanel() {
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Grupos Telegram
+            {pick(T.tabGrupos)}
           </button>
           <button
             onClick={() => setActiveTab('gestores')}
@@ -106,24 +142,24 @@ export default function AdminTelegramPanel() {
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Gestores
+            {pick(T.tabGestores)}
           </button>
         </div>
 
         {/* Loading */}
         {loading ? (
-          <div className="text-center text-slate-400">Carregando...</div>
+          <div className="text-center text-slate-400">{pick(T.loading)}</div>
         ) : (
           <>
             {/* Grupos Tab */}
             {activeTab === 'grupos' && (
               <div className="space-y-4">
                 <div className="text-sm text-slate-400 mb-4">
-                  Total: {grupos.length} grupos
+                  {pick(T.totalGrupos).replace('{n}', String(grupos.length))}
                 </div>
                 {grupos.length === 0 ? (
                   <div className="text-center text-slate-500 py-8">
-                    Nenhum grupo cadastrado
+                    {pick(T.semGrupo)}
                   </div>
                 ) : (
                   <div className="grid gap-4">
@@ -138,10 +174,10 @@ export default function AdminTelegramPanel() {
                               {grupo.nome}
                             </h3>
                             <p className="text-slate-400 text-sm mt-1">
-                              ID: {grupo.chatId}
+                              {pick(T.labelId)}: {grupo.chatId}
                             </p>
                             <p className="text-slate-400 text-sm">
-                              Tipo: {grupo.tipo}
+                              {pick(T.labelTipo)}: {grupo.tipo}
                             </p>
                           </div>
                           <button
@@ -154,7 +190,7 @@ export default function AdminTelegramPanel() {
                                 : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
                             }`}
                           >
-                            {grupo.ativo ? 'Ativo' : 'Inativo'}
+                            {grupo.ativo ? pick(T.ativo) : pick(T.inativo)}
                           </button>
                         </div>
                       </div>
@@ -168,11 +204,11 @@ export default function AdminTelegramPanel() {
             {activeTab === 'gestores' && (
               <div className="space-y-4">
                 <div className="text-sm text-slate-400 mb-4">
-                  Total: {gestores.length} gestores
+                  {pick(T.totalGestores).replace('{n}', String(gestores.length))}
                 </div>
                 {gestores.length === 0 ? (
                   <div className="text-center text-slate-500 py-8">
-                    Nenhum gestor cadastrado
+                    {pick(T.semGestor)}
                   </div>
                 ) : (
                   <div className="grid gap-4">
@@ -187,10 +223,10 @@ export default function AdminTelegramPanel() {
                               {gestor.nome}
                             </h3>
                             <p className="text-slate-400 text-sm mt-1">
-                              Email: {gestor.email}
+                              {pick(T.labelEmail)}: {gestor.email}
                             </p>
                             <p className="text-slate-400 text-sm">
-                              Telegram ID: {gestor.telegramId}
+                              {pick(T.labelTelegramId)}: {gestor.telegramId}
                             </p>
                             {gestor.telegramUsername && (
                               <p className="text-slate-400 text-sm">
@@ -199,7 +235,7 @@ export default function AdminTelegramPanel() {
                             )}
                             {gestor.zona && (
                               <p className="text-slate-400 text-sm">
-                                Zona: {gestor.zona}
+                                {pick(T.labelZona)}: {gestor.zona}
                               </p>
                             )}
                           </div>
@@ -210,7 +246,7 @@ export default function AdminTelegramPanel() {
                                 : 'bg-red-600 text-white'
                             }`}
                           >
-                            {gestor.ativo ? 'Ativo' : 'Inativo'}
+                            {gestor.ativo ? pick(T.ativo) : pick(T.inativo)}
                           </div>
                         </div>
                       </div>
@@ -224,7 +260,7 @@ export default function AdminTelegramPanel() {
 
         {/* Footer */}
         <div className="mt-8 text-center text-slate-500 text-sm">
-          <p>Admin Panel - Gerenciar Telegram e Gestores</p>
+          <p>{pick(T.footer)}</p>
         </div>
       </div>
     </div>

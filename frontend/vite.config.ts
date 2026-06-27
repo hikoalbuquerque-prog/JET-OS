@@ -103,6 +103,15 @@ export default defineConfig({
               expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 7 },
             },
           },
+          {
+            urlPattern: /^https:\/\/.*\.supabase\.co\/rest\/v1\/.*/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'supabase-api',
+              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 },
+              networkTimeoutSeconds: 5,
+            },
+          },
         ],
         navigateFallbackDenylist: [
           /^\/api\//,
@@ -125,6 +134,26 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react-dom') || id.includes('react-router-dom'))
+              return 'vendor-react';
+            if (id.includes('firebase/'))
+              return 'vendor-firebase';
+            if (id.includes('@supabase/'))
+              return 'vendor-supabase';
+            if (id.includes('maplibre-gl'))
+              return 'vendor-map';
+            if (id.includes('deck.gl') || id.includes('@deck.gl'))
+              return 'vendor-deckgl';
+            if (id.includes('heic2any'))
+              return 'heic2any';
+          }
+        },
+      },
+    },
   },
   test: {
     environment: 'node',

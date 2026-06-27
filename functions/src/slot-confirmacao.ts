@@ -11,6 +11,8 @@
 
 import * as functions from 'firebase-functions/v2';
 import * as admin from 'firebase-admin';
+import { supabaseGet, supabaseGetOne } from './lib/supabase-rest';
+import { getAppSetting } from './config-supabase';
 
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
@@ -66,11 +68,31 @@ async function enviarTelegram(
 async function getTelegramConfig(cidade: string): Promise<{
   token: string; chatId: string; threadId?: number;
 } | null> {
+  // Supabase-first: telegram_config
+  try {
+    const sbGlobal = await supabaseGetOne<any>('telegram_config', 'select=*&id=eq.global');
+    if (sbGlobal?.bot_token) {
+      const token = String(sbGlobal.bot_token).trim();
+      // Try city-specific config
+      const cidades = sbGlobal.cidades ?? {};
+      const cidadeCfg = cidades[cidade]?.grupos?.logistica;
+      if (cidadeCfg?.chatId) {
+        const threadId = cidadeCfg.topicos?.alertas || cidadeCfg.topicos?.charger;
+        return { token, chatId: cidadeCfg.chatId, threadId: threadId ? Number(threadId) : undefined };
+      }
+      // Try config_logistica from app_settings
+      const cfgLog = await getAppSetting<any>('config_logistica_' + cidade);
+      if (cfgLog?.telegramChatId) {
+        return { token, chatId: cfgLog.telegramChatId, threadId: cfgLog.telegramThreadId ? Number(cfgLog.telegramThreadId) : undefined };
+      }
+    }
+  } catch { /* fallback */ }
+
+  // Fallback Firestore
   const globalDoc = await db.doc('telegram_config/global').get();
   const token: string = globalDoc.exists ? globalDoc.data()?.botToken || '' : '';
   if (!token) return null;
 
-  // Tenta config por cidade primeiro, depois global
   const cidadesDoc = await db.doc('telegram_config/cidades').get();
   if (cidadesDoc.exists) {
     const data = cidadesDoc.data() || {};
@@ -81,7 +103,6 @@ async function getTelegramConfig(cidade: string): Promise<{
     }
   }
 
-  // Fallback: config_logistica/{cidade}
   const cfgDoc = await db.doc(`config_logistica/${cidade}`).get();
   if (cfgDoc.exists) {
     const cfg = cfgDoc.data();
@@ -100,20 +121,35 @@ async function getTelegramConfig(cidade: string): Promise<{
 // ─── Função principal: roda a cada 5 minutos ──────────────────────────────────
 
 export const verificarConfirmacoesSlots = functions.scheduler.onSchedule(
-  { schedule: 'every 5 minutes', region: 'southamerica-east1', timeoutSeconds: 120 },
+  { schedule: 'every 5 minutes', region: 'southamerica-east1', timeoutSeconds: 120, maxInstances: 10 },
   async () => {
     const agora = new Date();
     const hoje  = agora.toLocaleDateString('pt-BR');
     const amanha = new Date(agora.getTime() + 86400000).toLocaleDateString('pt-BR');
 
-    // Buscar slots de hoje e amanhã que estão abertos
-    const slotsSnap = await db.collection('slots')
-      .where('dataSlot', 'in', [hoje, amanha])
-      .get();
+    // Supabase-first: slots
+    let slots: Slot[] = [];
+    try {
+      const sbSlots = await supabaseGet<any>('slots', `select=*&data_slot=in.(${encodeURIComponent(hoje)},${encodeURIComponent(amanha)})`);
+      if (sbSlots && sbSlots.length > 0) {
+        slots = sbSlots.map(r => ({
+          id: r.id,
+          turno: r.turno, horaIni: r.hora_ini, horaFim: r.hora_fim,
+          zona: r.zona, tipo: r.tipo, qtdPessoas: r.qtd_pessoas, dataSlot: r.data_slot,
+          cidade: r.cidade, confirmacaoMin: r.confirmacao_min, reaberturaSemConfMin: r.reabertura_sem_conf_min,
+          status: r.status,
+        }));
+      }
+    } catch { /* fallback */ }
 
-    if (slotsSnap.empty) return;
-
-    const slots = slotsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Slot));
+    if (slots.length === 0) {
+      // Fallback Firestore
+      const slotsSnap = await db.collection('slots')
+        .where('dataSlot', 'in', [hoje, amanha])
+        .get();
+      if (slotsSnap.empty) return;
+      slots = slotsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Slot));
+    }
 
     for (const slot of slots) {
       try {
@@ -137,15 +173,29 @@ async function processarSlot(slot: Slot, agora: Date): Promise<void> {
   const reabrMin   = slot.reaberturaSemConfMin ?? 90;
   const urgMin     = Math.floor(reabrMin / 1.5); // ~60min
 
-  // Buscar aceites pendentes deste slot
-  const aceitesSnap = await db.collection('slot_aceites')
-    .where('slotId', '==', slot.id)
-    .where('status', 'in', ['Pendente', 'Confirmado'])
-    .get();
+  // Supabase-first: slot_aceites
+  let aceites: SlotAceite[] = [];
+  try {
+    const sbAceites = await supabaseGet<any>('slot_aceites', `select=*&slot_id=eq.${encodeURIComponent(slot.id)}&status=in.(Pendente,Confirmado)`);
+    if (sbAceites && sbAceites.length > 0) {
+      aceites = sbAceites.map(r => ({
+        id: r.id, slotId: r.slot_id, nome: r.nome, cnpj: r.cnpj, status: r.status,
+        telegramChatId: r.telegram_chat_id, aceitoEm: r.aceito_em,
+      }));
+    }
+  } catch { /* fallback */ }
 
-  if (aceitesSnap.empty) return;
+  if (aceites.length === 0) {
+    // Fallback Firestore
+    const aceitesSnap = await db.collection('slot_aceites')
+      .where('slotId', '==', slot.id)
+      .where('status', 'in', ['Pendente', 'Confirmado'])
+      .get();
+    if (aceitesSnap.empty) return;
+    aceites = aceitesSnap.docs.map(d => ({ id: d.id, ...d.data() } as SlotAceite));
+  }
 
-  const aceites = aceitesSnap.docs.map(d => ({ id: d.id, ...d.data() } as SlotAceite));
+  if (aceites.length === 0) return;
   const pendentes = aceites.filter(a => a.status === 'Pendente');
   const tgCfg = await getTelegramConfig(slot.cidade || 'SP');
 
@@ -288,19 +338,45 @@ function buildMsgUrgente(slot: Slot, naoConfirmaram: SlotAceite[], vagas: number
 // ─── Callable para gestores enviarem confirmações manualmente ─────────────────
 
 export const enviarConfirmacoesManual = functions.https.onCall(
-  { region: 'southamerica-east1' },
+  { region: 'southamerica-east1', maxInstances: 10 },
   async (request) => {
     const { slotId, cidade } = request.data as { slotId: string; cidade: string };
 
-    const [slotDoc, aceitesSnap] = await Promise.all([
-      db.doc(`slots/${slotId}`).get(),
-      db.collection('slot_aceites').where('slotId', '==', slotId).where('status', '==', 'Pendente').get(),
-    ]);
+    // Supabase-first: slot + aceites
+    let slot: Slot | null = null;
+    let aceites: SlotAceite[] = [];
 
-    if (!slotDoc.exists) return { ok: false, erro: 'Slot não encontrado' };
+    try {
+      const sbSlot = await supabaseGetOne<any>('slots', `select=*&id=eq.${encodeURIComponent(slotId)}`);
+      if (sbSlot) {
+        slot = {
+          id: sbSlot.id, turno: sbSlot.turno, horaIni: sbSlot.hora_ini, horaFim: sbSlot.hora_fim,
+          zona: sbSlot.zona, tipo: sbSlot.tipo, qtdPessoas: sbSlot.qtd_pessoas, dataSlot: sbSlot.data_slot,
+          cidade: sbSlot.cidade, confirmacaoMin: sbSlot.confirmacao_min, reaberturaSemConfMin: sbSlot.reabertura_sem_conf_min,
+          status: sbSlot.status,
+        };
+      }
+      const sbAceites = await supabaseGet<any>('slot_aceites', `select=*&slot_id=eq.${encodeURIComponent(slotId)}&status=eq.Pendente`);
+      if (sbAceites && sbAceites.length > 0) {
+        aceites = sbAceites.map(r => ({
+          id: r.id, slotId: r.slot_id, nome: r.nome, cnpj: r.cnpj, status: r.status,
+          telegramChatId: r.telegram_chat_id, aceitoEm: r.aceito_em,
+        }));
+      }
+    } catch { /* fallback */ }
 
-    const slot = { id: slotId, ...slotDoc.data() } as Slot;
-    const aceites = aceitesSnap.docs.map(d => ({ id: d.id, ...d.data() } as SlotAceite));
+    if (!slot) {
+      // Fallback Firestore
+      const slotDoc = await db.doc(`slots/${slotId}`).get();
+      if (!slotDoc.exists) return { ok: false, erro: 'Slot não encontrado' };
+      slot = { id: slotId, ...slotDoc.data() } as Slot;
+    }
+
+    if (aceites.length === 0) {
+      const aceitesSnap = await db.collection('slot_aceites')
+        .where('slotId', '==', slotId).where('status', '==', 'Pendente').get();
+      aceites = aceitesSnap.docs.map(d => ({ id: d.id, ...d.data() } as SlotAceite));
+    }
     const tgCfg = await getTelegramConfig(cidade || slot.cidade || 'SP');
 
     let enviados = 0;

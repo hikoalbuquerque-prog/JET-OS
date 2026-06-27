@@ -1,5 +1,5 @@
 # Jet OS Firebase — Master Debrief
-**Atualizado em:** 14/06/2026 (GPS NATIVO em 2º plano — Seção 10.8 · Aceite LGPD — Seção 11 · **Módulo NFS-e Automática — Seção 13**)  
+**Atualizado em:** 27/06/2026 (§19.19 Dual-write Fase 2 + Functions Supabase-first · §19.18 Audit pré-shutdown Firestore · §19.17 i18n final + POI server-side + Functions deploy · §19.16 APK distribution · §19.15 i18n resíduos + Guia · §19.13 code-split + LGPD + config)  
 **Projeto:** jet-os-1 | Firebase Hosting + Firestore + Storage + Cloud Functions  
 **Stack:** React + Vite + TypeScript + Leaflet + deck.gl | Node.js 22 Cloud Functions
 
@@ -2010,3 +2010,1021 @@ Com a base estável e dados fluindo:
 4. **Campo:** instalar APK → logar (cria sessão via `auth-login`) → iniciar turno → **minimizar/fechar/travar tela/reiniciar** → conferir pontos em `gps_locations` no Supabase **sem buracos**. Passou o portão = pode planejar o cutover; depois Fase 2 (Auth/Usuários, §14.6).
 
 **Pendências que seguem abertas:** cap `maxInstances` nas ~44 funções restantes (§17.4); 5b (relatório por cidade, com turnos dos seguranças); migração do Firebase Storage (fotos das ocorrências — hoje só as URLs vieram pro Supabase, arquivos seguem no Firebase, §16).
+
+---
+
+## 17.7 Sessão 19/06 (tarde) — Telegram destravado, portão GPS pronto, gates legais, bug HEIC, deploys
+
+**1) Telegram 1-toque consertado (estava 100% mudo).** Causa-raiz: o **webhook nunca foi registrado** no Telegram (`getWebhookInfo` → `"url":""`, 1 update preso na fila). Deploy ≠ registro — o `setWebhook` é passo manual separado. Correção:
+`curl ".../bot<TOKEN>/setWebhook" --data-urlencode "url=https://southamerica-east1-jet-os-1.cloudfunctions.net/telegramWebhook" --data-urlencode 'allowed_updates=["message"]'`. Usar a URL alias `cloudfunctions.net` (estável entre redeploys v2/Cloud Run; o `.run.app` muda). Confirmado: `pending_update_count` 1→0, sem `last_error`. `telegram_config/global` já tinha `botToken` + `botUsername=JetOs_Bot`. Memória: [[project-telegram-webhook]].
+
+**2) Portão GPS — pré-requisitos concluídos:**
+- **APK de teste** (supabase provider) buildada. O `gradlew` falhava por `JAVA_HOME`; resolver apontando pro JBR do Android Studio:
+  `set JAVA_HOME=C:\Program Files\Android\Android Studio\jbr` → `gradlew.bat -p frontend\android assembleRelease --no-daemon`. (Atenção: o Gradle marca o empacotamento como UP-TO-DATE se o `dist` não mudou — pra forçar APK nova, apagar o `app-release.apk` antes.) APK certa: `frontend\android\app\build\outputs\apk\release\app-release.apk` (NÃO a de `app\release\`, que é velha/Firebase).
+- **`preprovision-auth.mjs` rodado** (Supabase Auth): 57 usuários, criados=1, reusados=56, erros=0. `uid-map.json` (57 entradas) movido p/ `supabase/scripts/`. Lembrete: no **cmd** é `set "VAR=valor"`, não `$env:` (PowerShell).
+- **Ferramenta nova** `supabase/scripts/check-gps.mjs email [horas]` — lista pontos do `gps_locations` com gap entre eles e marca `ok`/`⚠ atraso`/`⛔ BURACO` (limiar a partir do intervalo de 30s do tracker). Para validar o teste de campo sem buracos.
+- **Falta só o teste em campo** (instalar APK → logar → turno → minimizar/fechar/travar/reiniciar → conferir `gps_locations` sem buracos).
+
+**3) Gates legais (LGPD + Termos):**
+- **Bug de cobertura LGPD corrigido:** prestadores são rastreados no check-in de slot (`SlotsModule.checkIn → gpsBackground.iniciar`) mas têm `role='prestador'` (função real em `cargoPrestador`), então **nunca viam** o consentimento de localização. Novo helper `precisaConsentirLocalizacao(usuario)` em `LgpdConsentGate.tsx` (role rastreado **ou** `tipoCadastro==='prestador'`), usado no `App.tsx`.
+- **Gate novo `TermosUsoGate.tsx`** — Termos de Uso + Política de Privacidade, **todos** os perfis, no 1º acesso. Registro imutável/versionado em `aceites_termos` (`TERMOS_VERSAO='1.0'`). ⚠️ Texto-base p/ o jurídico revisar (razão social, CNPJ, DPO, prazos) — incrementar versão força re-aceite.
+- **Ordem dos gates:** Login → (prestador-pendente) → Termos+Privacidade → LGPD localização → permissões Android → app.
+- Regra Firestore `aceites_termos` adicionada (imutável, espelha `consentimentos_lgpd`) e **deployada**.
+
+**4) Bug da foto de início de turno (HEIC) — causa-raiz + fix.** Foto "quebrada" na tela de Tarefas Logísticas > Início. A foto **subia** (HTTP 200, doc em `turnos_logistica`), mas os bytes eram **HEIC** (câmera iPhone/HEIF) com nome `.jpg`: o `comprimir()` usava `createImageBitmap`, que **não decodifica HEIC** no WebView/Chrome → caía no catch e enviava o HEIC original → `<img>` não renderiza. Fix: novo `frontend/src/lib/imageUtils.ts` `comprimirImagem()` que converte HEIC→JPEG (`heic2any`, **import dinâmico** — chunk separado, não pesa o bundle) antes de comprimir no canvas. Aplicado na foto de turno (`TarefasLogisticaModule`). **Outros pontos de upload têm o mesmo bug latente** (ocorrências/AppShell+TelaGuard, check-in de slot, estações/TelaMapa, TurnoRegistro) → tarefa separada criada p/ migrar todos ao util.
+
+**5) Guia/onboarding atualizados:** passo "Privacidade e seus dados" no `OnboardingWizard` (4 idiomas) + tópico `privacidade` no `GuiaPanel` (PT, todos os perfis incl. prestador).
+
+**6) Deploys desta leva:** `firestore:rules` ✅ · `hosting` ✅ (https://jet-os-1.web.app) · APK rebuildada ✅. **Functions: nenhuma mudou** nesta sessão (nada a deployar).
+
+**7) Auditoria de functions (a pedido):** 8 funções existem no código mas **não estão deployadas** — `gps-historico.ts` (buscarGpsHistorico, gravarGpsHistorico), `buscar-pois-osm.ts` (buscarPOIsOSMFn), `pois.ts` (buscarSalvarPOIsGoogle, carregarPOIsSalvos, deletarPOI), `slot-confirmacao.ts` (enviarConfirmacoesManual, verificarConfirmacoesSlots). Motivo: **os 4 módulos não são re-exportados pelo `index.ts`** E **nenhuma é chamada pelo frontend** (0 refs) → código **dormente/legado** (POIs hoje são client-side via Overpass/Nominatim). Não é regressão; deployar seria desnecessário + risco de cota de CPU (§17.4).
+
+**8) Canal de report de bug/erro — IMPLEMENTADO.** Decisão do produto: **só Firestore + painel admin** (sem Telegram/e-mail), com **report manual + captura automática de erros**.
+- `frontend/src/lib/bugReport.ts`: `enviarBugReport()` grava em `bug_reports` com contexto (uid, role, versão, plataforma, viewport, url, online); `instalarCapturaErros()` adiciona listeners globais `window.error`/`unhandledrejection` (dedupe por assinatura + teto de 25/sessão, best-effort, nunca lança).
+- `BugReportButton.tsx`: botão flutuante 🐞 (canto inf. esquerdo) em todas as telas do app → modal com descrição + foto opcional (passa pelo `imageUtils` HEIC-safe). Gestores (admin/gestor/supergestor/gestor_seg) têm atalho p/ o painel.
+- `BugReportsPanel.tsx`: lista em tempo real (`onSnapshot`), filtro aberto/resolvido/todos, marca resolvido/reabre, mostra stack + contexto.
+- `App.tsx`: instala a captura uma vez (via `usuarioRef`) e monta o botão nas telas mapa/guard/onboarding.
+- Regra Firestore `bug_reports` (create pelo próprio uid; get/list `isGestorSeg`; update `isGestor`; delete `isAdmin`) — **deployada**.
+- Deploy: `firestore:rules` + `hosting` ✅; APK rebuildada ✅.
+
+**Pendência relacionada:** migrar os demais uploads de foto ao `imageUtils` HEIC-safe (ocorrências, slots, estações, TurnoRegistro) — tarefa já registrada. **(FEITO depois nesta sessão — agente em background migrou todos; validado.)**
+
+**9) Teste do portão GPS — bug crítico do `auth-login` encontrado e corrigido.** No teste em campo, `gps_locations` ficava vazio mesmo com turno iniciado. Investigação: usuário (João Test) tinha `firebase_uid`/id Supabase corretos, mas `last_sign_in_at = null` (só 1/57 já logara). Testando `auth-login` ponta a ponta: retornava **401 invalid_credentials**, enquanto o identitytoolkit DIRETO com a chave do `firebase.ts` + a mesma senha dava **200**. Causa: o segredo **`FIREBASE_API_KEY` da edge function estava com a chave do projeto ERRADO (jet-os-7)** → a verificação no Firebase falhava p/ todos → ninguém estabelecia sessão Supabase → GPS nativo sem refresh token → 0 pontos. **Fix:** `npx supabase secrets set FIREBASE_API_KEY=<chave web jet-os-1> --project-ref ducdbrupxpzqcblfreqn` (pega em runtime, sem redeploy). Confirmado: `auth-login` → 200 + session. Detalhe de operação relacionado: a sessão Supabase só é semeada (`localStorage['jet_supa_refresh']`) no **login MANUAL** (estabelecerSessaoSupabase); auto-login/sessão persistida não semeia → cada usuário precisa de 1 login manual pós-virada. Memórias: [[project-gps-supabase-session]], [[project-projeto-errado-jetos7]]. Como verificar o segredo sem expor: `supabase secrets list` dá o digest SHA256; comparar com `printf '%s' "<chave>" | sha256sum`.
+
+**10) Portão GPS — resultado do teste + WakeLock.** Após o fix do auth-login, GPS passou a fluir pro `gps_locations`. Testes (Samsung): ativo/movimento = perfeito (~14-30s); **reboot-recovery PASSOU** (religa ~3min, sem reabrir app); mas **minimizado/tela apagada dava buracos de 16-20 min** = Doze/Samsung deep sleep. O `GpsTrackerService` tinha `foregroundServiceType=location` mas **não segurava WakeLock** → CPU dormia. **Fix:** `PARTIAL_WAKE_LOCK` ("JetOS::GpsTracker") acquire no `onStartCommand`, release no `onDestroy` (WAKE_LOCK já no manifest). Vale pra frota sem depender de config Samsung por aparelho. Memória [[project-gps-background-arch]].
+
+**11) Bug da foto HEIC — correção REAL (a anterior não bastava).** O fix via `heic2any` (WASM) **falha dentro do WebView do Android** → o `<input capture>` do Samsung (HEIF) continuava subindo HEIC com nome .jpg → foto quebrada (confirmado por bytes `ftypheic` na foto das 20:47, mesmo na APK nova). **Correção real:** capturar pela **câmera nativa do Capacitor** (`@capacitor/camera`), que o Android decodifica no SO e devolve JPEG. Novo helper `imageUtils.capturarFotoNativa()`; o turno (`TarefasLogisticaModule`) usa câmera nativa quando `isAndroidNative()`, senão `<input>` (web). **FEITO depois nesta sessão (agentes em paralelo):** aplicado a TODOS os pontos de captura de câmera — TelaGuard (foto1/foto2/BO de ocorrência), AppShell (BO), SlotsModule (check-in + entrega/cancelamento/chegada de tarefa), TurnoRegistro (entrada), TelaMapa (foto de estação). Em cada um o `<input capture>` ficou como fallback web; no nativo usa `capturarFotoNativa()`. NÃO tocados (corretamente): inputs de GALERIA (sem capture), DocPublico (PDF), e uploads de blob de canvas (medições no TelaMapa). Typecheck limpo.
+
+**12) i18n — gates legais + UI nova nas 4 línguas.** `LgpdConsentGate`, `TermosUsoGate`, `BugReportButton`, `BugReportsPanel` convertidos p/ pt/en/es/ru (texto co-localizado em objetos `{pt,en,es,ru}` selecionado por `i18n.language`, padrão do OnboardingWizard); tópico "privacidade" adicionado ao `guide.topics` das 4 línguas. **Débito descoberto:** `SlotsModule` inteiro (Slots/Equipe/check-in/painel bateria) é **PT hardcoded (0 i18n)** — provável que outros módulos grandes também. Internacionalizar os módulos legados é projeto à parte.
+
+**Painel bateria/GPS da frota (feito):** hooks `useWorkerGPS`/`useSlotsWorkersGPS` expõem `bateria`; aba 👥 Equipe mostra bateria + idade do GPS por worker + banner de alerta (bateria ≤15% / sem GPS +5min); 🔋 também na infowindow dos cards de slot. Lê do Firebase `gps_logistica` (frota atual); migrados Supabase só aparecem no cutover.
+
+**Deploys da leva:** `firestore:rules` (aceites_termos + bug_reports) ✅ · `hosting` (jet-os-1.web.app) ✅ · APK 22:56 (i18n + câmera nativa + wakelock + bateria + bug). **Pendência do portão:** validar em campo que o WakeLock elimina os buracos minimizado (teste de 15min) — e lembrar que cada reinstalação exige novo login manual (re-semear `jet_supa_refresh`).
+
+## 17.8 Sessão 20/06 — funções (limpeza) + i18n onda 1 + ideia de chat
+
+**Foto HEIC — confirmado resolvido em campo** (00:38, foto de turno OK com a câmera nativa em todos os pontos).
+
+**Funções:**
+- ✅ **`buscarPOIsOSMFn` deployado** (Overpass/OSM gratuito, server-side; resolve CORS/429). Wired no `index.ts` (`export * from './buscar-pois-osm'`). ⚠️ o front ainda faz Overpass client-side → falta trocar a chamada pra usar a função (follow-up).
+- ✅ **`pois.ts` removido** (Google Places, pago; 0 imports).
+- ⛔ **`gravarGpsHistorico`/`buscarGpsHistorico` NÃO deployados** — `ingestGps` já guarda histórico completo (cada ping = doc novo em `gps_logistica`); o `gravarGpsHistorico` é legado de arquitetura antiga (assumia `gps_logistica/{uid}` doc único) e duplicaria cada ponto em subcoleção malformada (chave=id-auto) → dobraria custo gerando lixo. Recomendado **deletar `gps-historico.ts`** como código morto. Se quiser tela de histórico, ler do `gps_logistica` atual.
+- Deploy cirúrgico: `firebase deploy --only functions:buscarPOIsOSMFn` (build `tsc` antes; evita cota CPU).
+
+**i18n — onda 1 (pt/en/es/ru, padrão inline `{pt,en,es,ru}` + `pick` por `i18n.language`):** ✅ `PainelRoubos`, `UsuariosManager`, `PagamentosAdminPanel`, `PagamentosModule` (agentes em paralelo, tsc limpo, hosting no ar). **Faltam:** `DashboardManager` (4904 linhas — passada dedicada, dividir) + ~20 menores. (Inventário PT-only completo está nesta sessão.)
+
+**Ideia: chat in-app** (comunicação equipe + gestor lê tudo + dados das conversas). Viável (Supabase, `chats/{id}/mensagens`, realtime). ⚠️ **LGPD/trabalhista**: é monitoramento de comunicação → exige transparência (entra nos Termos/Privacidade), finalidade/proporcionalidade, sign-off jurídico. Construir no **Supabase** (não criar dívida Firebase). Planejar pós-portão/cutover.
+
+## 17.9 Sessão 20/06 (madrugada) — chat doc + i18n ondas 2 (+ limites de sessão)
+
+**Chat in-app:** criado o mini design doc **`CHAT_DESIGN.md`** (raiz do projeto) — modelo de dados (Supabase: `conversas`/`conversa_participantes`/`mensagens`/`mensagem_leituras` + RLS), telas, notificações, fases (~6-9 dias dev) e a seção crítica **LGPD/trabalhista** (monitoramento → transparência nos Termos + sign-off jurídico). Decisões em aberto listadas no doc.
+
+**`gps-historico.ts` DELETADO** (código morto; histórico já vem do `ingestGps`).
+
+**i18n — progresso (padrão inline `{pt,en,es,ru}` + `pick` por `i18n.language`, agentes em paralelo):**
+- ✅ **Onda 1:** PainelRoubos, UsuariosManager, PagamentosAdminPanel, PagamentosModule.
+- ✅ **Onda 2:** GestorLogisticaPanel, GoJetOverlay, SlotsTeamsModule, GuardDashboard (todos tsc EXIT=0).
+- ⚠️ **DashboardManager (4904 linhas): PARCIAL** — o agente batem no limite de sessão no meio (~205 edições). **Compila (tsc limpo)** mas a tradução pode estar **incompleta** → precisa uma passada de revisão/conclusão.
+- ✅ **Onda 3:** FotoCaptura, LiveWorkersPanel, LocaisFinanceiro, TelegramConfigPanel, ZonasManager, GoJetDashboard, PainelControlePerdasSeg (todos tsc EXIT=0). *(Nota técnica recorrente: onde labels de status eram chave de lógica, os agentes mantiveram o valor canônico PT e traduziram só a exibição via mapas; onde `msg.startsWith('Erro')` definia cor, trocaram por estado booleano. Popups Leaflet capturam o `lang` na criação do marker — trocar idioma em sessão só reflete ao recriar markers.)*
+- ⏳ **Pendentes (onda 4+):** **DashboardManager (concluir a parcial)**, AnalyticsManager (3073), **SlotsModule (2621 — só bateria feita)**, **TarefasLogisticaModule (2011 — só foto/turno tocado)**, e ~17 menores: TelegramVinculo, POIPanel, CandidatosManager, TelaPrestadorPerfil, EventoGoJetPanel, GoJetAnalyticsPanel, PainelConfiguracoes, MonitorConfigPanel, CidadesExpansao, MonitorPanel, LocaisOperacionais, LogisticaModule, LiveTrackingMap, CadastroTelegram, AdminBikeActions, GoJetCidadesPanel, GpsRotaPanel, AdminTelegramPanel.
+- **Prioridade sugerida p/ onda 3:** primeiro os **field-facing es/ru** (TarefasLogisticaModule, SlotsModule completo, LiveWorkersPanel, FotoCaptura) — são os que campo/MX/RU realmente usa; gestor-facing (AnalyticsManager, etc.) é PT na prática.
+
+**⚠️ Limites de sessão:** os agentes de tradução esgotaram a cota da sessão **duas vezes** nesta madrugada (reset 2h, depois 7h SP). Onda 3 deve esperar o reset. Traduzir os ~25 restantes = várias ondas.
+
+**⛔ PORTÃO GPS — AINDA BLOQUEADO (caminho crítico real):** `last_sign_in_at` do usuário de teste continua **19/06 16:29** — nenhum login novo. GPS 0 desde ~20:40 de 19/06. Reinstalar NÃO basta: o token Supabase morre e só **logout→login (email+senha)** mina um novo. O **wakelock nunca foi testado de verdade** (GPS morto antes). Próximo passo obrigatório: no app, **Sair → Entrar digitando email+senha** → turno → minimizar 15min → validar `gps_locations` sem buracos. Memória [[project-gps-supabase-session]].
+
+**Deploys:** `hosting` (jet-os-1.web.app) com onda 1+2 ✅. (APK não rebuildada nesta leva — as traduções de módulos gestor-facing são vistas no web; rebuildar a APK quando fechar o portão.)
+
+## 17.10 Sessão 20/06 — GPS pipeline VALIDADO (servidor) + i18n ondas 3-4
+
+**✅ MARCO: cadeia GPS do servidor validada end-to-end.** Rodado do meu lado (script `teste-gps-pipeline.mjs`, fazendo o que o app nativo faz): `auth-login` (email+senha) → **200 OK** (token fresco, `migrated=false` = já migrado) → `POST /functions/v1/ingest-gps` com 1 ponto → **200 `{ok:true, written:1}`** → gravou no `gps_locations` via RPC `ingest_gps`. **Prova que auth-login + token + ingest + RPC + RLS funcionam.** O ÚNICO que falta validar é o **background no celular (wakelock)** — só o aparelho testa, com **logout→login fresco** (o token do device morre; reinstalar não basta). Formato do `ingest-gps`: `Authorization: Bearer <access_token>`, `apikey: <anon>`, body `{points:[{lat,lng,accuracy,speed,heading,altitude,bateria,isMock,estrategia,capturedAt,slotId}]}`; uid vem SEMPRE do token (anti-spoof).
+
+**i18n onda 3 ✅:** FotoCaptura, LiveWorkersPanel, LocaisFinanceiro, TelegramConfigPanel, ZonasManager, GoJetDashboard, PainelControlePerdasSeg (deployados).
+
+**i18n onda 4 (parcial):** ✅ POIPanel completo. ⚠️ **TarefasLogisticaModule, SlotsModule, AnalyticsManager, TelegramVinculo, CandidatosManager = PARCIAIS** — agentes cortados pelo limite de sessão no meio; **compilam (tsc limpo)** mas tradução incompleta (parte traduzida, resto PT-fallback). Meus edits de câmera/bateria nesses arquivos foram **preservados** (verificado). Precisam de uma passada de conclusão.
+
+**⚠️ Limite de sessão estourou 3×** nesta madrugada (resets 2h, 7h, agora **12:40 SP**). Próximas ondas de tradução só após 12:40. **33 módulos** já têm i18n.
+
+**Estado i18n:** ✅ completos: gates legais, onboarding, guia, + PainelRoubos, UsuariosManager, PagamentosAdminPanel, PagamentosModule, GestorLogisticaPanel, GoJetOverlay, SlotsTeamsModule, GuardDashboard, FotoCaptura, LiveWorkersPanel, LocaisFinanceiro, TelegramConfigPanel, ZonasManager, GoJetDashboard, PainelControlePerdasSeg, POIPanel. ⚠️ parciais: DashboardManager, TarefasLogisticaModule, SlotsModule, AnalyticsManager, TelegramVinculo, CandidatosManager. ⏳ pendentes: TelaPrestadorPerfil, EventoGoJetPanel, GoJetAnalyticsPanel, PainelConfiguracoes, MonitorConfigPanel, CidadesExpansao, MonitorPanel, LocaisOperacionais, LogisticaModule, LiveTrackingMap, CadastroTelegram, AdminBikeActions, GoJetCidadesPanel, GpsRotaPanel, AdminTelegramPanel.
+
+## 17.11 i18n CONCLUÍDA (20/06) — todos os módulos + APK nova
+
+**✅ i18n FINALIZADA.** Os 6 parciais foram concluídos (DashboardManager, TarefasLogisticaModule, SlotsModule, AnalyticsManager, TelegramVinculo, CandidatosManager — com câmera/bateria/GPS preservados) e os ~15 menores traduzidos (AdminTelegramPanel, TelaPrestadorPerfil, EventoGoJetPanel, GoJetAnalyticsPanel, PainelConfiguracoes, MonitorConfigPanel, CidadesExpansao, MonitorPanel, LocaisOperacionais, LogisticaModule, LiveTrackingMap, CadastroTelegram, AdminBikeActions, GoJetCidadesPanel, GpsRotaPanel). **Padrão uniforme:** objeto `{pt,en,es,ru}` no arquivo + `pick` por `i18n.language` (sem chaves json); enums/valores gravados mantidos canônicos (PT), só o rótulo exibido é traduzido; status que definiam cor por `startsWith` ganharam estado booleano. `tsc --noEmit` limpo no conjunto. Hosting redeployado + **APK nova gerada com i18n completo** (+ câmera nativa + wakelock + bateria + bug).
+
+**Resíduos PT conhecidos (fora de escopo, baixo impacto):** templates de PDF/CSV gerados (DashboardManager `RelatorioManager`, exports Guard) — são geração de arquivo, têm i18n próprio (`i18nRelat`) ou são formato de dados; e `STATUS_META.label` de CidadesExpansao renderizado cru em DashboardManager/TelaMapa (status de cidade em 2 telas). Tudo anotado para um polimento futuro.
+
+**⛔ Continua: PORTÃO GPS** — só falta o teste de campo no celular (logout→login fresco → turno → 15min minimizado) pra validar o wakelock. Cadeia de servidor já provada (17.10).
+
+## 17.12 ✅✅ PORTÃO GPS VENCIDO (20/06 ~23:20) — migração destravada
+
+**RESULTADO:** turno no celular (Samsung) → **48 pontos em 25 min contínuos com a TELA APAGADA (confirmado pelo usuário), cada ~32s, ZERO buracos, ZERO atrasos** (`estrategia=background_android_native`, `GpsTrackerService` confirmado rodando via `dumpsys`, bateria 14%→18% carregando). Antes (sem wakelock) dava buracos de 16-24 min minimizado; agora zero. **Cadeia inteira validada: serviço nativo + WakeLock + heartbeat + sessão Supabase + ingest-gps.**
+
+**Duas causas-raiz que travaram o teste por horas (ambas resolvidas):**
+1. **Sessão Supabase não semeada.** O `jet_supa_refresh` (localStorage) que o serviço nativo precisa só é gravado por `estabelecerSessaoSupabase` no **login MANUAL pelo formulário**. Reinstalar / limpar dados / auto-login NÃO semeia → `iniciarGpsNativo` lança "Sem refresh token" e **cai no fallback equimaps** (legado quebrado, posta via JS que morre minimizado). Diagnóstico via `adb dumpsys activity services com.jet.os` mostrava `BackgroundGeolocationService` (equimaps) em vez de `.GpsTrackerService`. **Fix operacional: após qualquer (re)instalação, fazer logout→login digitando email+senha ANTES de iniciar o turno.** Instalar "por cima" (sem limpar dados) preserva a sessão.
+2. **Filtro de distância de 10m.** `LocationRequest.setMinUpdateDistanceMeters(10f)` fazia o FusedLocation **bloquear todos os fixes** quando parado/indoor (logcat: `FusedLocation: location delivery blocked - too close`) → 0 pontos. **Fix: `setMinUpdateDistanceMeters(0f)` → heartbeat por tempo (~30s)**, posta mesmo parado.
+
+**Ferramentas de diagnóstico que fecharam o caso:** `adb` (do Android Studio SDK) — `dumpsys activity services com.jet.os` (qual serviço roda), `dumpsys package` (versão/lastUpdateTime), `logcat | grep FusedLocation` (achou o "blocked - too close"). Teste de servidor: script que faz auth-login→token→ingest (provou o backend isolado).
+
+**Reboot recovery CONFIRMADO (build final):** reiniciou o celular → notificação + `.GpsTrackerService` voltaram **sozinhos sem reabrir o app**; pontos retomaram após gap de ~4,5 min (boot + reaquisição). Token sobreviveu via SharedPreferences + GpsBootReceiver. **Cenários 100%: foreground ✓ · tela apagada 25min ✓ · reboot ✓.**
+
+**Pendências pós-portão (agora liberadas):** Supabase Fase 2 (cutover Auth/Usuários §14.6), migração Firebase Storage (§16), cap maxInstances (§17.4). Limpeza: removido o `window.alert` de diagnóstico do `gps-background.ts`. **APK final limpa** gerada (i18n completo + câmera nativa + wakelock + heartbeat + bateria + bug). Memórias: [[project-gps-supabase-session]], [[project-gps-background-arch]].
+
+## 17.13 Fase 2 iniciada (21/06) — camada de DADOS das Ondas A+B migrada
+
+Plano vivo em **`CUTOVER_PLAN.md`** (raiz). Estratégia: faseado, por domínio, atrás de flag, dual-write, **Auth por último**.
+
+**✅ Onda A — DADOS (migration 0025 + `supabase/scripts/backfill-wave-a.mjs`):** estacoes **1458**, zonas **43** (poligonos usam campo `pontos` OU `poligono`), locais_operacionais **4**. Geo via EWKT `SRID=4326;POINT/POLYGON` (PostgREST aceita texto→geography). `firebase_id` único parcial por tabela p/ idempotência.
+
+**✅ Onda B — DADOS (migration 0026 + `backfill-wave-b.mjs`):** solicitacoes_prestadores **35**, turnos_logistica **41** (tabela nova), pagamentos_config **1** (SP). Resto da onda VAZIO no Firestore.
+
+**⚠️ Regra de ouro descoberta:** tabelas do dual-run ativo (slots, disponibilidades, slot_aceites, penalidades, feriados via escala/slots; ocorrencias via mirror) **JÁ recebem escrita de produção** — NÃO backfillar (delete+insert corromperia). Backfill só em coleções Firestore-only.
+
+**Backfill é SEGURO/reversível:** as tabelas migradas ainda **não são lidas pelo app** (continua Firestore). **FALTA o SWITCH** (a metade invasiva): view/RPC expondo lat/lng+GeoJSON das colunas `geography`, libs dual-run de leitura, trocar reads/writes (TelaMapa 3000+ linhas, ZonasManager, LocaisFinanceiro, Guard, etc.) atrás de flag, dual-write, e **verificação no app** antes de ligar. Auth/usuarios = Onda C, por último.
+
+## 17.14 Fase 2 — Onda A SWITCH completo (21/06) + sessão JS desacoplada
+
+**Desacoplamento de sessão (fundação dos read-switches):** cliente JS Supabase agora `persistSession+autoRefresh` (sessão A, leituras estáveis); `estabelecerSessaoSupabase` faz 2 auth-logins → sessão B (refresh token em `jet_supa_refresh` p/ o GPS nativo) independente da A → renovar A não mata o GPS. **Deploy só web** (APK não mudou → GPS no celular intacto; re-verificar GPS quando rebuildar a APK com este código).
+
+**Onda A — read+write no Supabase (atrás do flag `localStorage['jet_mapa_provider']='supabase'`):**
+- **Estações:** view `estacoes_geo` (0027) + read lib + switch TelaMapa + mirror `espelharEstacaoSupabase` (0028 firebase_id único). **Validado no app pelo usuário** (paridade + reload) e dual-write testado (create→upsert/delete→remove).
+- **Zonas + Locais:** views `zonas_geo`(GeoJSON)/`locais_geo` (0029) + read libs + switches (TelaMapa polígonos, ZonasManager, LocaisFinanceiro) + mirrors `espelharZonaSupabase`/`espelharLocalSupabase`.
+- Mirrors são onDocumentWritten → upsert/delete por firebase_id (service role do functions/.env), cobrem todos os escritores sem tocar nos call sites, sem mexer no token GPS.
+- **Falta:** realtime (hoje carga única por cidade — minor) e validar zonas/locais no app. Padrão das libs: `frontend/src/lib/estacoes-supabase.ts`. Plano detalhado em CUTOVER_PLAN.md.
+- **Próximo:** Onda B switch (Guard/tarefas/pagamentos — dados já migrados) → Onda C Auth (flip do login, por último).
+
+## 17.15 ⭐ PENDÊNCIAS CONSOLIDADAS (handoff p/ nova sessão — 21/06)
+
+**LER PRIMEIRO:** `CUTOVER_PLAN.md` (raiz, estado/plano da Fase 2), DEBRIEF 17.7–17.14, memórias `project-gps-supabase-session` / `project-gps-background-arch`. Tudo que segue é independente desta conversa.
+
+### 🔴 Caminho crítico — Fase 2 cutover (continuar)
+1. **Onda B — ocorrências/Guard (read switch).** Mirror de escrita JÁ existe (`espelharOcorrenciaSupabase`). Falta: view `ocorrencias_geo` (lat/lng do geo) + read lib + trocar a LEITURA em ~10 arquivos (TelaGuard ~768, PainelRoubos, GuardDashboard, DashboardManager, AnalyticsManager, AppShell, SlotsModule, TelaMapa, slots-schema, PainelControlePerdasSeg) atrás de flag. Mapear campos snake_case(Supabase: firebase_doc_id, registrado_por uuid)↔camelCase(Firestore). Fazer 1 arquivo por vez + verificar. Módulo de segurança — cuidado.
+2. **Onda B — menores:** `solicitacoes_prestadores` (35, lido no UsuariosManager) e `turnos_logistica` (41) — read switch + criar mirror de cada (não têm). `tarefas`/`prestadores`/`config_auto_slots`/`pagamentos_semana`: VAZIOS no Firestore (criar tabela+mirror só quando tiverem dado).
+3. **Onda C — AUTH (irreversível, POR ÚLTIMO, sessão dedicada):** flip do login pro Supabase primário, `usuarios` como mestre (já pré-provisionado), autorização via RLS, aposentar dual-auth (`auth-login` shim) e Firebase Auth. Pré-req: todas as leituras já em Supabase (ondas A+B). Plano de rollback por flag.
+4. **Realtime** das leituras da Onda A (estações/zonas/locais hoje são carga única por cidade — sem live update; reabrir/trocar cidade recarrega). Implementar Supabase realtime ou refetch.
+5. **Padrão provado** (replicar): view geo + read lib em `frontend/src/lib/estacoes-supabase.ts` (flag `localStorage['jet_mapa_provider']='supabase'`) + Cloud Function mirror onDocumentWritten (`functions/src/mirror-estacoes.ts`) usando SUPABASE_URL/SERVICE_ROLE do `functions/.env`. firebase_id ÚNICO não-parcial p/ on_conflict. NÃO backfillar tabelas vivas (slots/escala/ocorrencias).
+
+### 🟠 APK / GPS (importante)
+6. **Rebuildar a APK** com o código atual (sessão JS desacoplada + i18n completo + câmera + wakelock) e **RE-VERIFICAR o GPS no celular** (foreground + 15min tela apagada + reboot). A mudança de sessão (2 auth-logins) mexe perto do token do GPS — a APK instalada (build 23:24) tem o fluxo ANTIGO e o GPS funciona; o novo só entra no próximo build. Comando APK: `set JAVA_HOME=C:\Program Files\Android\Android Studio\jbr` → `gradlew.bat -p frontend\android assembleRelease --no-daemon` (apagar app-release.apk antes). Operação: cada (re)instalação exige **logout→login manual** p/ semear a sessão Supabase.
+
+### 🔐 Segurança (fazer logo)
+7. **Rotacionar** a `service_role key` do Supabase E a senha `Tibiririi9@#$` (= senha do keystore do APK) — ambas foram expostas no chat. Re-setar segredos: edge functions (`npx supabase secrets set`), `functions/.env`, e os scripts.
+
+### 🟡 Infra
+8. **Cap `maxInstances`** nas ~44 functions (§17.4) — deploy em massa estoura cota CPU em sa-east1; deploy cirúrgico + maxInstances:10.
+9. **Migração Firebase Storage** (§16) — arquivos de foto das ocorrências seguem no Firebase (só URLs no Supabase).
+
+### 🟢 Produto / legal / outros
+10. **Chat in-app** — `CHAT_DESIGN.md` pronto; precisa sign-off jurídico (monitoramento de comunicação) antes de implementar (no Supabase).
+11. **Jurídico** revisar textos Termos/LGPD (`TermosUsoGate`/`LgpdConsentGate`) + preencher dados reais (razão social, CNPJ, DPO); incrementar versão força re-aceite. Re-traduzir as 4 línguas se o PT mudar.
+12. **Front usar `buscarPOIsOSMFn`** (deployado, OSM grátis) — hoje o front ainda faz Overpass client-side.
+13. **NFS-e** (verificarProcuracoes, emissão) · **5b** relatório Guard por cidade → grupos Telegram (com turnos/escala dos seguranças).
+14. **i18n resíduos (baixo impacto):** templates PDF/CSV gerados no DashboardManager; `STATUS_META.label` (status de cidade) renderizado cru em DashboardManager/TelaMapa.
+
+### ℹ️ Informativo (sem ação)
+- 8 funções dormentes (gps-historico DELETADO; pois.ts/Google removido; buscar-pois-osm DEPLOYADO). slot-confirmacao/buscarGpsHistorico continuam não-deployados (legado).
+- Migrations aplicadas até **0029**. Scripts de backfill: `supabase/scripts/backfill-wave-a.mjs`, `backfill-wave-b.mjs`, `check-gps.mjs`.
+
+---
+
+## 17.16 — Sessão 21/06 (cont.): Onda B (read switch) + Onda C groundwork
+
+**Fonte da verdade do estado/plano:** `CUTOVER_PLAN.md` (atualizado nesta sessão). Resumo do que mudou:
+
+### ✅ Onda B — ocorrências/Guard (READ SWITCH completo)
+- **migration 0030** (aplicada): view `ocorrencias_geo` (security_invoker) — lat/lng de `geo` + `registrado_por_uid` (join `usuarios.firebase_uid`).
+- **read lib** `frontend/src/lib/ocorrencias-supabase.ts` — flag **separada** `jet_guard_provider` (`localStorage` ou `VITE_GUARD_PROVIDER`). `canonStatus` restaura status capitalizado (mirror grava lowercase).
+- **8 arquivos** com read switch (atrás da flag, READ-ONLY; escrita segue Firestore via mirror `espelharOcorrenciaSupabase` que já existia): TelaGuard, GuardDashboard, PainelRoubos, PainelControlePerdasSeg, SlotsModule, TelaMapa, AnalyticsManager, AppShell, DashboardManager (CSV+XLSX+busca). Datas ISO tratadas onde havia `criadoEm?.toDate()`.
+- `slots-schema.ts ouvirOcorrencias` = código morto, não tocado.
+
+### ✅ Onda B menores — solicitacoes_prestadores + turnos_logistica
+- **migration 0031** (aplicada): `firebase_id` único NÃO-parcial em ambas (a 0026 era parcial; PostgREST `on_conflict` exige não-parcial).
+- **mirrors NOVOS** `functions/src/mirror-onda-b-menores.ts` (`espelharSolicitacaoPrestadorSupabase` / `espelharTurnoLogisticaSupabase`) — registrados no index e **DEPLOYADOS** (deploy cirúrgico, jet-os-1/southamerica-east1). Mapeamento idêntico ao `backfill-wave-b.mjs`.
+- **read lib** `frontend/src/lib/onda-b-supabase.ts` — flag `jet_logistica_provider`. Switch em UsuariosManager (solicitações pendentes) + GestorLogisticaPanel/AbaPresença (turnos do dia).
+- Tabelas tarefas/prestadores/config_auto_slots/pagamentos_semana seguem VAZIAS no Firestore (sem ação).
+
+### 🟡 Onda C — Auth: GROUNDWORK reversível (o flip irreversível NÃO foi feito — e por quê)
+- ⚠️ **Bloqueio de correção confirmado nas regras Firestore:** toda ESCRITA exige `request.auth != null` (Firebase). Só leituras migraram. **Aposentar Firebase Auth agora quebraria todas as escritas** (Guard/slots/escala/turnos). Pré-req do flip: migrar as ESCRITAS antes (ou fallback). Decisão do usuário: fazer só o groundwork reversível.
+- **migration 0032** (aplicada): `usuarios.paises text[]`.
+- **flag `jet_auth_provider`** (`authProviderSupabase()` em `supabase-auth.ts`): liga SÓ a **fonte do perfil** (role/paises/nome) → `useAuth` carrega de `public.usuarios` por `firebase_uid`, fallback Firestore em miss/erro. **Firebase segue PRIMÁRIO** (sessão + escritas + token do GPS intactos). NÃO é o flip de login (C.8) nem aposenta Firebase (C.9). `uid` permanece = firebase_uid (escritas filtram por ele).
+- **RLS revisada:** `usuarios_sel` (`id = auth.uid()`) cobre o auto-perfil sob a sessão A (persiste no reload). **Rollback:** flag='firebase'.
+- ✅ **Backfill `paises`:** `supabase/scripts/backfill-paises.mjs` (idempotente, DRY_RUN, filtra lixo). Rodado: 56/57 com paises real; **0 sem firebase_uid**. Ressalva: 1 admin (`uvMiotPn`) com `paises:["[]"]`+`nome:null` no Firestore (dado sujo pré-existente; inofensivo).
+- ✅ **Validado:** `npm run build` OK + amostra de dados por role correta. ⏳ **Falta validação RUNTIME** (precisa credenciais reais): logar com a flag ligada e conferir role/paises/permissões + GPS intacto + reload mantém sessão A.
+
+### ▶️ Ponto de retomada
+1. **Validar a flag `jet_auth_provider='supabase'` no app** (login real) — fecha o groundwork da Onda C.
+2. Validar as flags de leitura `jet_guard_provider` / `jet_logistica_provider` no app (paridade vs Firestore; exige sessão logada p/ RLS).
+3. **Migrar ESCRITAS** (ocorrências/slots/escala/turnos) p/ Supabase atrás de flag — pré-req DURO do flip de Auth.
+4. Só então C.8 (login primário Supabase) → C.9 (aposentar dual-auth + Firebase) — sessão dedicada, irreversível.
+- **Migrations agora até 0032.** Mirrors deployados nesta sessão: espelharSolicitacaoPrestadorSupabase, espelharTurnoLogisticaSupabase.
+
+### 📦 Entrega da sessão (commit / deploy / push) — estado em que paramos
+- **Front DEPLOYADO:** `firebase deploy --only hosting` → https://jet-os-1.web.app (28 arquivos). ⚠️ Todas as flags (`jet_guard_provider`, `jet_logistica_provider`, `jet_auth_provider`) vêm **DESLIGADAS** — deploy NÃO muda nada p/ usuários até ligar a flag no browser.
+- **Commit:** branch `fase2/onda-b-c-supabase`, commit `0b55606`, **pushado** p/ origin (github.com/hikoalbuquerque-prog/JET-OS).
+- ⚠️ **O commit contém SÓ os 9 arquivos NOVOS** (migrations 0030-0032, ocorrencias-supabase.ts, onda-b-supabase.ts, mirror-onda-b-menores.ts +compilado, backfill-paises.mjs). Os **read-switches/auth editados em arquivos EXISTENTES** (TelaGuard, GuardDashboard, PainelRoubos, PainelControlePerdasSeg, SlotsModule, TelaMapa, AnalyticsManager, AppShell, DashboardManager, UsuariosManager, GestorLogisticaPanel, useAuth.ts, supabase-auth.ts, functions/src/index.ts) seguem **NÃO-COMMITADOS na árvore de trabalho** — estão entrelaçados com ~milhares de linhas de trabalho não-commitado de sessões ANTERIORES (árvore tem 140 arquivos dirty). Staging por trecho não existe no ambiente, então não dá p/ isolar. **As mudanças ESTÃO no deploy** (build pega da árvore), só não estão versionadas. **NÃO rodar `git checkout`/`reset` nesses arquivos — perderia o trabalho.**
+- **PR não aberto** (sem `gh`/token no ambiente). Link pronto: github.com/hikoalbuquerque-prog/JET-OS/pull/new/fase2/onda-b-c-supabase. Instalar depois: `winget install GitHub.cli`.
+
+### 🔧 Correção do mirror de ocorrências (commit 1068df9, pushado, DEPLOYADO)
+`espelharOcorrenciaSupabase` era `onDocumentCreated` → updates de status/BO e deletes ficavam stale no Supabase (quebrava paridade das leituras Onda B). Agora `onDocumentWritten` (create+update+delete; delete remove por firebase_doc_id). **Write-back ao Firestore REMOVIDO** (re-dispararia o trigger = loop). Este commit é limpo (mirror-ocorrencias.ts estava sem alteração no início da sessão). Backfill paises re-rodado (idempotente, 56/57).
+
+### ✍️ Cutover de ESCRITA de ocorrências (commit 2c3c435, pushado, DEPLOYADO — flag OFF)
+Passo 3 (escritas) iniciado pelo domínio mais pronto. **Dormente atrás da flag `jet_guard_write`** (`localStorage`/`VITE_GUARD_WRITE`; default OFF = só Firestore, zero mudança). ON = dual-write (Firestore + Supabase) sob sessão A/RLS — prova escrita SEM Firebase Auth (destrava o flip C.8/C.9).
+- **migration 0033** (aplicada): RLS de escrita em `ocorrencias` — `ocor_ins_self`/`ocor_upd_self` (registrado_por = auth.uid(); gestor já cobre). Sem isso guards não inserem sob RLS.
+- **helpers** em `ocorrencias-supabase.ts`: `criar/atualizar/deletarOcorrenciaSupabase` (mesmo mapeamento do mirror; `registrado_por` = uuid do próprio via `auth.getUser()`; status lowercase; geo EWKT). `guardWriteSupabase()` flag.
+- **Sites wirados (dual-write, best-effort):** TelaGuard (create+update+2 deletes), SlotsModule (create+update status), slots-schema.criarOcorrencia, AppShell (update+delete), PainelRoubos (update), DashboardManager (auditoria update). Só `ocorrencias-supabase.ts`+`slots-schema.ts`+migration entraram no commit (limpos); os outros sites seguem NÃO-COMMITADOS na árvore (entrelaçados c/ trabalho anterior) mas ESTÃO no deploy.
+- ⏳ Validar com `jet_guard_write='supabase'` (+ `jet_guard_provider='supabase'` p/ ver o efeito): criar/editar/excluir ocorrência e conferir paridade nas 2 bases.
+- **Próximos domínios de escrita:** slots/escala (já têm RPCs — auditar), turnos_logistica/solicitacoes (mirror existe; falta write cliente), usuarios (pré-req do flip).
+
+### ✍️ Cutover de ESCRITA: turnos_logistica + solicitacoes_prestadores (commit a27c1bf, deployado, flag OFF)
+Dual-write atrás da flag `jet_logistica_write` (default OFF). **SEM migration** (RLS já existia: turnos insert-autenticado/update-gestor; solicitacoes insert-público/update-gestor). Mirrors já deployados.
+- helpers em `onda-b-supabase.ts`: `criarTurnoLogisticaSupabase`, `criarSolicitacaoSupabase`, `atualizarSolicitacaoSupabase`.
+- Sites: TarefasLogisticaModule (turno inicio), AppShell (solicitacao create), UsuariosManager (aprovar/rejeitar). Só onda-b-supabase.ts no commit; sites na árvore (entrelaçados).
+- ⚠️ Na aprovação, o write em **usuarios** (role/cidades) segue Firestore — usuarios é domínio à parte (pré-req do flip, ainda não migrado).
+
+### 📋 Mapa das ESCRITAS restantes (Explore, 21/06)
+- **slots: ESCRITA JÁ MIGRADA ✅** — SlotsModule chama `aceitarSlotSupa/checkIn/checkOut/cancelar/reatribuir` atrás de `slotsProviderSupabase()` (linhas ~2623-2668). Só o CREATE de slot (admin) segue Firestore-only (minor).
+- **escala: ESCRITA JÁ MIGRADA ✅** — SlotsTeamsModule chama `criarSlotsEscala/aceitarEscala/salvarDisponibilidade/salvarPenalidade/addFeriado/...` atrás de `escalaProviderSupabase()` (linhas ~449-931).
+- **usuarios:** ESCRITA é o trabalho ALTO e pré-req do flip de Auth. Writers: UsuariosManager (aprovar→role/cidades 390, edição 492), TelaPrestadorPerfil (self 326), CadastroTelegram (setDoc novo 109), TelegramVinculo (543/563), AppShell (815 senhaTemporaria). RLS: `usuarios_upd_self` (id=auth.uid()) + `usuarios_admin` (is_admin all). Falta: write helpers + wirar, e definir admin-escreve-outro (via Edge Fn service_role, pois RLS só deixa self/admin).
+
+### ✍️ usuarios — escrita via Edge Function (commit 5c449cf, deployado, flag OFF)
+Pré-req do flip de Auth. Edge Function `supabase/functions/usuarios-write` (**deployada**): valida o chamador pelo JWT (self OU gestor/admin via service_role) e atualiza `usuarios` — permite admin/gestor escrever OUTROS (RLS sozinha só deixa self). Allowlist de colunas por papel.
+- `lib/usuarios-supabase.ts`: `escreverUsuarioSupabase` + flag `jet_usuarios_write` (default OFF).
+- Wirados (dual-write): UsuariosManager (aprovar prestador + salvar permissões/cidades), TelaPrestadorPerfil (perfil próprio).
+- ⏳ Falta (menores, p/ o flip): criação de usuário NOVO (CadastroTelegram setDoc — vira signup Supabase no flip), TelegramVinculo (telegram), AppShell senhaTemporaria.
+
+### 🧭 ESTADO p/ APOSENTAR FIREBASE (4 produtos)
+1. **Firestore writes:** ocorrências✅ turnos✅ solicitações✅ slots✅ escala✅ usuarios✅(core) — todos atrás de flag, dual-write/dual-run. Falta: validar + virar defaults ON; slot CREATE (minor) e usuarios menores.
+2. **Firebase Storage** (fotos ocorrências/turnos/croquis) — `lib/uploadUtils.ts` ainda sobe pro Firebase; só URL no Supabase. **FALTA migrar p/ Supabase Storage** + mover arquivos. (bloco grande)
+3. **Cloud Functions (34):** mirrors viram desnecessários sem Firestore; callable/agendados (Telegram/NFS-e/GoJet/relatórios) precisam rodar vs Supabase. Vários já são Edge Functions. **FALTA auditar+portar.** (bloco grande)
+4. **Firebase Auth:** flip C.8→C.9 (depende de tudo acima validado) + rebuild APK/GPS + rotacionar segredos.
+
+Edge Functions Supabase hoje: auth-login, gerar-slots, ingest-gps, processar-fila-nfse, scrape-gojet, verificar-procuracoes, **usuarios-write**.
+
+### ▶️ RETOMAR AQUI (ordem) — ATUALIZADO 25/06/2026
+> **Escritas, Storage e Cloud Functions estão TODOS portados.** Falta validar e virar ON.
+
+1. **Validar flags no app logado** (precisa credencial real). Testar cada flag isoladamente:
+   - `localStorage['jet_auth_provider']='supabase'` → perfil/role/paises + GPS intacto + reload mantém sessão A
+   - `localStorage['jet_guard_provider']='supabase'` → paridade Guard/ocorrências vs Firestore
+   - `localStorage['jet_logistica_provider']='supabase'` → paridade logística
+   - `localStorage['jet_guard_write']='supabase'` → criar/editar/excluir ocorrência, conferir nas 2 bases
+   - `localStorage['jet_logistica_write']='supabase'` → turno + solicitação
+   - `localStorage['jet_usuarios_write']='supabase'` → editar perfil, aprovar prestador
+   - `localStorage['jet_storage_provider']='supabase'` → upload foto, verificar no bucket 'uploads'
+   - `localStorage['jet_functions_provider']='supabase'` → testar callable (relatório manual, notificar ocorrência, scraper GoJet)
+   - Rollback de qualquer uma: `localStorage.setItem('jet_X_provider', 'firebase')`
+2. **Virar defaults ON** (VITE_* no .env ou trocar default nos helpers p/ true).
+3. **Flip de Auth C.8→C.9** (sessão dedicada, irreversível) — login primário Supabase, aposentar Firebase Auth.
+4. **Desligar Cloud Functions Firebase** — os cron jobs Supabase já cobrem tudo; mirrors ficam desnecessários.
+5. **Desligar Firestore** — quando todas as flags estiverem ON e validadas em produção.
+
+---
+
+## 17.8 Sessão 25/06 — Portagem completa: escritas, Storage, Cloud Functions → Supabase
+
+### ✍️ Escritas menores de usuarios (3 sites)
+- CadastroTelegram (novo usuário), TelegramVinculo (vincular+desvincular), AppShell (senhaTemporaria) → dual-write via `escreverUsuarioSupabase`, flag `jet_usuarios_write`.
+- **Todas as escritas de todos os domínios agora estão cobertas** (ocorrências, turnos, solicitações, slots, escala, usuarios).
+
+### 📦 Storage Firebase → Supabase
+- `getBytesStorage()` e `deleteStorage()` criados em `uploadUtils.ts` (leitura/deleção com dual-path).
+- AnalyticsManager (4 call sites de getBytes/deleteObject) wirado para usar os novos helpers.
+- `uploadComRetry` já tinha dual-path (12+ call sites migram com a flag).
+- Tudo atrás de `jet_storage_provider`. Bucket 'uploads' já existia (migration 0034).
+
+### 🔌 Cloud Functions → Edge Functions (portagem completa)
+**18 Edge Functions novas criadas e deployadas** (total: 25 Edge Functions):
+- `buscar-pois-osm` — POIs OSM via Overpass (3 mirrors)
+- `notificacoes-prestador` — notificar gestores nova solicitação
+- `registrar-log` — log de acesso
+- `health-check` — health check
+- `telegram-vinculo` — webhook + vinculação Telegram (6 actions)
+- `slots-actions` — aceitar slot + notificações (5 actions)
+- `gps-alertas` — verificar atrasos/chegada/mock (3 actions)
+- `auth-actions` — aprovar/revogar/listar (5 actions)
+- `get-usuario` — buscar usuário por UID
+- `automacao` — gerar slots + limpeza + tarefas monitor (3 actions)
+- `automacao-gojet` — scraper GoJet paginado (2 actions)
+- `automacao-tarefas` — motor inteligente de slots, SLA, histórico, clima (9 actions)
+- `relatorios` — Guard diário/semanal/manual + Perdas (5 actions)
+- `slots-telegram` — resumo + cascata confirmação (3 actions)
+- `croquis` — gerar PDF via Google Slides/Drive (2 actions)
+- `streetview` — cascata Mapillary→Google SV→Satellite + cache (2 actions)
+- `estacoes` — add estação + análise calçada Gemini + geocode + position (4 actions)
+- `geocode` — forward/reverse geocoding proxy
+
+### 🔗 Frontend wiring
+- `edge-functions.ts` — bridge centralizado callable→Edge Function (25 mapeamentos)
+- `firebase.ts` — 17 fn* exports usam o bridge
+- 5 call sites diretos (DashboardManager ×2, SlotsModule, TelaGuard, GestorLogisticaPanel) wirados
+- Tudo atrás de `jet_functions_provider`
+
+### 🗄️ Migrations
+- **0036**: 7 tabelas (gojet_snapshots, monitor_config, monitor_alertas, config_auto_slots, logs_automacao, log_slots_auto, tarefas) + cron jobs
+- **0037**: fix cron URLs (hardcoded vs current_setting) + DB triggers (GPS chegada + nova solicitação) + tabela slots_prestadores
+
+### 🔑 Secrets configurados no Supabase
+TELEGRAM_BOT_TOKEN, OPENWEATHER_API_KEY, GMAPS_KEY, GEMINI_KEY, MAPILLARY_TOKEN, OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, OAUTH_REFRESH_TOKEN, GOJET_PROXY_URL (9 secrets novos, total 17).
+
+### 📊 Mapa completo de flags
+| Flag | Controla | Default |
+|---|---|---|
+| `jet_guard_provider` | leitura Guard/ocorrências | firebase |
+| `jet_logistica_provider` | leitura logística | firebase |
+| `jet_auth_provider` | perfil/role de Supabase | firebase |
+| `jet_guard_write` | escrita ocorrências | firebase |
+| `jet_logistica_write` | escrita turnos/solicitações | firebase |
+| `jet_usuarios_write` | escrita usuarios | firebase |
+| `jet_storage_provider` | upload/download Storage | firebase |
+| `jet_functions_provider` | Cloud Functions → Edge Functions | firebase |
+
+### 📦 Deploy
+- Frontend: `firebase deploy --only hosting` → https://jet-os-1.web.app
+- Edge Functions: 18 novas deployadas via `supabase functions deploy`
+- Migrations 0036+0037 aplicadas
+- 15 cron jobs + 2 DB triggers ativos
+
+### 🔀 Default flip — todas as flags → Supabase ON por padrão
+Todas as flags de provider foram alteradas de `=== 'supabase'` para `!== 'firebase'` no fallback do env var. Isso torna Supabase o default SEM precisar de env var — Firebase só é usado se explicitamente setado `localStorage['jet_X_provider']='firebase'`. Arquivos alterados: `edge-functions.ts`, `supabase-auth.ts`, `uploadUtils.ts`, `analytics-supabase.ts`, `escala-supabase.ts`, `estacoes-supabase.ts`, `slots-supabase.ts`, `usuarios-supabase.ts`, `onda-b-supabase.ts`, `ocorrencias-supabase.ts` (2 flags).
+
+---
+
+## 17.9 Sessão 25/06 (cont.) — AUTH FLIP C.8→C.9 implementado
+
+### 🔐 Auth flip — Supabase é o auth PRIMÁRIO
+
+**Mudança em `frontend/src/hooks/useAuth.ts`:** reescrito para usar Supabase como auth primário.
+
+**Antes (Firebase primário):**
+- Login: `signInWithEmailAndPassword(auth, email, senha)` → `estabelecerSessaoSupabase()` (não-fatal)
+- State: `onAuthStateChanged` do Firebase → carrega perfil
+- Logout: `encerrarSessaoSupabase()` → `signOut(auth)`
+
+**Depois (Supabase primário):**
+- Login: `auth-login` Edge Function (2x: sessão B/GPS + sessão A/JS) → `setSession()` → Firebase login lazy-imported (não-fatal, backward compat)
+- State: `supabase.auth.onAuthStateChange` é o driver principal → carrega perfil de `public.usuarios` por Supabase UUID (`auth.users.id`), fallback por `firebase_uid`
+- Logout: `encerrarSessaoSupabase()` → Firebase signOut lazy-imported (não-fatal)
+- User shim: `{ uid: firebase_uid, email }` criado como `User` para backward compat com componentes que leem `user.uid`
+
+**Firebase é lazy-imported** (`import()` dinâmico) — não bloqueia o bundle se Supabase funcionar.
+
+**Migração preguiçosa de senha:** a Edge Function `auth-login` já faz: tenta Supabase → se falhar, verifica no Firebase (identitytoolkit) → grava senha no Supabase → loga. Transparente para o usuário.
+
+**Testar:** login normalmente. Console deve mostrar:
+- `[auth] login Supabase OK` (ou `(senha migrada)` no 1º login pós-flip)
+- `[auth] sessão Supabase ativa, perfil: <nome> <role>`
+
+**Rollback:** NÃO revertível via flag (requer reverter o código de useAuth.ts). Manter o commit separado para facilitar revert se necessário.
+
+**⚠️ PENDÊNCIA:** rebuildar a APK com este código e RE-TESTAR o GPS no celular (o `user.uid` agora vem do shim `firebase_uid`, não do `auth.currentUser.uid` do Firebase — validar que o GPS nativo continua recebendo refresh token correto).
+
+### ⏭️ PRÓXIMOS PASSOS (ordem) — ver 17.17 para estado atualizado
+
+---
+
+## 17.17 Sessão 25/06 (cont.) — Curitiba + GPS flip + Telegram + fixes RLS/Storage
+
+### 🏙️ Curitiba — 2685 estações importadas no Supabase
+- **Script `scripts/insert-curitiba.mjs`**: parseou CSV completo (2636 estações) + 441 estações fase 1 (pipe-delimited). Match por Haversine (50m). Total inserido: 2685 (419 ATIVO = fase 1, 2266 PLANEJADO).
+- **Script `scripts/update-fotos.mjs`**: extraiu hyperlinks FOTO/CROQUI do xlsx (`Estacionamentos de Curitiba.xlsx`) via lib `xlsx`, atualizou campo `imagens` jsonb de 2637 estações.
+- **Bug CSV decimal brasileiro**: o parser original usava regex que confundia vírgula decimal brasileira (`"-25,411224"`) com delimitador CSV. 138 estações ficaram com latitude absurda (63, -57, 72...). Fix: parser CSV adequado que respeita campos quoted. Todas as 2637 coordenadas corrigidas via PATCH em batch.
+- **Status**: `ATIVO` (verde, fase 1) e `PLANEJADO` (roxo, futuro). Filtros e cores adicionados em `TelaMapa.tsx`.
+
+### 🗺️ Estações não apareciam no mapa — 3 problemas resolvidos
+1. **RLS bloqueava leitura anônima**: `estacoes_sel` exigia `auth.uid() is not null`, mas o client JS não tinha sessão Supabase ativa. **Fix**: migration `0038_estacoes_public_read.sql` — policy `estacoes_anon_sel` com `using (true)` para SELECT.
+2. **PostgREST limite de 1000 rows**: query `select('cidade,lat,lng,pais')` sem limit retornava max 1000 (default PostgREST), insuficiente para 2685 estações. `.limit()` e `.range()` não funcionaram (max_rows hardcoded no projeto). **Fix**: migration `0039_rpc_cidades_estacoes.sql` — RPC `cidades_estacoes()` retorna cidades agrupadas com count + centroide (1 row por cidade, não 1 por estação).
+3. **`Promise.resolve()` quebrava a chain do Supabase client**: o PromiseLike do Supabase perdia o `.limit()` ao ser wrapped. **Fix**: async IIFE em vez de Promise.resolve.
+
+### 📸 Fotos Drive no popup — 3 problemas resolvidos
+1. **`sanitizarFotoUrl()` descartava URLs do Drive**: retornava `null` para `drive.google.com`. **Fix**: usar `fixDriveUrl()` como fallback, que converte `/file/d/XXX/view` → `lh3.googleusercontent.com/d/XXX`.
+2. **Imagem aparecia e sumia**: Google bloqueia requests com `Referer` header de outro domínio. **Fix**: `referrerpolicy="no-referrer"` em todos os `<img>` de fotos de estações.
+3. **FotoMedidas (Medir) ficava carregando**: componente usava `fetch()` para converter URL em blob, mas CORS bloqueava. **Fix**: carregar via `new Image()` direto com `referrerPolicy` + `crossOrigin="anonymous"` (fallback sem CORS).
+
+### 📐 Medir — save corrigido
+- **Upload Storage RLS**: session Supabase é `null` (nunca foi persistida após login). **Fix temporário**: migrations `0041` (Storage anon upload) + `0040` (Storage update).
+- **Firestore doc not found**: estações de Curitiba só existem no Supabase, não no Firestore. O save tentava `updateDoc` no Firestore com UUID do Supabase. **Fix**: tenta Supabase primeiro (busca por id/firebase_id, merge `imagens` jsonb preservando croqui), fallback Firestore.
+- **Popup não atualizava**: após salvar, o popup Leaflet mantinha a foto antiga. **Fix**: `setEstacoes()` atualiza state in-memory após save.
+
+### 🔔 Telegram webhook migrado
+- Webhook do bot `@JetOs_Bot` re-registrado para apontar para Edge Function `telegram-vinculo` do Supabase.
+- Cloud Function `telegramWebhook` do Firebase deletada.
+
+### 🛰️ GPS provider flip → Supabase default
+- `gps-native.ts`: default trocado de `=== 'supabase'` para `=== 'firebase'` (Supabase é o default).
+- Import do Firebase `auth` trocado de estático para dinâmico `await import('./firebase')`.
+
+### 🛡️ RLS — políticas temporárias anon (migração)
+Durante a migração, a sessão Supabase JS não persiste (login feito antes do código de `persistSession`). Policies anon temporárias criadas:
+| Migration | Tabela/Recurso | Policy |
+|---|---|---|
+| 0038 | `estacoes` SELECT | `estacoes_anon_sel` — leitura pública (dados de localização) |
+| 0041 | `storage.objects` INSERT | `upload_anon` — upload anon no bucket 'uploads' |
+| 0041 | `storage.objects` UPDATE | `update_auth` — upsert precisa de update |
+| 0042 | `ocorrencias` INSERT/UPDATE | `ocor_ins_anon` / `ocor_upd_anon` — escrita anon |
+| 0043 | `estacoes` UPDATE | `estacoes_upd_anon` — update anon |
+
+**⚠️ RESTRINGIR APÓS FIX DA SESSÃO**: quando o login gravar a sessão corretamente (deslogar+logar de novo, ou fix no `setSession`), reverter para `to authenticated` apenas.
+
+### 🐛 Bug raiz: sessão Supabase não persiste
+`supabase.auth.getSession()` retorna `null` apesar de `setSession()` ser chamado no login e `persistSession: true` estar configurado no client (`storageKey: 'jet-os-supabase-auth'`). Causa provável: o login foi feito **antes** do código de persistência existir, e o token nunca foi gravado no localStorage. **Fix**: deslogar e logar de novo deveria resolver. Se não, investigar se `setSession` está falhando silenciosamente.
+
+### 📋 Migrations aplicadas nesta sessão
+| # | Arquivo | Descrição |
+|---|---|---|
+| 0038 | `estacoes_public_read.sql` | SELECT público em estações |
+| 0039 | `rpc_cidades_estacoes.sql` | RPC cidades agrupadas (evita limite 1000) |
+| 0040 | `fix_storage_rls.sql` | Recreate upload_auth + add update_auth |
+| 0041 | `storage_anon_upload.sql` | Upload anon no Storage |
+| 0042 | `ocorrencias_anon_write.sql` | Escrita anon em ocorrências |
+| 0043 | `estacoes_anon_update.sql` | Update anon em estações |
+
+### ▶️ PENDÊNCIAS CONSOLIDADAS (26/06/2026 — atualizado)
+
+#### ✅ Resolvidos nesta sessão (26/06)
+1. ~~Fix sessão Supabase~~ — centralizado em useAuth.ts com error handling + visibilitychange recovery (`8398fca`)
+2. ~~Policies anon (0041-0043)~~ — já revertidas pela migration 0052 (aplicada)
+3. ~~Deploy frontend hosting~~ — ✅ https://jet-os-1.web.app
+4. ~~Deploy Cloud Functions~~ — ✅ todas deployadas (exceto verificarChegadaPonto — cota CPU, re-tentar)
+5. ~~Migrations 0057-0061~~ — ✅ aplicadas (GPS views, seed config, tarefas firebase_id, telegram columns, storage bucket)
+6. ~~Migração Ondas D-H~~ — ✅ 36 arquivos, GPS/usuarios/config/telegram/mirrors (`24e7cbb`)
+7. ~~5 últimos reads Firestore~~ — ✅ LocaisOperacionais, MapaHelpers, EventoGoJetPanel, ShiftNotifications, SlotsDashboard (`8398fca`)
+8. ~~maxInstances:10~~ — ✅ ~50 Cloud Functions (`d0f5f48`)
+9. ~~HEIC→JPEG uploads~~ — ✅ 4 componentes migrados para imageUtils (`d0f5f48`)
+10. ~~Console.log debug~~ — ✅ já limpos
+11. ~~gerarSlotsAgendado~~ — ✅ no-op (`299af4a`)
+12. ~~Firebase Storage→Supabase Storage~~ — ✅ código + migration 0061 + backfill 554 fotos (`96cf74f`)
+13. ~~Backfill config~~ — ✅ telegram copiado; controle_perdas e clima não existiam no Firestore
+
+14. ~~Deploy `verificarChegadaPonto`~~ — ✅ deletada e recriada com tipo correto
+15. ~~Build APK release~~ — ✅ 12MB em `frontend/android/app/build/outputs/apk/release/app-release.apk`
+16. ~~Delete `ingestGps` Firebase~~ — ✅ deletada (`90dfd02`); APK default já é Supabase
+17. ~~Ocorrências Guard~~ — ✅ testado e OK pelo usuário
+18. ~~Backfill fotos Storage~~ — ✅ 30 fotos migradas Firebase→Supabase Storage
+19. ~~Flag default Supabase~~ — ✅ todos os flags defaultam para Supabase (`24abe75`)
+
+#### 🔐 Segurança (manual)
+1. **Rotacionar service_role key** — exposta em scripts. Regenerar no dashboard Supabase e atualizar secrets.
+2. **Rotacionar keystore password** — exposta em `build.gradle`. Mover para `keystore.properties` (gitignored).
+
+#### 🟡 Cleanup (pós-validação completa)
+3. **Desabilitar Firebase Auth** — após confirmar tudo funciona com Supabase auth em campo.
+4. **Desligar Cloud Functions Firebase** — após validação completa (mirrors podem ser removidos quando Firestore for desligado).
+5. **Desligar Firestore** — após confirmação que todos os flags estão em Supabase e nenhum dado residual é necessário.
+6. **Remover código Firebase do frontend** — limpar imports `firebase/firestore`, remover fallbacks Firestore dos componentes migrados, reduzir bundle size.
+
+---
+
+### 🌐 Street View — feature completa (25/06/2026)
+
+**Edge Function** `supabase/functions/streetview/index.ts`:
+- Cascata: Cache Storage → Mapillary → Google SV → Google Satellite
+- Salva imagem no Storage (`uploads/streetview/sv_LAT_LNG.jpg`) + stats em `config.sv_stats`
+- Secrets: `MAPILLARY_TOKEN`, `GMAPS_KEY` (já configurados)
+
+**Frontend** (`edge-functions.ts` + `TelaMapa.tsx`):
+- `invokeEdge` usa `fetch` direto (não `supabase.functions.invoke`) — evita bug com key `sb_publishable_*`
+- Botão **SV** no popup → gera imagem → **preview modal** com opções: Salvar / Salvar+Medir / Descartar
+- Imagem SV serve como **foto padrão** quando estação não tem foto real
+- **Badge "🌐 SV"** no canto da thumbnail quando imagem é SV (não foto real) + texto "substitua com foto real"
+- Botão **📐 Medir** aparece para estações com SV (fallback `imagens.streetView`)
+- **StreetViewModal** — iframe Google Maps Embed (gratuito) com tabs SV/Satélite, captura de frame
+
+**Batch (FABs reorganizados):**
+- FABs agrupados: 🛠 Ferramentas (expandível) → ⚡ Combo SV+Medir / 🌐 SV lote / 📐 Medir lote
+- GoJet (📊📈) agrupados sob 🛴 (aparecem quando layer GoJet ativa)
+- **⚡ Combo SV+Medir**: gera SV em lote → abre fila de medição automaticamente
+- **🌐 SV lote**: gera Street View para estações **filtradas visíveis** sem foto
+- **📐 Medir lote**: carrossel sequencial de medição para estações filtradas com foto/SV sem `_medida`
+  - Header com código/endereço, progresso (3/25), badge 🌐 SV
+  - Barra de progresso azul
+  - **Atalhos**: `→` pular, `Esc` parar
+  - Botões: Pular ⏭ / Parar ✕
+  - Ao salvar → avança automaticamente
+  - Tela "✅ Lote concluído" ao final
+- Ambos os batches respeitam **filtros ativos** (tipo + status)
+
+**Captura de foto — Ctrl+V:**
+- Painel "📷 Foto da estação" agora tem botão **📋 Colar** (lê clipboard API)
+- **Ctrl+V direto** funciona quando painel está aberto (`onPaste` no container)
+- Fluxo: Win+Shift+S → abre painel → Ctrl+V → upload automático
+
+---
+
+### 🌍 i18n — Pendências de Tradução (25/06/2026)
+
+**Idiomas:** pt (base, ~395 keys) · en (467 keys, completo) · es (447 keys) · ru (432 keys)
+
+#### Chaves faltando por idioma
+
+**Espanhol (es.json) — 20 keys faltando:**
+- `guide.topics.foto-medidas.*` (10 keys) — tutorial Foto com Medidas
+- `guide.topics.ocorrencias-guard.*` (10 keys) — tutorial Ocorrências Guard
+
+**Russo (ru.json) — 36 keys faltando:**
+- `guide.topics.add-estacao.*` (9 keys) — tutorial Add Estação
+- `guide.topics.foto-medidas.*` (10 keys) — tutorial Foto com Medidas
+- `guide.topics.ocorrencias-guard.*` (10 keys) — tutorial Ocorrências Guard
+- `guide.topics.guard.passos.3-4.*` (parcial)
+- `guide.topics.slots-logistica.passos.5.*` (parcial)
+- `guide.topics.gojet-overlay.passos.5.dica`
+
+#### Strings hardcoded em PT (não usam t())
+
+**TelaMapa.tsx** — 8 tooltips de FABs:
+- `title="Satélite"`, `title="SV + Medir combo..."`, `title="Gerar SV em lote"`, `title="Medir em lote"`, `title="Ferramentas de estação..."`, `title="Analytics GoJet"`, `title="GoJet Dashboard"`, `title="GoJet ao vivo"`
+
+**AppShell.tsx** — 9+ placeholders de formulários:
+- `placeholder="Mínimo 8 caracteres"`, `placeholder="Sua chave Pix"`, `placeholder="Alguma informação adicional..."`, `placeholder="Ex: Faço parte da equipe..."`, `placeholder="URL do documento"`, `placeholder="Ex: Validade 2025..."`, `placeholder="Senha recebida pelo WhatsApp"`, `placeholder="JET-001234"`, `placeholder="Descrição do ativo..."`
+- `label="Senha atual (temporária)"`, `label="Nova senha"`, `label="Confirmar nova senha"`
+
+**StreetViewModal.tsx** — 3 tooltips:
+- `title="Abre em nova janela..."`, `title="Cole ou arraste a imagem"`, `title="Abrir no Google Maps"`
+
+**AndroidPermissionGate.tsx** — 5 títulos:
+- `title="Localização"`, `title="Localização o tempo todo"`, `title="Notificações"`, `title="Câmera"`, `title="Executar em segundo plano"`
+
+**SlotsDashboard.tsx** — 1 tooltip:
+- `title="Atualizar"`
+
+#### Resumo
+
+| Área | Status |
+|------|--------|
+| Keys pt→en | ✅ Completo |
+| Keys pt→es | ⚠️ 20 faltando (guia) |
+| Keys pt→ru | ⚠️ 36 faltando (guia) |
+| Strings hardcoded PT | 🔴 26+ strings em 5 arquivos |
+| Prioridade | 1. Hardcoded → t() · 2. es/ru guide keys |
+
+---
+
+## 18. Sessão 26/06 — V2 Features portadas (P0–P5)
+
+Portagem de todas as features V2 para V1, organizadas por prioridade.
+
+### 18.1 P0 — bike_history + transition-only logging
+
+**Objetivo:** reduzir ~70% do volume de escrita em `bike_history` logando apenas mudanças de status.
+
+- **Migration 0046** (`0046_bike_history.sql`): `ALTER TABLE` na tabela existente — adicionou colunas `lat`, `lng`, `bateria`, `observed_at`. Índice único `(bike_id, bucket_ts)`. RPC `idle_bikes_summary` (bikes paradas >2h por cidade). Cron `cleanup-bike-history` semanal (deleta >90 dias).
+- **scrape-gojet modificado** (`supabase/functions/scrape-gojet/index.ts`): lê status anterior da tabela `bikes` ANTES do upsert; após upsert, compara e só insere em `bike_history` quando `prev !== new`. Campo `bucket_ts` (1-min buckets). Retorna `bikeTransitions` no response.
+
+### 18.2 P1 — Zone Analytics no GoJetDashboard
+
+- **GoJetDashboard.tsx**: nova aba "Zonas" com KPIs por zona (eficiência, monitores vazios, distribuição de bikes por status). Usa `zone-analytics.ts` (já existia no V1) + view `zonas_geo`.
+
+### 18.3 P2 — Tasks workflow + Shift tracking
+
+- **Migration 0047** (`0047_tasks_deliveries.sql`): tabelas `tasks` (PONTO/PATINETE, target_count, status) e `task_deliveries` (foto, GPS, bike_ids). RPC `add_task_delivery` com auto-complete quando `delivered_count >= target_count`. RLS por usuário + gestor CRUD.
+- **Migration 0048** (`0048_shift_records.sql`): tabela `shift_records` (action inicio/intervalo/retorno/fim, turno T0/T1/T2, zonas[], lat/lng, photo_path). RPC `current_shift_status()`.
+- **ShiftPanel.tsx** (novo): painel gestor com KPIs (abertos/pausados/fechados por turno), tabela de trabalhadores por status, histórico de ações. Modal overlay dark theme. Acessível via botão ⏱ no FAB do TelaMapa.
+- Frontend de tasks já existia (`TarefasLogisticaModule.tsx`, 2266 linhas) — só precisou do backend.
+
+### 18.4 P3 — Web Push VAPID
+
+- **Migration 0049** (`0049_push_subscriptions.sql`): `ALTER TABLE` na tabela existente (já tinha `uid`, `endpoint`, `p256dh`, `auth`). Adicionou `user_agent`, índice, unique constraint `(uid, endpoint)`, RLS.
+- **send-push Edge Function** (`supabase/functions/send-push/index.ts`): Web Push via VAPID JWT (ES256). Recebe `user_ids[]`, busca subscriptions, envia via fetch. Secrets: `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`.
+- **web-push.ts** (`frontend/src/lib/web-push.ts`): client subscription manager — `subscribePush(userId)` pede permissão, cria subscription PushManager, upsert no Supabase.
+- **VAPID keys geradas** e configuradas: secrets no Supabase + `VITE_VAPID_PUBLIC_KEY` no `.env.local`.
+
+### 18.5 P4 — Operator efficiency + Low battery
+
+- **Migration 0050** (`0050_operator_efficiency.sql`): RPCs `operator_efficiency(p_days)` (score por tasks/deliveries/tempo) e `low_battery_bikes(p_city_id, p_limit)` (top N bikes com menor bateria).
+- **GoJetDashboard.tsx**: ranking de eficiência (top 10 operadores) e grid de bikes com bateria baixa (top 20) adicionados à aba Resumo.
+
+### 18.6 P5 — PWA offline improvements
+
+- **sw.js** (`frontend/public/sw.js`): push event handler (mostra notificação), notificationclick (foca/abre window). Cache Supabase API (stale-while-revalidate para `/rest/`). Cache OSM tiles (cache-first). Cache name `jetos-v2`.
+- **vite.config.ts**: runtime caching rule para supabase-api (NetworkFirst, timeout 5s, max 50 entries, TTL 1h).
+
+### 18.7 Deploy & Status
+
+| Item | Status |
+|------|--------|
+| Migrations 0046–0050 | ✅ Aplicadas |
+| RPCs (idle_bikes_summary, add_task_delivery, current_shift_status, operator_efficiency, low_battery_bikes) | ✅ Criadas |
+| Crons (scrape 15min, cleanup semanal) | ✅ Ativos |
+| Edge Function scrape-gojet (transition logging) | ✅ Deployed |
+| Edge Function send-push (VAPID) | ✅ Deployed |
+| VAPID keys | ✅ Geradas e configuradas |
+| Frontend build | ✅ Compila sem erros TS |
+| GoJet API via cron | ⚠️ Requer `GOJET_PROXY_URL` no secrets (já configurado) |
+
+---
+
+## 19. SESSÃO 26/06/2026 (cont.) — Auth flip C.9 + Segurança + Relatórios Guard
+
+### 19.1 Relatório Guard Supabase (completo)
+
+**Problema:** relatório Guard diário (7h) não enviava — crons em UTC errado, colunas `telegram_config` faltando, Edge Function simplificada.
+
+**Fix:**
+- **Migration 0051** (`0051_fix_telegram_config_and_crons.sql`): adicionou `guard_chat_id/thread_id`, `perdas_chat_id/thread_id` à `telegram_config`; recriou 4 crons com offset BRT (UTC-3).
+- **`relatorios/index.ts`** (1970 linhas): port completo do Firebase — `buildMensagem()` (double shield, weekday date, bar charts, BRPD, responsáveis, alertas), `gerarPdfHtml()` (3 páginas, SVG charts, Chart.js, lightbox, i18n 4 idiomas PT/EN/ES/RU).
+- **Crons:** `relatorio-guard-diario` 10h UTC = 7h BRT (ter-dom), `guard-semanal` 10h UTC seg, `perdas-diario` 11h UTC = 8h BRT diário, `perdas-semanal` 11h UTC seg.
+
+### 19.2 Alertas de ocorrência (notificar-ocorrencia)
+
+**Problema:** `handleNotificarOcorrencia` em `slots-actions/index.ts` era stub quebrado — esperava `tipo/local/descricao/urgencia` mas frontend envia `ocorrenciaId/statusAtualizado`.
+
+**Fix (reescrita completa):**
+- Busca ocorrência por UUID no Supabase
+- Mensagem rica: header urgência (🚨 ALERTA URGENTE / ✅ RECUPERADO), tipo com emoji, guard+turno, cidade/bairro/endereço, asset, PROCURANDO, BO, descrição, timestamp, ID
+- **Foto Telegram**: se `foto1_url` existe, envia via `sendPhoto` com caption (muito mais visual)
+- **Thread support**: envia no tópico correto (`guard_thread_id`)
+- **`telegram_enviado = true`**: marca a ocorrência após envio
+- Testado com ocorrências reais (Roubo + Vandalismo Ilhabela)
+
+### 19.3 Segurança — Fechamento de políticas anon
+
+**Problema:** migrations 0041-0043 criaram políticas `anon` temporárias (storage uploads, ocorrencias insert/update, estacoes update) durante migração — qualquer request sem auth podia escrever.
+
+**Fix:**
+- **Migration 0052** (`0052_close_anon_policies.sql`): drop das 5 políticas anon, recria como `to authenticated`.
+- **App.tsx**: detecta Firebase logado mas Supabase sem sessão → `signOut` automático → user re-loga → `estabelecerSessaoSupabase` cria sessão → token persistido com `autoRefreshToken`.
+
+### 19.4 Auth flip C.9 — Supabase primário no App.tsx
+
+**Mudança:** `App.tsx` reescrito para usar `useAuthProvider()` (Supabase `onAuthStateChange`) em vez de Firebase `onAuthStateChanged` + Firestore perfil.
+
+- **`useAuth.ts`**: `_loadProfile` expandido — carrega `cidadesPermitidas`, `cargoPrestador`, `tipoCadastro`, `statusPrestador`, `cidade`, `senhaTemporaria` do Supabase.
+- **Migration 0053** (`0053_usuarios_missing_columns.sql`): adicionou `tipo_cadastro`, `status_prestador`, `cidades_gerencia_log`, `senha_temporaria` à tabela `usuarios`.
+- **Backfill** (`supabase/scripts/backfill-usuarios.mjs`): migrou campos de 56/57 usuários do Firestore → Supabase (0 erros).
+- **Firebase login** mantido como fallback lazy (não-fatal) para Firestore reads residuais.
+- **AuthCtx.Provider** envolve TelaMapa e TelaGuard para componentes filhos.
+
+### 19.5 Commits desta sessão
+
+| Commit | Descrição |
+|--------|-----------|
+| `d8ff1fd` | feat(supabase): relatório Guard completo + alertas ocorrência corrigidos |
+| `f910ba3` | fix(security): fechar políticas anon + forçar re-login sem sessão Supabase |
+| `fa91016` | feat(auth): flip C.9 — Supabase auth primário no App.tsx |
+| `b7c73ab` | chore: backfill script + execução — tipo_cadastro/status_prestador em usuarios |
+
+### 19.6 Fix Firestore→Supabase: TermosUso, LGPD, logs_acesso
+
+**Problema:** após auth flip, Firestore writes falhavam (`Missing or insufficient permissions`) para `logs_acesso`, `TermosUsoGate`, `LgpdConsentGate` — Firebase auth não era mais primário.
+
+**Fix:**
+- **`TermosUsoGate.tsx`** e **`LgpdConsentGate.tsx`**: migrados de Firestore para Supabase `aceites_termos` table (upsert por id `${uid}_v${VERSAO}`).
+- **`App.tsx`**: `logs_acesso` agora escreve no Supabase (não Firestore).
+- **Migration 0054** (`aceites_termos` + `logs_acesso`), **0055** (add missing columns), **0056** (drop+recreate `logs_acesso` com schema correto — uid text, ts bigint).
+- **favicon.svg** + **manifest.webmanifest** criados (resolveu 404s no console).
+
+### 19.7 Fix mapa: agrupamento cidade/país
+
+**Problema:** São Paulo não aparecia sob Brasil; Medellín e Santiago apareciam sob Brasil.
+
+**Causa raiz (3 bugs):**
+1. Mirror Firestore→Supabase escreveu `pais='[]'` (string literal) em 1409 estações — truthy, não cai no fallback `'BR'`.
+2. Medellín (`pais:'BR'`) e Santiago (`pais:'BR'`) foram cadastradas com país errado no Firestore.
+3. `buildMapa` em TelaMapa.tsx sobrescrevia `pais` com geo-detecção cujo bounding box Brasil cobria Colômbia e Chile.
+
+**Fix:**
+- **Supabase**: `UPDATE estacoes SET pais='BR' WHERE pais='[]'` (1409 rows).
+- **Firestore**: Medellín → `pais:'CO'`, Santiago → `pais:'CL'`.
+- **`TelaMapa.tsx` buildMapa**: geo-detecção só como fallback quando `pais` não é código 2 letras válido (`/^[A-Z]{2}$/`).
+- **`app-utils.ts`**: adicionados `CO: ['Medellín','Bogotá']`, `CL: ['Santiago']` em `CIDADES` e `COORDS_CIDADES`.
+
+### 19.8 Filtro por país na lista de cidades
+
+- Dropdown ao lado da busca: "Todos", Brasil, Colômbia, Chile, etc. (dinâmico por países com estações).
+- Persistência via `localStorage` (`jet_filtro_pais`) — lembra seleção entre sessões.
+- Filtra cidades com estações e cidades de planejamento.
+
+### 19.9 Pendências pós-sessão
+
+| Prioridade | Item | Status |
+|------------|------|--------|
+| 🔴 Alta | Validar auth flip em produção (login/logout/reload) | Pendente |
+| 🔴 Alta | Rebuild APK (shim user.uid, GPS nativo) | Pendente |
+| 🟠 Alta | Mirror Firestore→Supabase: estações novas (Medellín/Santiago não sincronizaram) | ✅ Feito |
+| 🟡 Média | Relatórios Guard v2 (por cidade + turnos) | Pendente |
+| 🟡 Média | Chat in-app (sign-off jurídico LGPD) | Pendente |
+| ⚪ Baixa | Desligar Firebase Auth/Firestore (após validação) | Futuro |
+| ⚪ Baixa | NFS-e module | Futuro |
+
+### 19.10 Deploy mirrors Firestore→Supabase (26/06/2026)
+
+**Cloud Functions deployadas:**
+- `espelharEstacaoSupabase` — mirror estações (onDocumentWritten `estacoes/{id}`)
+- `espelharZonaSupabase` — mirror zonas/polígonos (onDocumentWritten `poligonos/{id}`)
+- `espelharLocalSupabase` — mirror locais operacionais (onDocumentWritten `locais_operacionais/{id}`)
+- `espelharOcorrenciaSupabase` — mirror ocorrências/Guard (onDocumentWritten `ocorrencias/{id}`)
+- `espelharSolicitacaoPrestadorSupabase` — mirror solicitações prestadores
+- `espelharTurnoLogisticaSupabase` — mirror turnos logística
+
+**Backfill completo:**
+- Estações: 1878 docs sincronizados (inclui Medellín CO + Santiago CL com país correto)
+- Zonas: 50 polígonos sincronizados
+- Locais operacionais: 4 docs sincronizados
+
+A partir de agora, qualquer escrita no Firestore (estações/zonas/locais/ocorrências/solicitações/turnos) é automaticamente espelhada no Supabase em tempo real via Cloud Functions.
+
+### 19.11 Audit completo Firestore→Supabase (26/06/2026)
+
+Auditoria de todas as 35 coleções Firestore referenciadas no código (frontend + functions). 46 arquivos frontend ainda importam `firebase/firestore`. Resultado:
+
+#### A) Mirror ativo — sync automático em tempo real (6 coleções)
+
+| Firestore | Supabase | Cloud Function | Backfill |
+|-----------|----------|----------------|----------|
+| `estacoes` | `estacoes` | `espelharEstacaoSupabase` | 1878 docs |
+| `ocorrencias` | `ocorrencias` | `espelharOcorrenciaSupabase` | 585 docs (anterior) |
+| `poligonos` | `zonas` | `espelharZonaSupabase` | 50 docs |
+| `locais_operacionais` | `locais_operacionais` | `espelharLocalSupabase` | 4 docs |
+| `solicitacoes_prestadores` | `solicitacoes_prestadores` | `espelharSolicitacaoPrestadorSupabase` | via backfill-operacional |
+| `turnos_logistica` | `turnos_logistica` | `espelharTurnoLogisticaSupabase` | via backfill-operacional |
+
+#### B) Tabela Supabase existe, falta cutover de leitura (8 coleções)
+
+| Firestore | Supabase | Situação | Próximo passo |
+|-----------|----------|----------|---------------|
+| `usuarios` | `usuarios` | Auth flip C.9 feito, mas ~9 arquivos ainda leem Firestore direto | Trocar `getDocs('usuarios')` por query Supabase |
+| `slots` | `slots` | Gerador portado (Edge Fn `gerar-slots`), flag `VITE_ANALYTICS_PROVIDER` | Desligar `gerarSlotsAgendado` Firebase + validar 1 dia |
+| `tarefas` | `tarefas` | Tabela criada (0036), sem mirror, frontend lê Firestore | Criar mirror ou portar escritor |
+| `tarefas_logistica` | `tarefas_logistica` | Tabela criada (0001), sem mirror | Criar mirror ou portar escritor |
+| `telegram_config` | `telegram_config` | Tabela criada (0001+0051), functions leem Firestore | Portar leituras nas Cloud Functions |
+| `telegram_vinculos` | `telegram_vinculos` | Tabela criada (0001), telegram-vinculo.ts lê Firestore | Portar para Edge Function |
+| `gojet_config` | `gojet_config` | Tabela criada (0001), frontend lê Firestore | Portar leitura (2 arquivos) |
+| `gojet_snapshots` | `gojet_snapshots` | Tabela criada (0036), scraper portado para Edge Fn | Cutover de leitura no frontend |
+
+#### C) GPS — dados já no Supabase, leitura ainda Firestore (2 coleções)
+
+| Firestore | Supabase | Situação |
+|-----------|----------|----------|
+| `gps_logistica` | `gps_locations` | Edge Fn `ingest-gps` já grava no Supabase; 7 arquivos frontend leem Firestore (`onSnapshot`) |
+| `gps_logistica_hist` | `gps_history` | Histórico já no Supabase; 3 arquivos frontend leem Firestore |
+
+**Arquivos que precisam cutover GPS:** LiveTrackingMap, LiveWorkersPanel, GpsHeatmapPanel, SlotsModule, GpsRotaPanel, GestorLogisticaPanel, gps-background.ts
+
+#### D) Config dispersa — sem tabela dedicada (3 coleções)
+
+| Firestore | Uso | Mapeamento Supabase |
+|-----------|-----|---------------------|
+| `config` | 3 frontend + 4 functions (DashboardManager, importar-guard, relatorio, relatorios, slots, streetview) | → `app_settings` (já existe) |
+| `guard_config` | 1 function (relatorio.ts) — regiões/filiais para relatório | → `regioes_filiais` (já existe, 0009) + `app_settings` |
+| `app_config` | 1 function (automacao-tarefas) — clima/OpenWeather config | → `app_settings` |
+
+#### E) Firestore-only — baixa prioridade (6 coleções)
+
+| Firestore | Uso | Ação |
+|-----------|-----|------|
+| `prestadores` | 3 files (SlotsTeamsModule) | Dados cobertos por `prestadores_fiscal` + `usuarios`; mapear |
+| `pontos` | 3 files (GpsRotaPanel, SlotsTeamsModule, gps-background) | Criar tabela ou mapear para `locais_operacionais` |
+| `solicitacoes` | 2 frontend + 4 funcs (diferente de `solicitacoes_prestadores`) | Avaliar se é coleção legada |
+| `operacoes` | 7 refs em auth.ts (functions-only) | Migrar quando cortar Firebase Auth |
+| `rotas` | 3 refs em auth.ts (functions-only) | Migrar quando cortar Firebase Auth |
+| `eventos` | 1 file (EventoGoJetPanel) | Criar tabela ou desativar feature |
+
+#### F) Mortas / vazias / cobertas por outra tabela (9 coleções)
+
+| Firestore | Situação |
+|-----------|----------|
+| `config_auto_slots` | Vazia no Firestore; tabela Supabase criada (0036) |
+| `parking_history` | Vazia no Firestore; `parking_history` Supabase populada pelo scraper GoJet |
+| `slot_config` | Portada para Supabase (0015); Firebase pode ser desligado |
+| `slot_aceites` | Tabela Supabase criada (0019); uso mínimo |
+| `log_slots_auto` | Tabela Supabase criada (0036); uso mínimo |
+| `logs_automacao` | Tabela Supabase criada (0036); functions-only |
+| `monitor_alertas` | Tabela Supabase criada (0036) |
+| `monitor_config` | Tabela Supabase criada (0036) |
+| `slot_alertas` / `slot_lembretes` | Usadas só em slot-confirmacao.ts; baixo volume |
+| `fcm_tokens` | Equivale a `push_subscriptions` (já existe) |
+| `logs_acesso` | Já migrado para Supabase (0054-0056) |
+
+#### Resumo quantitativo
+
+| Categoria | Coleções | % |
+|-----------|----------|---|
+| Mirror ativo (sync automático) | 6 | 17% |
+| Tabela existe, falta cutover | 8 | 23% |
+| GPS (dados lá, leitura aqui) | 2 | 6% |
+| Config dispersa | 3 | 9% |
+| Firestore-only (baixa prioridade) | 6 | 17% |
+| Mortas / cobertas | 10 | 28% |
+| **Total** | **35** | **100%** |
+
+#### Roadmap de cutover — ✅ IMPLEMENTADO (26/06/2026)
+
+Todas as 5 ondas implementadas em commit `24e7cbb`. 36 arquivos, 4 migrations (0057-0060), ~1516 linhas. Tudo atrás de feature flags com Firestore fallback.
+
+### 19.12 Implementação Ondas D-H (26/06/2026)
+
+| Onda | Scope | Migration | Novos arquivos | Modificados | Status |
+|------|-------|-----------|----------------|-------------|--------|
+| **D — GPS reads** | 5 componentes frontend (LiveTrackingMap, LiveWorkersPanel, GpsRotaPanel, GestorLogisticaPanel, SlotsModule) | 0057 `gps_views` (views PostGIS com lat/lng + firebase_uid join) | `gps-supabase.ts` | 5 | ✅ |
+| **E — Usuarios reads** | 11 componentes, 15 read sites | — | — (expandiu `usuarios-supabase.ts`) | 11 | ✅ |
+| **F — Config** | 4 Cloud Functions (relatorio, relatorios, slots, automacao-tarefas) | 0058 `seed_config` | `config-supabase.ts`, `backfill-config.mjs` | 4 | ✅ |
+| **G — Tarefas/Telegram** | 6 Cloud Functions + mirrors | 0060 `onda_g_telegram_gojet_columns` | `telegram-supabase.ts` | 6 (gps-alertas, slots, relatorios, telegram-vinculo, automacao-tarefas, mirror-tarefas) | ✅ |
+| **H — Mirrors/cleanup** | 3 novos mirrors + 3 frontend GoJet | 0059 `tarefas_firebase_id` + tabela `solicitacoes` | `mirror-tarefas.ts`, `mirror-solicitacoes.ts`, `mirror-gojet-config.ts`, `gojet-config-supabase.ts` | 4 | ✅ |
+
+**Padrões aplicados em todas as ondas:**
+- Feature flag: `localStorage.getItem('jet_*_provider') === 'supabase'` || `import.meta.env.VITE_*_PROVIDER`
+- `onSnapshot` Firestore → `setInterval` polling (10-30s) no Supabase
+- UID mapping: views PostGIS fazem JOIN com `usuarios.firebase_uid` — frontend continua usando Firebase UIDs
+- Functions: Supabase-first com try/catch, Firestore fallback
+- Mirrors: `onDocumentWritten` → PostgREST upsert por `firebase_id`
+
+**Para ativar:** `localStorage.setItem('jet_gps_read_provider', 'supabase')` (e análogo para `usuarios_read`, `gojet`, etc.)
+
+**Próximos passos operacionais:**
+1. Aplicar migrations 0057-0060 no Supabase (`supabase db push`)
+2. Deploy mirrors novos (`firebase deploy --only functions:espelharTarefaSupabase,...`)
+3. Rodar backfill-config.mjs
+4. Testar cada flag individualmente em staging
+5. Flip flags em produção por onda
+5. **Onda H — Limpeza** (6+10 coleções): portar ou desativar `prestadores`, `pontos`, `solicitacoes`, `operacoes`, `rotas`, `eventos`; desligar coleções mortas.
+
+### 19.13 Sessão 27/06/2026 — Code-split + LGPD migration + Config seed + Deploys
+
+#### 📦 Code-split do bundle (vite.config.ts)
+- `manualChunks` adicionado: `vendor-react` (141kB), `vendor-firebase` (751kB), `vendor-supabase` (211kB), `vendor-map` (1054kB), `vendor-deckgl` (878kB).
+- **Resultado:** chunk index (main) caiu de **4.2MB → 2.3MB** (−46%). Total de 7 chunks cacheáveis independentemente. heic2any já era lazy (chunk separado por dynamic import).
+- Vendor libs são cacheadas no browser entre deploys — só o chunk `index` invalida quando o código do app muda.
+
+#### 🛡️ Consentimentos LGPD — migration + mirror + dual-write
+- **Migration 0062** (`consentimentos_lgpd.sql`): tabela recreada com `uid text` (Firebase UID), `versao int`, `UNIQUE(uid,versao)`, RLS (service_role full, auth insert, own-read via firebase_uid join).
+- **Mirror** `functions/src/mirror-lgpd.ts` (`espelharConsentimentoLgpdSupabase`): onDocumentWritten `consentimentos_lgpd/{id}`, upsert por `uid,versao`, tratamento de Firestore Timestamp.
+- **Frontend** `LgpdConsentGate.tsx`: dual-write fire-and-forget para `consentimentos_lgpd` (flag `jet_lgpd_provider`, default Supabase). Fluxo principal (`aceites_termos`) não é bloqueado por falha do dual-write.
+- **Nota:** `LgpdConsentGate` já escrevia diretamente no Supabase (`aceites_termos`) — esta migration é para preservar os registros históricos do Firestore via mirror e ter a tabela dedicada para compliance/auditoria.
+
+#### ⚙️ Config seed extras
+- **Migration 0063** (`seed_config_extras.sql`): `controle_perdas` (`{"regioes":{}, "filiais":[]}`) e `clima` (`{"openweather_api_key":""}`) inseridos em `app_settings` com `ON CONFLICT DO NOTHING`.
+- Estrutura `filiais[]` documentada no SQL conforme uso em `relatorio.ts` (filial, regiao, resp, patins, bikes, baterias, brpd, vand_*, nao_enc_*, status*).
+- Ambos estavam vazios no Firestore — o seed cria defaults para que as Cloud Functions não falhem ao ler.
+
+#### 🚀 Deploys
+- **Migrations 0062-0063** aplicadas no Supabase remoto ✅
+- **Hosting** redeployado com code-split ✅ (https://jet-os-1.web.app)
+- **Cloud Functions** — deploy parcial: maioria atualizada, ~8 falharam por cota CPU (Cloud Run sa-east1). Retry pendente. `ingestGps` ghost deletada novamente.
+- **Commits:** pendente (incluir code-split + LGPD + config seed).
+
+#### 🔎 Investigação JET-OS-V2 / GoJet
+- **Não existe um app V2 separado.** O "V2" refere-se à arquitetura Supabase dentro deste repo.
+- **Vercel** hospeda apenas o **GoJet proxy** (`gojet-proxy.vercel.app/api/gojet` → `logistic.gojet.app/api/v0/urent`).
+- **Features V2 (DEBRIEF §18):** todas P0-P5 já portadas (bike_history, Zone Analytics, Tasks/Shifts, Web Push, Operator ranking, PWA offline).
+- **"Zonas" do GoJet** são nomes geográficos de bairros (ex: "Zona Mirasierra") dos parkings importados — já exibidas no GoJetDashboard aba Zonas com KPIs.
+
+### 19.14 PENDÊNCIAS CONSOLIDADAS (27/06/2026)
+
+#### 🔴 Deploy pendente
+1. **Retry deploy Cloud Functions** — ~8 funções falharam por cota CPU (espelhar*, gerartarefas*, alertar*, exportar*, gerarslotsmanual, espelharConsentimentoLgpdSupabase). Aguardar cota liberar e redeployar.
+
+#### 🔐 Segurança (manual)
+2. **Rotacionar service_role key** — exposta em scripts/chat. Dashboard Supabase → regenerar → atualizar `functions/.env`, scripts, secrets Edge Functions.
+3. **Rotacionar keystore password** — mover de `build.gradle` para `keystore.properties` (gitignored).
+
+#### 🟠 Validação em produção
+4. **Validar auth flip em campo** — login/logout/reload com Supabase primário.
+5. **Rebuild APK** — com code-split + auth flip + LGPD dual-write. Testar GPS nativo (shim `user.uid`).
+
+#### 🟡 Cleanup Firebase (pós-validação)
+6. **Desabilitar Firebase Auth** — após confirmar Supabase auth estável em campo.
+7. **Desligar Cloud Functions Firebase** — mirrors desnecessários sem Firestore; cron jobs já no Supabase.
+8. **Desligar Firestore** — quando todos os flags ON e validados.
+9. **Remover código Firebase do frontend** — limpar imports, fallbacks, reduzir bundle.
+
+#### 🟢 Produto / melhorias
+10. **Relatórios Guard v2** — por cidade + turnos dos seguranças.
+11. **Chat in-app** — `CHAT_DESIGN.md` pronto, aguarda sign-off jurídico LGPD.
+12. **NFS-e module** — verificarProcuracoes, emissão automática.
+13. **i18n resíduos** — ~~26+ strings hardcoded~~ resolvido (ver 19.15); restam: templates PDF/CSV gerados (DashboardManager), `STATUS_META.label` (CidadesExpansao).
+14. **Front usar `buscarPOIsOSMFn`** — trocar Overpass client-side pela Cloud Function server-side.
+
+### 19.15 i18n resíduos + Guia atualizado (27/06/2026)
+
+#### Strings hardcoded → traduzidas (padrão `{pt,en,es,ru}` + `pick`)
+
+| Arquivo | Strings traduzidas |
+|---------|-------------------|
+| `AppShell.tsx` | 3 placeholders do GuardEditModal (descrição ativo, opcional, nº BO) |
+| `StreetViewModal.tsx` | 3 tooltips (nova janela, colar/arrastar, abrir Google Maps) |
+| `AndroidPermissionGate.tsx` | 5 títulos de permissão (localização, câmera, notificações, background, "o tempo todo") |
+| `SlotsDashboard.tsx` | 1 tooltip (atualizar) |
+| `TelaMapa.tsx` | Já estava i18n (8 FAB tooltips já usavam `t()`) |
+
+#### Keys faltantes nos JSONs de i18n
+
+| Idioma | Adicionadas |
+|--------|------------|
+| es.json | 1 key (`gojet-overlay.passos[5].dica`) |
+| ru.json | 7 keys (guard passos 2-3, slots-logistica passo 4, gojet-overlay dica) |
+
+#### GuiaPanel — atualização do guia
+- **5 tópicos novos** adicionados ao menu: Street View (🌐), Medir em lote (📏), Ferramentas do mapa (🛠), Gestor Logística (👔), GoJet Dashboard (📊)
+- **3 tópicos** movidos de `TOPICOS_FIXOS` hardcoded PT → JSONs i18n 4 idiomas: Analytics, Dashboard, Tarefas Logística
+- `TOPICOS_FIXOS` removido do código — todos os tópicos agora vêm dos JSONs com fallback vazio
+- **gps-ingest.ts deletado** — arquivo morto que fazia o deploy tentar recriar `ingestGps` ghost
+- `functions/lib/` recompilado sem a re-exportação fantasma
+
+### 19.16 APK Distribution via Supabase Storage (27/06/2026)
+
+#### Infraestrutura
+- **Bucket público `apk`** criado no Supabase Storage (migration 0064)
+- Limite 100 MB, mime types: `application/vnd.android.package-archive`, `application/octet-stream`
+- Policy `apk_public_read`: download anônimo
+- URL padrão: `https://ducdbrupxpzqcblfreqn.supabase.co/storage/v1/object/public/apk/jet-os-latest.apk`
+
+#### Banner inteligente (`ApkBanner` em `AppShell.tsx`)
+- Aparece **apenas em Android mobile web** (não no Capacitor/APK)
+- Lê `apk/version.json` do Storage para saber a versão mais recente
+- **Primeiro acesso:** convida a instalar o app (GPS background)
+- **Atualização disponível:** muda mensagem para "Nova versão disponível! Versão X.Y — toque para atualizar"
+- Dismiss salva a versão no localStorage (`jet_apk_banner_dismissed_v`); reaparece quando `version.json` muda
+- Footer link "Baixar app Android" sempre visível na tela de login
+
+#### Procedimento para publicar nova versão
+1. Gerar APK: `cd frontend/android && .\gradlew.bat assembleRelease`
+2. Upload do APK: dashboard Supabase → Storage → bucket `apk` → upload como `jet-os-latest.apk` (sobrescreve)
+3. Upload/atualizar `apk/version.json` com: `{"version": "2.1", "date": "2026-06-27", "notes": "..."}`
+4. O banner reaparece automaticamente para todos os usuários Android que tinham dismissado a versão anterior
+
+#### REGRA: manter sempre a última versão disponível
+- **Toda vez que gerar um novo APK**, fazer upload para o bucket `apk` e atualizar `version.json`
+- O arquivo deve sempre se chamar `jet-os-latest.apk` (URL fixa, sem versionamento no nome)
+- O `version.json` é o que controla quando o banner de atualização aparece
+
+### 19.17 Sessão 27/06/2026 — i18n final + POI server-side + Functions deploy + APK 2.1
+
+#### Cloud Functions deploy (resolvido)
+- 6 mirror functions davam erro "Changing from HTTPS to background triggered" — precisou deletar cada uma com `firebase functions:delete` antes de redeployar
+- Funções afetadas: espelharTarefaSupabase, espelharTarefaLogisticaSupabase, espelharSolicitacaoSupabase, espelharGojetConfigSupabase, espelharConsentimentoLgpdSupabase, espelharOcorrenciaSupabase
+- **Causa raiz:** essas functions foram originalmente criadas como HTTPS (antes da migração para `onDocumentWritten`); Firebase não permite mudar o tipo in-place
+
+#### i18n resíduos finais
+- **DashboardManager.tsx:** CAMPOS_EXPORT (25 campos × 4 idiomas), i18nRelat +ru (30 keys), PDF generation strings, seletor de idioma +ru
+- **CidadesExpansao.tsx:** STATUS_META labels traduzidas (5 status × 4 idiomas)
+- **TelaMapa.tsx:** ajuste para STATUS_META.label como objeto i18n
+
+#### POIPanel → Cloud Function
+- **POIPanel.tsx:** removido ~170 linhas de Overpass direto (buildQuery, detectTipo, fetchOverpass, URLs)
+- Agora usa `fnBuscarPOIs()` (Cloud Function `buscarPOIsOSMFn` via edge function)
+- CidadesExpansao, CandidatosManager, TelaMapa mantêm Overpass direto (queries especializadas)
+
+#### gojet_config dual-write
+- `gojet-config-supabase.ts`: +`salvarGojetConfigSupabase()`, `removerGojetConfigSupabase()` com filtro de colunas válidas
+- Dual-write em GoJetCidadesPanel, PainelConfiguracoes, GestorLogisticaPanel
+
+#### APK 2.1 publicado
+- Build: `cap sync android` + `gradlew assembleRelease` (11.5MB)
+- Upload: `apk/jet-os-latest.apk` + `version.json` no bucket Supabase Storage
+- Banner inteligente: lê `version.json`, reaparece quando versão muda
+
+### 19.18 Audit pré-shutdown Firestore (27/06/2026)
+
+#### Resultado: NÃO é seguro desligar Firestore ainda
+
+**22 coleções Firestore sem tabela Supabase equivalente:**
+gojet_snapshots, config, monitor_config, slot_config, config_auto_slots, config_logistica, guard_config, disponibilidades, feriados, slot_aceites, slot_alertas, slot_lembretes, log_slots_auto, monitor_alertas, operacoes, rotas, bug_reports, penalidades, meis, eficiencias_logistica, notificacoes_app, eventos
+
+**9 módulos frontend escrevem só Firestore (tabela Supabase existe mas sem dual-write):**
+tarefas (monitor), turnos, pagamentos_semana, pagamentos_locais, pagamentos_config, contratos_locais, cidades_expansao, bug_reports, telegram_config
+
+**6 Cloud Functions críticas que LEEM Firestore para lógica de negócio:**
+1. `gerarTarefasGoJetFn` — lê gojet_snapshots, monitor_config, estacoes, tarefas, slots, usuarios
+2. `scraperGoJet` — escreve gojet_snapshots (hub de dados)
+3. `verificarChegadaPonto` — trigger gps_logistica, lê tarefas, poligonos, monitor_alertas
+4. `confirmarSlotsCascata` — lê slots, slot_aceites, config_logistica, slot_alertas
+5. `relatorio` (Guard) — lê ocorrencias, config, telegram_config
+6. `gerarSlotsAgendado` — lê estacoes, slots, slot_config
+
+**Módulos prontos para desligar (dual-run funcional):**
+estacoes, poligonos, locais_operacionais, ocorrencias, gps, gojet_config, solicitacoes_prestadores, turnos_logistica, tarefas_logistica, usuarios, consentimentos_lgpd
+
+#### Roadmap para shutdown
+
+**Fase 1:** Criar ~12 tabelas faltantes + migrations
+**Fase 2:** Dual-write nos ~9 módulos frontend
+**Fase 3:** Migrar 6 Cloud Functions críticas → Supabase-first
+
+### 19.19 Sessão 27/06/2026 — Dual-write Fase 2 + Functions Supabase-first + i18n fix
+
+#### i18n popup fix
+- 4 JSONs (pt/en/es/ru) tinham chave `"popup"` duplicada — a segunda sobrescrevia a primeira silenciosamente
+- Keys perdidas: `tpuNotRegistered`, `authNotRegistered`, `monitor`, `createTask`
+- Merge das duas chaves + correção de trailing comma (syntax error) nos 4 arquivos
+
+#### Dual-write frontend (13 módulos, 12 arquivos com writes)
+- AdminBikeActions, TurnoRegistro, PagamentosAdminPanel, PagamentosModule, LocaisFinanceiro, CidadesExpansao, BugReportsPanel, bugReport.ts, PainelConfiguracoes, TelegramConfigPanel, slots-schema.ts, SlotsModule
+- ShiftNotifications ignorado (read-only)
+
+#### 6 Cloud Functions migradas para Supabase-first (Firestore fallback)
+- `automacao.ts`, `automacao-tarefas.ts`, `automacao-gojet-scraper.ts`, `gps-alertas.ts`, `slot-confirmacao.ts`, `relatorio.ts`
+
+#### Migration 0065
+- 7 tabelas novas + colunas adicionadas em 3 tabelas existentes + 4 seeds de config
+
+#### gojet-config-supabase.ts
+- `salvarGojetConfigSupabase()` e `removerGojetConfigSupabase()` com upsert + filtro `VALID_COLS`
+
+#### POIPanel → Cloud Function
+- POIPanel migrado para `buscarPOIsOSMFn` (server-side)
+
+#### Deploy
+- Hosting deployed em jet-os-1.web.app
+- Functions deploy bloqueado por Cloud Run CPU quota (maxInstances reduzido 10→3, aguardando recuperação de quota)
+
+#### Commit
+- `20e1cde` — 86 arquivos, +3577/−1186
+**Fase 4:** Migrar gojet_snapshots (scraper → Supabase, automação lê Supabase)

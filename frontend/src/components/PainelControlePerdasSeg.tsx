@@ -4,11 +4,89 @@
 // Dados: alimentados pelas ocorrências do Guard + dados iniciais da planilha
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   collection, query, where, orderBy, onSnapshot,
   doc, setDoc, getDoc, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { guardProviderSupabase, carregarOcorrenciasSupabase } from '../lib/ocorrencias-supabase';
+
+// i18n: padrão TermosUsoGate (sem json) — objeto de textos { pt, en, es, ru }
+// selecionado pelo idioma atual. PT é a fonte fiel. O objeto de estilos já usa o
+// nome `T`, então os textos ficam em `TX` (mesma ideia, nome diferente para não colidir).
+type Lang = 'pt' | 'en' | 'es' | 'ru';
+type L = { pt: string; en: string; es: string; ru: string };
+
+const TX = {
+  tituloPainel:    { pt: '📊 Controle de Perdas — Segurança', en: '📊 Loss Control — Security', es: '📊 Control de Pérdidas — Seguridad', ru: '📊 Контроль потерь — Безопасность' },
+  atualizado:      { pt: 'Atualizado', en: 'Updated', es: 'Actualizado', ru: 'Обновлено' },
+  filiaisLabel:    { pt: 'filiais', en: 'branches', es: 'sucursales', ru: 'филиалов' },
+  ocorrenciasReg:  { pt: 'ocorrências registradas', en: 'incidents recorded', es: 'incidencias registradas', ru: 'зарегистрированных инцидентов' },
+  total:           { pt: 'Total', en: 'Total', es: 'Total', ru: 'Всего' },
+
+  kpiBrpd:         { pt: 'Total BRPD', en: 'Total BRPD', es: 'Total BRPD', ru: 'Всего BRPD' },
+  kpiPatins:       { pt: '🛴 Patins perdas', en: '🛴 Scooter losses', es: '🛴 Pérdidas de patinetes', ru: '🛴 Потери самокатов' },
+  kpiBikes:        { pt: '🚲 Bikes perdas', en: '🚲 Bike losses', es: '🚲 Pérdidas de bicis', ru: '🚲 Потери велосипедов' },
+  kpiVand:         { pt: '⚡ Vandalismo 24h', en: '⚡ Vandalism 24h', es: '⚡ Vandalismo 24h', ru: '⚡ Вандализм 24ч' },
+  kpiNaoEnc:       { pt: '🔍 Não encontrado', en: '🔍 Not found', es: '🔍 No encontrado', ru: '🔍 Не найдено' },
+  kpiOcorrencias:  { pt: '📋 Ocorrências', en: '📋 Incidents', es: '📋 Incidencias', ru: '📋 Инциденты' },
+
+  abaPerdas:       { pt: '🔴 Perdas por Filial', en: '🔴 Losses by Branch', es: '🔴 Pérdidas por Sucursal', ru: '🔴 Потери по филиалам' },
+  abaVandalismo:   { pt: '⚡ Vandalismo', en: '⚡ Vandalism', es: '⚡ Vandalismo', ru: '⚡ Вандализм' },
+  abaBrpd:         { pt: '📉 BRPD', en: '📉 BRPD', es: '📉 BRPD', ru: '📉 BRPD' },
+  abaOcorrencias:  { pt: '📋 Ocorrências', en: '📋 Incidents', es: '📋 Incidencias', ru: '📋 Инциденты' },
+
+  buscarPlaceholder: { pt: '🔍 Buscar filial, responsável, ativo...', en: '🔍 Search branch, manager, asset...', es: '🔍 Buscar sucursal, responsable, activo...', ru: '🔍 Поиск филиала, ответственного, актива...' },
+  todasRegioes:    { pt: 'Todas as regiões', en: 'All regions', es: 'Todas las regiones', ru: 'Все регионы' },
+
+  carregando:      { pt: 'Carregando...', en: 'Loading...', es: 'Cargando...', ru: 'Загрузка...' },
+
+  thRegiao:        { pt: 'Região', en: 'Region', es: 'Región', ru: 'Регион' },
+  thFilial:        { pt: 'Filial', en: 'Branch', es: 'Sucursal', ru: 'Филиал' },
+  thResponsavel:   { pt: 'Responsável', en: 'Manager', es: 'Responsable', ru: 'Ответственный' },
+  thPatins:        { pt: '🛴 Patins', en: '🛴 Scooters', es: '🛴 Patinetes', ru: '🛴 Самокаты' },
+  thBikes:         { pt: '🚲 Bikes', en: '🚲 Bikes', es: '🚲 Bicis', ru: '🚲 Велосипеды' },
+  thBrpdTotal:     { pt: 'BRPD Total', en: 'Total BRPD', es: 'BRPD Total', ru: 'BRPD всего' },
+  thVand24h:       { pt: '⚡Vand.24h', en: '⚡Vand.24h', es: '⚡Vand.24h', ru: '⚡Ванд.24ч' },
+  thNaoEnc24h:     { pt: '🔍Não enc.24h', en: '🔍Not found 24h', es: '🔍No enc.24h', ru: '🔍Не найд.24ч' },
+  thStatus1:       { pt: 'STATUS 1 — 24h', en: 'STATUS 1 — 24h', es: 'STATUS 1 — 24h', ru: 'СТАТУС 1 — 24ч' },
+  thStatus2:       { pt: 'STATUS 2 — 7d', en: 'STATUS 2 — 7d', es: 'STATUS 2 — 7d', ru: 'СТАТУС 2 — 7д' },
+
+  phStatus1:       { pt: 'IDs patinetes em trabalho...', en: 'Scooter IDs in progress...', es: 'IDs de patinetes en trabajo...', ru: 'ID самокатов в работе...' },
+  phStatus2:       { pt: 'IDs procurados...', en: 'IDs being searched...', es: 'IDs buscados...', ru: 'Разыскиваемые ID...' },
+
+  totalGeral:      { pt: 'TOTAL GERAL', en: 'GRAND TOTAL', es: 'TOTAL GENERAL', ru: 'ОБЩИЙ ИТОГ' },
+
+  vandSubtitulo:   { pt: 'Vandalismos nas últimas 24h por filial + histórico das ocorrências registradas', en: 'Vandalism in the last 24h by branch + history of recorded incidents', es: 'Vandalismos en las últimas 24h por sucursal + historial de incidencias registradas', ru: 'Вандализм за последние 24ч по филиалам + история зарегистрированных инцидентов' },
+  vandNenhum:      { pt: '✅ Nenhum vandalismo registrado no período', en: '✅ No vandalism recorded in the period', es: '✅ Ningún vandalismo registrado en el período', ru: '✅ Вандализм за период не зарегистрирован' },
+  vandRegistros:   { pt: 'Registros de Vandalismo', en: 'Vandalism Records', es: 'Registros de Vandalismo', ru: 'Записи о вандализме' },
+  vandNenhumTab:   { pt: 'Nenhum vandalismo registrado no período', en: 'No vandalism recorded in the period', es: 'Ningún vandalismo registrado en el período', ru: 'Вандализм за период не зарегистрирован' },
+
+  thIdAtivo:       { pt: 'ID Ativo', en: 'Asset ID', es: 'ID Activo', ru: 'ID актива' },
+  thCidade:        { pt: 'Cidade', en: 'City', es: 'Ciudad', ru: 'Город' },
+  thGuard:         { pt: 'Guard', en: 'Guard', es: 'Guard', ru: 'Guard' },
+  thData:          { pt: 'Data', en: 'Date', es: 'Fecha', ru: 'Дата' },
+  thStatus:        { pt: 'Status', en: 'Status', es: 'Estado', ru: 'Статус' },
+  thTipo:          { pt: 'Tipo', en: 'Type', es: 'Tipo', ru: 'Тип' },
+  thTipoAtivo:     { pt: 'Tipo Ativo', en: 'Asset Type', es: 'Tipo Activo', ru: 'Тип актива' },
+
+  brpdTitulo:      { pt: '📉 O que é BRPD?', en: '📉 What is BRPD?', es: '📉 ¿Qué es BRPD?', ru: '📉 Что такое BRPD?' },
+  brpdDesc:        {
+    pt: 'BRPD (Baixa por Perda/Dano) = patinetes ou bikes com status alterado para <b>perda grave</b>, desativados da frota por roubo confirmado, vandalismo severo ou desaparecimento prolongado. Total acumulado desde 01.01.23. Coluna <b>BRPD</b> = patins + bikes nessa condição.',
+    en: 'BRPD (Write-off for Loss/Damage) = scooters or bikes with status changed to <b>severe loss</b>, removed from the fleet due to confirmed theft, severe vandalism or prolonged disappearance. Accumulated total since 01.01.23. Column <b>BRPD</b> = scooters + bikes in this condition.',
+    es: 'BRPD (Baja por Pérdida/Daño) = patinetes o bicis con estado cambiado a <b>pérdida grave</b>, retirados de la flota por robo confirmado, vandalismo severo o desaparición prolongada. Total acumulado desde 01.01.23. Columna <b>BRPD</b> = patinetes + bicis en esa condición.',
+    ru: 'BRPD (списание по потере/повреждению) = самокаты или велосипеды со статусом <b>серьёзная потеря</b>, выведенные из парка из-за подтверждённой кражи, тяжёлого вандализма или длительного исчезновения. Накопленный итог с 01.01.23. Столбец <b>BRPD</b> = самокаты + велосипеды в этом состоянии.',
+  },
+  thPatinsBrpd:    { pt: '🛴 Patins BRPD', en: '🛴 Scooters BRPD', es: '🛴 Patinetes BRPD', ru: '🛴 Самокаты BRPD' },
+  thBikesBrpd:     { pt: '🚲 Bikes BRPD', en: '🚲 Bikes BRPD', es: '🚲 Bicis BRPD', ru: '🚲 Велосипеды BRPD' },
+  thTotalBrpd:     { pt: 'Total BRPD', en: 'Total BRPD', es: 'Total BRPD', ru: 'Всего BRPD' },
+  thPctBrasil:     { pt: '% do Total Brasil', en: '% of Brazil Total', es: '% del Total Brasil', ru: '% от итога по Бразилии' },
+
+  ocTodas:         { pt: 'Todas as ocorrências do Guard', en: 'All Guard incidents', es: 'Todas las incidencias del Guard', ru: 'Все инциденты Guard' },
+  ocRegistros:     { pt: 'registros', en: 'records', es: 'registros', ru: 'записей' },
+  ocNenhuma:       { pt: 'Nenhuma ocorrência no período', en: 'No incidents in the period', es: 'Ninguna incidencia en el período', ru: 'Инцидентов за период нет' },
+};
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -128,6 +206,10 @@ const S = {
 // ─── Componente Principal ─────────────────────────────────────────────────────
 
 export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario = 'viewer' }: Props) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: L) => o[lang] ?? o.pt;
+
   const [aba,          setAba         ] = useState<Aba>('perdas');
   const [ocorrencias,  setOcorrencias ] = useState<OcorrenciaGuard[]>([]);
   const [filiais,      setFiliais     ] = useState<FilialDados[]>(DADOS_INICIAIS);
@@ -147,7 +229,14 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
       if (d.exists() && d.data().filiais) setFiliais(d.data().filiais);
     }).catch(() => {});
 
-    // Escuta ocorrências
+    // Escuta ocorrências — Fase 2 / Onda B: leitura do Supabase atrás de flag (read-only).
+    if (guardProviderSupabase()) {
+      let vivo = true;
+      carregarOcorrenciasSupabase({ limit: 5000 })
+        .then(rows => { if (vivo) { setOcorrencias(rows as OcorrenciaGuard[]); setLoading(false); } })
+        .catch(err => { console.error('[perdas-seg] leitura Supabase falhou:', err); if (vivo) setLoading(false); });
+      return () => { vivo = false; };
+    }
     const q = query(collection(db, 'ocorrencias'), orderBy('criadoEm', 'desc'));
     const unsub = onSnapshot(q, snap => {
       setOcorrencias(snap.docs.map(d => ({ id: d.id, ...d.data() } as OcorrenciaGuard)));
@@ -217,9 +306,9 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
       <div style={S.header}>
         <button onClick={onFechar} style={{ background:'none', border:'none', color:T.dim, cursor:'pointer', fontSize:20, padding:'0 4px' }}>✕</button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: T.txt }}>📊 Controle de Perdas — Segurança</div>
+          <div style={{ fontSize: 15, fontWeight: 800, color: T.txt }}>{pick(TX.tituloPainel)}</div>
           <div style={{ fontSize: 10, color: T.dim }}>
-            Atualizado 06.06.26 · {filiais.length} filiais · {ocorrencias.length} ocorrências registradas
+            {pick(TX.atualizado)} 06.06.26 · {filiais.length} {pick(TX.filiaisLabel)} · {ocorrencias.length} {pick(TX.ocorrenciasReg)}
           </div>
         </div>
 
@@ -231,7 +320,7 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
                 background: periodo === p ? 'rgba(59,130,246,.2)' : 'transparent',
                 color: periodo === p ? T.bluel : T.dim,
                 border: `1px solid ${periodo === p ? 'rgba(59,130,246,.4)' : T.bdr}` }}>
-              {p === 'total' ? 'Total' : p}
+              {p === 'total' ? pick(TX.total) : p}
             </button>
           ))}
         </div>
@@ -241,12 +330,12 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
       <div style={{ background: T.card, borderBottom:`1px solid ${T.bdr}`, padding:'10px 16px',
         display:'flex', gap:8, flexWrap:'wrap', flexShrink:0 }}>
         {[
-          { l:'Total BRPD',      v: totais.brpd,    c: T.red,    emoji:'🔴' },
-          { l:'🛴 Patins perdas', v: totais.patins,  c: T.orange, emoji:'🛴' },
-          { l:'🚲 Bikes perdas',  v: totais.bikes,   c: '#eab308',emoji:'🚲' },
-          { l:'⚡ Vandalismo 24h', v: totais.vand,    c: T.purple, emoji:'⚡' },
-          { l:'🔍 Não encontrado', v: totais.nao_enc, c: T.dim2,   emoji:'🔍' },
-          { l:'📋 Ocorrências',    v: ocsFiltradas.length, c: T.bluel, emoji:'📋' },
+          { l: pick(TX.kpiBrpd),        v: totais.brpd,    c: T.red,    emoji:'🔴' },
+          { l: pick(TX.kpiPatins),      v: totais.patins,  c: T.orange, emoji:'🛴' },
+          { l: pick(TX.kpiBikes),       v: totais.bikes,   c: '#eab308',emoji:'🚲' },
+          { l: pick(TX.kpiVand),        v: totais.vand,    c: T.purple, emoji:'⚡' },
+          { l: pick(TX.kpiNaoEnc),      v: totais.nao_enc, c: T.dim2,   emoji:'🔍' },
+          { l: pick(TX.kpiOcorrencias), v: ocsFiltradas.length, c: T.bluel, emoji:'📋' },
         ].map(({ l, v, c, emoji }) => (
           <div key={l} style={{ flex:1, minWidth:90, background:T.card2, borderRadius:10,
             padding:'10px 12px', borderTop:`2px solid ${c}`, border:`1px solid ${c}22` }}>
@@ -258,34 +347,34 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
 
       {/* ── Abas ── */}
       <div style={S.tabs}>
-        <button onClick={() => setAba('perdas')}     style={S.tab(aba==='perdas')}>🔴 Perdas por Filial</button>
-        <button onClick={() => setAba('vandalismo')} style={S.tab(aba==='vandalismo')}>⚡ Vandalismo</button>
-        <button onClick={() => setAba('brpd')}       style={S.tab(aba==='brpd')}>📉 BRPD</button>
-        <button onClick={() => setAba('ocorrencias')}style={S.tab(aba==='ocorrencias')}>📋 Ocorrências ({ocsFiltradas.length})</button>
+        <button onClick={() => setAba('perdas')}     style={S.tab(aba==='perdas')}>{pick(TX.abaPerdas)}</button>
+        <button onClick={() => setAba('vandalismo')} style={S.tab(aba==='vandalismo')}>{pick(TX.abaVandalismo)}</button>
+        <button onClick={() => setAba('brpd')}       style={S.tab(aba==='brpd')}>{pick(TX.abaBrpd)}</button>
+        <button onClick={() => setAba('ocorrencias')}style={S.tab(aba==='ocorrencias')}>{pick(TX.abaOcorrencias)} ({ocsFiltradas.length})</button>
       </div>
 
       {/* ── Filtros ── */}
       <div style={{ background:T.card, borderBottom:`1px solid ${T.bdr}`,
         padding:'8px 16px', display:'flex', gap:8, alignItems:'center', flexShrink:0 }}>
         <input value={filtroBusca} onChange={e => setFiltroBusca(e.target.value)}
-          placeholder="🔍 Buscar filial, responsável, ativo..."
+          placeholder={pick(TX.buscarPlaceholder)}
           style={{ padding:'6px 10px', borderRadius:8, fontSize:11, width:220,
             background:'rgba(255,255,255,.06)', border:`1px solid ${T.bdr}`, color:T.txt, outline:'none' }} />
         <select value={filtroRegiao} onChange={e => setFiltroRegiao(e.target.value)}
           style={{ padding:'6px 10px', borderRadius:8, fontSize:11,
             background:'rgba(255,255,255,.06)', border:`1px solid ${T.bdr}`, color:T.txt }}>
-          <option value="">Todas as regiões</option>
+          <option value="">{pick(TX.todasRegioes)}</option>
           {regioes.map(r => <option key={r} value={r}>{REGIAO_EMOJI[r]} {r}</option>)}
         </select>
         <div style={{ fontSize:11, color:T.dim, marginLeft:'auto' }}>
-          {filiaisFilt.length} filiais
+          {filiaisFilt.length} {pick(TX.filiaisLabel)}
         </div>
       </div>
 
       {/* ── Body ── */}
       <div style={S.body}>
         {loading ? (
-          <div style={{ color:T.dim, textAlign:'center', padding:60 }}>Carregando...</div>
+          <div style={{ color:T.dim, textAlign:'center', padding:60 }}>{pick(TX.carregando)}</div>
         ) : aba === 'perdas' ? (
 
           // ── TABELA PERDAS ────────────────────────────────────────────
@@ -294,8 +383,8 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
               <table style={{ width:'100%', borderCollapse:'collapse' }}>
                 <thead>
                   <tr>
-                    {['Região','Filial','Responsável','🛴 Patins','🚲 Bikes','BRPD Total','⚡Vand.24h','🔍Não enc.24h','STATUS 1 — 24h','STATUS 2 — 7d',''].map(h => (
-                      <th key={h} style={S.th}>{h}</th>
+                    {[pick(TX.thRegiao),pick(TX.thFilial),pick(TX.thResponsavel),pick(TX.thPatins),pick(TX.thBikes),pick(TX.thBrpdTotal),pick(TX.thVand24h),pick(TX.thNaoEnc24h),pick(TX.thStatus1),pick(TX.thStatus2),''].map((h, idx) => (
+                      <th key={idx} style={S.th}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -332,7 +421,7 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
                             <td style={{ ...S.td, maxWidth: 200 }}>
                               {editando === f.filial ? (
                                 <input value={statusEdit.s1} onChange={e => setStatusEdit(p => ({...p, s1: e.target.value}))}
-                                  placeholder="IDs patinetes em trabalho..."
+                                  placeholder={pick(TX.phStatus1)}
                                   style={{ width:'100%', padding:'4px 6px', borderRadius:6, fontSize:11,
                                     background:'rgba(255,255,255,.08)', border:`1px solid ${T.bdr}`, color:T.txt, outline:'none' }} />
                               ) : (
@@ -345,7 +434,7 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
                             <td style={{ ...S.td, maxWidth: 160 }}>
                               {editando === f.filial ? (
                                 <input value={statusEdit.s2} onChange={e => setStatusEdit(p => ({...p, s2: e.target.value}))}
-                                  placeholder="IDs procurados..."
+                                  placeholder={pick(TX.phStatus2)}
                                   style={{ width:'100%', padding:'4px 6px', borderRadius:6, fontSize:11,
                                     background:'rgba(255,255,255,.08)', border:`1px solid ${T.bdr}`, color:T.txt, outline:'none' }} />
                               ) : (
@@ -388,7 +477,7 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
                   })}
                   {/* Total geral */}
                   <tr style={{ background:'rgba(255,255,255,.04)' }}>
-                    <td colSpan={3} style={{ ...S.td, fontWeight:800, fontSize:13, color:T.txt }}>TOTAL GERAL</td>
+                    <td colSpan={3} style={{ ...S.td, fontWeight:800, fontSize:13, color:T.txt }}>{pick(TX.totalGeral)}</td>
                     <td style={{ ...S.tdNum(), fontWeight:800, fontSize:14, color:T.orange }}>{totais.patins}</td>
                     <td style={{ ...S.tdNum(), fontWeight:800, fontSize:14, color:'#eab308' }}>{totais.bikes}</td>
                     <td style={{ ...S.tdNum(), fontWeight:800, fontSize:14, color:T.red }}>{totais.brpd}</td>
@@ -406,7 +495,7 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
           // ── VANDALISMO ────────────────────────────────────────────────
           <div>
             <div style={{ fontSize:11, color:T.dim, marginBottom:12 }}>
-              Vandalismos nas últimas 24h por filial + histórico das ocorrências registradas
+              {pick(TX.vandSubtitulo)}
             </div>
             <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:16 }}>
               {filiaisFilt.filter(f => f.vand_total > 0).map(f => (
@@ -417,22 +506,22 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
                   <div style={{ marginTop:8, display:'flex', gap:8 }}>
                     <div style={{ textAlign:'center' as const }}>
                       <div style={{ fontSize:20, fontWeight:800, color:'#f97316' }}>{f.vand_patins}</div>
-                      <div style={{ fontSize:9, color:T.dim }}>🛴 Patins</div>
+                      <div style={{ fontSize:9, color:T.dim }}>{pick(TX.thPatins)}</div>
                     </div>
                     <div style={{ textAlign:'center' as const }}>
                       <div style={{ fontSize:20, fontWeight:800, color:'#eab308' }}>{f.vand_bikes}</div>
-                      <div style={{ fontSize:9, color:T.dim }}>🚲 Bikes</div>
+                      <div style={{ fontSize:9, color:T.dim }}>{pick(TX.thBikes)}</div>
                     </div>
                     <div style={{ textAlign:'center' as const }}>
                       <div style={{ fontSize:20, fontWeight:800, color:T.orange }}>{f.vand_total}</div>
-                      <div style={{ fontSize:9, color:T.dim }}>Total</div>
+                      <div style={{ fontSize:9, color:T.dim }}>{pick(TX.total)}</div>
                     </div>
                   </div>
                 </div>
               ))}
               {filiaisFilt.filter(f => f.vand_total > 0).length === 0 && (
                 <div style={{ color:T.dim, fontSize:13, padding:40, textAlign:'center', width:'100%' }}>
-                  ✅ Nenhum vandalismo registrado no período
+                  {pick(TX.vandNenhum)}
                 </div>
               )}
             </div>
@@ -441,12 +530,12 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
             <div style={{ background:T.card2, borderRadius:12, border:`1px solid ${T.bdr}`, overflow:'hidden' }}>
               <div style={{ padding:'10px 14px', borderBottom:`1px solid ${T.bdr}`,
                 fontSize:11, fontWeight:700, color:T.dim, textTransform:'uppercase', letterSpacing:'1px' }}>
-                Registros de Vandalismo ({ocsFiltradas.filter(o => o.tipo === 'Vandalismo').length})
+                {pick(TX.vandRegistros)} ({ocsFiltradas.filter(o => o.tipo === 'Vandalismo').length})
               </div>
               <div style={{ overflowX:'auto' }}>
                 <table style={{ width:'100%', borderCollapse:'collapse' }}>
                   <thead><tr>
-                    {['ID Ativo','Cidade','Guard','Data','Status'].map(h => <th key={h} style={S.th}>{h}</th>)}
+                    {[pick(TX.thIdAtivo),pick(TX.thCidade),pick(TX.thGuard),pick(TX.thData),pick(TX.thStatus)].map((h, idx) => <th key={idx} style={S.th}>{h}</th>)}
                   </tr></thead>
                   <tbody>
                     {ocsFiltradas.filter(o => o.tipo === 'Vandalismo').slice(0,50).map(o => (
@@ -462,7 +551,7 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
                     ))}
                     {ocsFiltradas.filter(o => o.tipo === 'Vandalismo').length === 0 && (
                       <tr><td colSpan={5} style={{ ...S.td, textAlign:'center', padding:30, color:T.dim }}>
-                        Nenhum vandalismo registrado no período
+                        {pick(TX.vandNenhumTab)}
                       </td></tr>
                     )}
                   </tbody>
@@ -478,21 +567,18 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
             <div style={{ background:'rgba(239,68,68,.06)', border:'1px solid rgba(239,68,68,.2)',
               borderRadius:10, padding:'12px 14px', marginBottom:16 }}>
               <div style={{ fontSize:12, fontWeight:700, color:T.red, marginBottom:4 }}>
-                📉 O que é BRPD?
+                {pick(TX.brpdTitulo)}
               </div>
-              <div style={{ fontSize:11, color:T.dim2, lineHeight:1.6 }}>
-                BRPD (Baixa por Perda/Dano) = patinetes ou bikes com status alterado para <b>perda grave</b>,
-                desativados da frota por roubo confirmado, vandalismo severo ou desaparecimento prolongado.
-                Total acumulado desde 01.01.23. Coluna <b>BRPD</b> = patins + bikes nessa condição.
-              </div>
+              <div style={{ fontSize:11, color:T.dim2, lineHeight:1.6 }}
+                dangerouslySetInnerHTML={{ __html: pick(TX.brpdDesc) }} />
             </div>
 
             <div style={{ background:T.card2, borderRadius:12, border:`1px solid ${T.bdr}`, overflow:'hidden' }}>
               <div style={{ overflowX:'auto' }}>
                 <table style={{ width:'100%', borderCollapse:'collapse' }}>
                   <thead><tr>
-                    {['Região','Filial','Responsável','🛴 Patins BRPD','🚲 Bikes BRPD','Total BRPD','% do Total Brasil'].map(h => (
-                      <th key={h} style={S.th}>{h}</th>
+                    {[pick(TX.thRegiao),pick(TX.thFilial),pick(TX.thResponsavel),pick(TX.thPatinsBrpd),pick(TX.thBikesBrpd),pick(TX.thTotalBrpd),pick(TX.thPctBrasil)].map((h, idx) => (
+                      <th key={idx} style={S.th}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>
@@ -522,7 +608,7 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
                       );
                     })}
                     <tr style={{ background:'rgba(255,255,255,.04)' }}>
-                      <td colSpan={3} style={{ ...S.td, fontWeight:800 }}>TOTAL GERAL</td>
+                      <td colSpan={3} style={{ ...S.td, fontWeight:800 }}>{pick(TX.totalGeral)}</td>
                       <td style={{ ...S.tdNum(), fontWeight:800, color:T.orange }}>{totais.patins}</td>
                       <td style={{ ...S.tdNum(), fontWeight:800, color:'#eab308' }}>{totais.bikes}</td>
                       <td style={{ ...S.tdNum(true), fontSize:15 }}>{totais.brpd}</td>
@@ -541,14 +627,14 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
             <div style={{ padding:'10px 14px', borderBottom:`1px solid ${T.bdr}`,
               display:'flex', justifyContent:'space-between', alignItems:'center' }}>
               <span style={{ fontSize:11, fontWeight:700, color:T.dim, textTransform:'uppercase', letterSpacing:'1px' }}>
-                Todas as ocorrências do Guard
+                {pick(TX.ocTodas)}
               </span>
-              <span style={{ fontSize:11, color:T.dim }}>{ocsFiltradas.length} registros</span>
+              <span style={{ fontSize:11, color:T.dim }}>{ocsFiltradas.length} {pick(TX.ocRegistros)}</span>
             </div>
             <div style={{ overflowX:'auto' }}>
               <table style={{ width:'100%', borderCollapse:'collapse' }}>
                 <thead><tr>
-                  {['Tipo','ID Ativo','Tipo Ativo','Cidade','Guard','Data','Status'].map(h => <th key={h} style={S.th}>{h}</th>)}
+                  {[pick(TX.thTipo),pick(TX.thIdAtivo),pick(TX.thTipoAtivo),pick(TX.thCidade),pick(TX.thGuard),pick(TX.thData),pick(TX.thStatus)].map((h, idx) => <th key={idx} style={S.th}>{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {ocsFiltradas.slice(0,200).map(o => {
@@ -575,7 +661,7 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
                   })}
                   {ocsFiltradas.length === 0 && (
                     <tr><td colSpan={7} style={{ ...S.td, textAlign:'center', padding:40, color:T.dim }}>
-                      Nenhuma ocorrência no período
+                      {pick(TX.ocNenhuma)}
                     </td></tr>
                   )}
                 </tbody>

@@ -3,6 +3,13 @@
 // Não usa Street View Static API — sem custo
 
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+
+const T = {
+  captureHint:  { pt: 'Abre em nova janela...', en: 'Opens in new window...', es: 'Abre en nueva ventana...', ru: 'Открыть в новом окне...' },
+  useImageHint: { pt: 'Cole ou arraste a imagem', en: 'Paste or drag the image', es: 'Pega o arrastra la imagen', ru: 'Вставьте или перетащите изображение' },
+  openMaps:     { pt: 'Abrir no Google Maps', en: 'Open in Google Maps', es: 'Abrir en Google Maps', ru: 'Открыть в Google Maps' },
+};
 
 interface Props {
   lat: number;
@@ -15,6 +22,9 @@ interface Props {
 const GMAPS_KEY = (import.meta as any).env?.VITE_GMAPS_KEY || '';
 
 export function StreetViewModal({ lat, lng, nome, onClose, onCapturarFoto }: Props) {
+  const { t, i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
+  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
   const [modo, setModo] = useState<'sv'|'mapa'>('sv');
   const [carregado, setCarregado] = useState(false);
   const [showCapHint, setShowCapHint] = useState(false);
@@ -72,7 +82,7 @@ export function StreetViewModal({ lat, lng, nome, onClose, onCapturarFoto }: Pro
               color: modo === 'sv' ? '#3d9bff' : 'rgba(255,255,255,.4)',
               fontSize: 12, fontWeight: 600,
             }}>
-              🌐 Street View
+              🌐 {t('streetviewModal.streetView')}
             </button>
             <button onClick={() => setModo('mapa')} style={{
               padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
@@ -80,7 +90,7 @@ export function StreetViewModal({ lat, lng, nome, onClose, onCapturarFoto }: Pro
               color: modo === 'mapa' ? '#22c55e' : 'rgba(255,255,255,.4)',
               fontSize: 12, fontWeight: 600,
             }}>
-              🛰 Satélite
+              🛰 {t('streetviewModal.satellite')}
             </button>
           </div>
 
@@ -109,16 +119,16 @@ export function StreetViewModal({ lat, lng, nome, onClose, onCapturarFoto }: Pro
                   padding: '6px 12px', borderRadius: 6, border: 'none',
                   background: 'rgba(245,200,66,.15)', color: '#f5c842',
                   cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                }} title="Abre em nova janela para você tirar o print">
-                  📸 Capturar frame
+                }} title={pick(T.captureHint)}>
+                  📸 {t('streetviewModal.captureFrame')}
                 </button>
                 <button onClick={onCapturarFoto} style={{
                   display: 'flex', alignItems: 'center', gap: 5,
                   padding: '6px 12px', borderRadius: 6, border: 'none',
                   background: 'rgba(16,185,129,.15)', color: '#10b981',
                   cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                }} title="Cole ou arraste a imagem">
-                  📁 Usar imagem
+                }} title={pick(T.useImageHint)}>
+                  📁 {t('streetviewModal.useImage')}
                 </button>
                 {showCapHint && (
                   <div style={{
@@ -148,7 +158,7 @@ export function StreetViewModal({ lat, lng, nome, onClose, onCapturarFoto }: Pro
                 padding: '6px 10px', borderRadius: 6, border: '1px solid #1c2535',
                 background: 'rgba(255,255,255,.04)', color: 'rgba(255,255,255,.5)',
                 cursor: 'pointer', fontSize: 11,
-              }} title="Abrir no Google Maps">
+              }} title={pick(T.openMaps)}>
               ↗
             </button>
             <button onClick={onClose} style={{
@@ -173,7 +183,7 @@ export function StreetViewModal({ lat, lng, nome, onClose, onCapturarFoto }: Pro
                 animation: 'spin .7s linear infinite',
               }}/>
               <div style={{ fontSize: 12, color: '#4a5a7a' }}>
-                {modo === 'sv' ? 'Carregando Street View...' : 'Carregando satélite...'}
+                {modo === 'sv' ? t('streetviewModal.loadingSV') : t('streetviewModal.loadingSat')}
               </div>
               <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             </div>
@@ -202,9 +212,7 @@ export function StreetViewModal({ lat, lng, nome, onClose, onCapturarFoto }: Pro
           flexShrink: 0,
         }}>
           <div style={{ fontSize: 10, color: '#4a5a7a' }}>
-            {modo === 'sv'
-              ? 'Navegue arrastando. Clique em 📸 Capturar frame para abrir em nova janela e tirar o print facilmente.'
-              : 'Satélite zoom 19. Para salvar: tire print e clique em "Usar foto/print".'}
+            {modo === 'sv' ? t('streetviewModal.footerSV') : t('streetviewModal.footerSat')}
           </div>
           <div style={{ fontSize: 9, color: '#1c2535' }}>Google Maps Embed · gratuito</div>
         </div>

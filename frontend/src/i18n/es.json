@@ -189,7 +189,7 @@
           },
           {
             "titulo": "Modo satélite",
-            "desc": "Toca 🛰 en los FABs laterales para activar vista satelital."
+            "desc": "Toca 🛰 en los botones laterales para activar vista satelital."
           },
           {
             "titulo": "GoJet en vivo",
@@ -198,12 +198,55 @@
           }
         ]
       },
+      "foto-medidas": {
+        "titulo": "Foto con medidas",
+        "passos": [
+          {
+            "titulo": "Acceder",
+            "desc": "En el popup de la estación, haz clic en el botón Croquis para abrir el editor de medidas."
+          },
+          {
+            "titulo": "Ajustar esquinas",
+            "desc": "Arrastra las 4 esquinas de colores para delimitar el área de la estación."
+          },
+          {
+            "titulo": "Rotar",
+            "desc": "Usa el deslizador de rotación para alinear correctamente."
+          },
+          {
+            "titulo": "Guardar",
+            "desc": "Haz clic en Guardar con medidas. Las dimensiones se calculan automáticamente.",
+            "dica": "El croquis aparece en el informe PDF de la estación."
+          }
+        ]
+      },
+      "ocorrencias-guard": {
+        "titulo": "Ver incidencias",
+        "passos": [
+          {
+            "titulo": "Panel Guard",
+            "desc": "Haz clic en Guard en el encabezado para abrir el panel lateral."
+          },
+          {
+            "titulo": "Filtros de tipo",
+            "desc": "Filtra por Robo, Vandalismo, Intento, etc."
+          },
+          {
+            "titulo": "Búsqueda por activo",
+            "desc": "Usa el campo de búsqueda para encontrar incidencias de un patinete específico."
+          },
+          {
+            "titulo": "Editar/Resolver",
+            "desc": "Haz clic en la incidencia y en Editar/Resolver para actualizar el estado o añadir una observación."
+          }
+        ]
+      },
       "add-estacao": {
         "titulo": "Agregar estación",
         "passos": [
           {
             "titulo": "Activar modo",
-            "desc": "Toca el FAB + y luego toca el mapa para posicionar el pin."
+            "desc": "Toca el botón + y luego toca el mapa para posicionar el pin."
           },
           {
             "titulo": "Completar datos",
@@ -219,12 +262,89 @@
           }
         ]
       },
+      "street-view": {
+        "titulo": "Street View y fotos automáticas",
+        "passos": [
+          {
+            "titulo": "Qué es",
+            "desc": "Street View genera una foto del lugar de la estación usando imágenes de Google/Mapillary. Útil cuando no hay foto de campo, da una idea visual del punto."
+          },
+          {
+            "titulo": "Generar para una estación",
+            "desc": "Haga clic en la estación en el mapa → botón SV. El sistema busca la mejor imagen disponible y muestra una vista previa. Elija Guardar, Guardar + Medir o Descartar.",
+            "dica": "La imagen guardada muestra un badge 🌐 SV en el popup, indicando que no es foto real."
+          },
+          {
+            "titulo": "Generar en lote",
+            "desc": "Haga clic en el botón 🛠 (herramientas, lado derecho) → 🌐. El sistema genera Street View para todas las estaciones sin foto visibles en el mapa, respetando los filtros activos.",
+            "dica": "Use los filtros de tipo y estado antes para generar solo para las estaciones que necesita."
+          },
+          {
+            "titulo": "Combo SV + Medir",
+            "desc": "En el botón 🛠 → ⚡. Primero genera Street View en lote, luego abre automáticamente el modo de medición en lote para todas las estaciones con foto/SV sin medida.",
+            "dica": "Ideal para preparar una zona entera de una vez: genera las fotos y mide todo en secuencia."
+          },
+          {
+            "titulo": "Street View interactivo",
+            "desc": "En el popup de la estación, haga clic en 🌐 Street View para abrir el modal interactivo de Google Maps. Navegue por la calle, capture un frame y úselo como foto de la estación.",
+            "dica": "Haga clic en 📸 Capturar frame para abrir en nueva ventana. Tome un print (Win+Shift+S) y pegue con Ctrl+V."
+          }
+        ]
+      },
+      "medir-lote": {
+        "titulo": "Medir estaciones en lote",
+        "passos": [
+          {
+            "titulo": "Qué es",
+            "desc": "El modo de medición en lote abre un carrusel con todas las estaciones que tienen foto pero no tienen medida. Usted mide una a una sin volver al mapa."
+          },
+          {
+            "titulo": "Iniciar",
+            "desc": "Haga clic en el botón 🛠 (herramientas, lado derecho) → 📐. El sistema filtra estaciones visibles en el mapa que tengan foto/SV pero sin medida."
+          },
+          {
+            "titulo": "Medir cada estación",
+            "desc": "Para cada estación, ajuste las 4 esquinas del área en la foto y haga clic en Guardar. La foto con las medidas se guarda automáticamente."
+          },
+          {
+            "titulo": "Saltar o parar",
+            "desc": "Use el botón Saltar ⏭ (o tecla →) para ir a la siguiente. Parar ✕ (o tecla Esc) termina el lote. El progreso se muestra en la barra superior."
+          },
+          {
+            "titulo": "Pegar foto (Ctrl+V)",
+            "desc": "En el panel de foto de cualquier estación, puede pegar una imagen del portapapeles con Ctrl+V o haciendo clic en 📋 Pegar. Útil para capturas de Street View.",
+            "dica": "Tome un print (Win+Shift+S en Windows, Cmd+Shift+4 en Mac), luego pegue directamente en la app."
+          }
+        ]
+      },
+      "ferramentas": {
+        "titulo": "🛠 Botones y herramientas del mapa",
+        "passos": [
+          {
+            "titulo": "Botones del lado derecho",
+            "desc": "Los botones están apilados en la esquina inferior derecha del mapa. De abajo hacia arriba: ➕ Agregar estación, 🛰 Satélite, 🛠 Herramientas, 🛴 GoJet, ⏱ Turno."
+          },
+          {
+            "titulo": "🛠 Herramientas (expandible)",
+            "desc": "Al hacer clic en 🛠, aparecen 3 sub-botones: ⚡ Combo SV+Medir, 🌐 Generar SV en lote, 📐 Medir en lote. Haga clic en 🛠 de nuevo para cerrar.",
+            "dica": "Solo visible para gestores. Las acciones respetan los filtros de tipo y estado activos."
+          },
+          {
+            "titulo": "🛴 GoJet (expandible)",
+            "desc": "Al activar 🛴, aparecen sub-botones: 📈 Analytics GoJet y 📊 GoJet Dashboard."
+          },
+          {
+            "titulo": "⏱ Turno",
+            "desc": "Abre el panel de registro de turno (entrada/salida). Disponible para operadores de campo, logística y conductores."
+          }
+        ]
+      },
       "guard": {
         "titulo": "Guard — Ocurrencias",
         "passos": [
           {
             "titulo": "Acceder",
-            "desc": "Toca el FAB 🛡. Disponible para guard, campo, gestor y gestor_seg."
+            "desc": "Toca el botón 🛡. Disponible para guard, campo, gestor y gestor_seg."
           },
           {
             "titulo": "Registrar",
@@ -248,20 +368,72 @@
       "slots-gestor": {
         "titulo": "🎛 Crear y Gestionar Slots",
         "passos": [
-          { "titulo": "Qué es un slot", "desc": "Un slot es un turno de trabajo asignado a uno o más agentes. Agrupa tareas (puntos a visitar), define horario, zona y tipo: Charger (cambio de batería) o Scout (redistribuir patinetes). El agente acepta, hace check-in con foto y ejecuta cada tarea.", "dica": "Cada slot tiene un SLA de aceptación. Si nadie acepta a tiempo, el sistema escala por Telegram." },
-          { "titulo": "Crear slot manual", "desc": "Ve a 📦 Slots → pestaña ➕ Crear. Elige tipo (Scout o Charger), completa título, turno, zona, SLA y (opcional) asigna un worker. Agrega tareas con destino, cantidad y prioridad. Haz clic en ✓ Crear Slot.", "dica": "Dejar el campo Worker vacío mantiene el slot abierto para cualquier agente de la ciudad." },
-          { "titulo": "Motor de auto-slots", "desc": "En 📦 Slots → pestaña 🤖 Auto-slots, crea una configuración por zona. Define umbrales de cantidad (mínimo, objetivo, máximo) y batería. El motor corre cada 15 min via Cloud Function.", "dica": "Puntos vacíos generan slots urgentes. Exceso de patinetes genera scouts de redistribución." },
-          { "titulo": "Franjas horarias", "desc": "En la config de zona, pestaña ⏰ Franjas: define ventanas con parámetros propios — ej: pico mañana 07h-09h con objetivo 12, nocturno 22h-00h con objetivo reducido. La franja activa sobreescribe los valores globales.", "dica": "Se admiten franjas que cruzan medianoche. La de mayor prioridad numérica gana solapamientos." },
-          { "titulo": "Workers por slot", "desc": "En el campo Workers por slot de la config, define N. El motor busca los N agentes disponibles más cercanos y distribuye tareas en round-robin: tarea 1→A, tarea 2→B, tarea 3→A…", "dica": "Usa 2+ workers en zonas grandes o con muchos puntos críticos simultáneos." },
-          { "titulo": "Patinetes fuera de punto (Scout)", "desc": "Activa Incluir patinetes fuera de punto en la config. El motor detecta patinetes sin parking_id y genera tareas 📍 Regresar a [Punto X], agrupando en radio de 0,5 km." },
-          { "titulo": "Seguimiento en tiempo real", "desc": "En la pestaña 📋 Slots, cada tarjeta muestra estado, worker, progreso y SLA. Clic para expandir y ver todas las tareas. Tarjeta naranja parpadeante = SLA de aceptación por vencer.", "dica": "Usa el filtro de estado (Abierto / En curso / Listo) para enfocarte en slots activos." },
-          { "titulo": "Reasignar o cancelar", "desc": "En la tarjeta expandida, clic en ✏ Reasignar para cambiar el worker sin perder el historial. Para cancelar, clic en ✕ Cancelar e indica el motivo — el worker recibe push + Telegram.", "dica": "Los slots cancelados no se pueden reabrir. Crea uno nuevo si es necesario." },
-          { "titulo": "Pestaña Equipo", "desc": "En 📦 Slots → pestaña 👥 Equipo, ve todos los workers de la ciudad con su estado actual (libre, en slot, offline). Clic para ver historial y tasa de finalización." },
-          { "titulo": "Charger: prioridad de batería", "desc": "El motor ordena patinetes del más crítico al menos crítico. Bikes bajo 10% reciben prioridad urgente. Las tareas se agrupan por punto GoJet.", "dica": "El umbral de batería es configurable por zona y por franja horaria. Valor por defecto: 40%." },
-          { "titulo": "Scout: clasificación de puntos", "desc": "Vacío → urgente, reponer objetivo completo. Bajo (<50%) → alta, cubrir diferencia. Exceso (>120%) → normal, redistribuir sobrante. Todos los tipos van en UN slot, ordenados por urgencia." },
-          { "titulo": "SLA y escalada automática", "desc": "Si el slot queda sin aceptar más del SLA, la Cloud Function escala: Telegram al grupo de gestores, prioridad aumentada y nuevo despacho a los próximos workers disponibles.", "dica": "Configura el SLA de aceptación por zona. Los slots manuales también tienen campo SLA." },
-          { "titulo": "GPS del equipo en el mapa", "desc": "Con 👥 Campo activo, ve agentes en el mapa. Verde = GPS < 90s. Amarillo = 90s-5min. Rojo = >5min. Clic en el pin para volar a su posición.", "dica": "En el detalle de tarea, el mini-mapa muestra la distancia del agente al destino en tiempo real." },
-          { "titulo": "Exportar historial", "desc": "En 📦 Slots → pestaña 📂 Historial, filtra por período, tipo, zona y estado. Clic en ⬇ CSV para exportar con BOM UTF-8 — abre directo en Excel sin problemas de codificación." }
+          {
+            "titulo": "Qué es un slot",
+            "desc": "Un slot es un turno de trabajo asignado a uno o más agentes. Agrupa tareas (puntos a visitar), define horario, zona y tipo: Charger (cambio de batería) o Scout (redistribuir patinetes). El agente acepta, hace check-in con foto y ejecuta cada tarea.",
+            "dica": "Cada slot tiene un plazo de aceptación. Si nadie acepta a tiempo, el sistema escala por Telegram."
+          },
+          {
+            "titulo": "Crear slot manual",
+            "desc": "Ve a 📦 Slots → pestaña ➕ Crear. Elige tipo (Scout o Charger), completa título, turno, zona, plazo de aceptación y (opcional) asigna un operador. Agrega tareas con destino, cantidad y prioridad. Haz clic en ✓ Crear Slot.",
+            "dica": "Dejar el campo Operador vacío mantiene el slot abierto para cualquier agente de la ciudad."
+          },
+          {
+            "titulo": "Motor de auto-slots",
+            "desc": "En 📦 Slots → pestaña 🤖 Auto-slots, crea una configuración por zona. Define umbrales de cantidad (mínimo, objetivo, máximo) y batería. El motor corre cada 15 min automáticamente en la nube.",
+            "dica": "Puntos vacíos generan slots urgentes. Exceso de patinetes genera scouts de redistribución."
+          },
+          {
+            "titulo": "Franjas horarias",
+            "desc": "En la config de zona, pestaña ⏰ Franjas: define ventanas con parámetros propios — ej: pico mañana 07h-09h con objetivo 12, nocturno 22h-00h con objetivo reducido. La franja activa sobreescribe los valores globales.",
+            "dica": "Se admiten franjas que cruzan medianoche. La de mayor prioridad numérica gana solapamientos."
+          },
+          {
+            "titulo": "Operadores por slot",
+            "desc": "En el campo Operadores por slot de la config, define N. El motor busca los N agentes disponibles más cercanos y distribuye tareas en round-robin: tarea 1→A, tarea 2→B, tarea 3→A…",
+            "dica": "Usa 2+ operadores en zonas grandes o con muchos puntos críticos simultáneos."
+          },
+          {
+            "titulo": "Patinetes fuera de punto (Scout)",
+            "desc": "Activa Incluir patinetes fuera de punto en la config. El motor detecta patinetes sin punto asignado y genera tareas 📍 Regresar a [Punto X], agrupando en radio de 0,5 km."
+          },
+          {
+            "titulo": "Seguimiento en tiempo real",
+            "desc": "En la pestaña 📋 Slots, cada tarjeta muestra estado, operador, progreso y plazo. Clic para expandir y ver todas las tareas. Tarjeta naranja parpadeante = plazo de aceptación por vencer.",
+            "dica": "Usa el filtro de estado (Abierto / En curso / Listo) para enfocarte en slots activos."
+          },
+          {
+            "titulo": "Reasignar o cancelar",
+            "desc": "En la tarjeta expandida, clic en ✏ Reasignar para cambiar el operador sin perder el historial. Para cancelar, clic en ✕ Cancelar e indica el motivo — el operador recibe push + Telegram.",
+            "dica": "Los slots cancelados no se pueden reabrir. Crea uno nuevo si es necesario."
+          },
+          {
+            "titulo": "Pestaña Equipo",
+            "desc": "En 📦 Slots → pestaña 👥 Equipo, ve todos los operadores de la ciudad con su estado actual (libre, en slot, offline). Clic para ver historial y tasa de finalización."
+          },
+          {
+            "titulo": "Charger: prioridad de batería",
+            "desc": "El motor ordena patinetes del más crítico al menos crítico. Bikes bajo 10% reciben prioridad urgente. Las tareas se agrupan por punto GoJet.",
+            "dica": "El umbral de batería es configurable por zona y por franja horaria. Valor por defecto: 40%."
+          },
+          {
+            "titulo": "Scout: clasificación de puntos",
+            "desc": "Vacío → urgente, reponer objetivo completo. Bajo (<50%) → alta, cubrir diferencia. Exceso (>120%) → normal, redistribuir sobrante. Todos los tipos van en UN slot, ordenados por urgencia."
+          },
+          {
+            "titulo": "SLA y escalada automática",
+            "desc": "Si el slot queda sin aceptar más del plazo, el sistema escala automáticamente: Telegram al grupo de gestores, prioridad aumentada y nuevo despacho a los próximos operadores disponibles.",
+            "dica": "Configura el plazo de aceptación por zona. Los slots manuales también tienen campo de plazo."
+          },
+          {
+            "titulo": "GPS del equipo en el mapa",
+            "desc": "Con 👥 Campo activo, ve agentes en el mapa. Verde = GPS < 90s. Amarillo = 90s-5min. Rojo = >5min. Clic en el pin para volar a su posición.",
+            "dica": "En el detalle de tarea, el mini-mapa muestra la distancia del agente al destino en tiempo real."
+          },
+          {
+            "titulo": "Exportar historial",
+            "desc": "En 📦 Slots → pestaña 📂 Historial, filtra por período, tipo, zona y estado. Clic en ⬇ CSV para exportar — abre directo en Excel sin problemas de codificación."
+          }
         ]
       },
       "slots-logistica": {
@@ -299,12 +471,12 @@
         "passos": [
           {
             "titulo": "Activar",
-            "desc": "Toca el botón 🛴 en los FABs."
+            "desc": "Toca el botón 🛴 en los botones laterales."
           },
           {
             "titulo": "Colores de puntos",
-            "desc": "🔴 Vacío · 🟠 <50% · 🟡 50–85% · 🔵 En objetivo (85–120%) · 🟢 Excedente (>120%)",
-            "dica": "Con objetivo = círculo. Sin objetivo = cuadrado gris."
+            "desc": "🔴 Vacío · 🟠 <50% · 🟡 50–85% · 🔵 En meta (85–120%) · 🟢 Excedente (>120%)",
+            "dica": "Con meta = círculo. Sin meta = cuadrado gris."
           },
           {
             "titulo": "Colores patinetes",
@@ -315,19 +487,20 @@
             "desc": "Toca 📊 abajo izquierda: vacíos, bajo objetivo, patinetes por estado."
           },
           {
-            "titulo": "Actualización",
+            "titulo": "Actualización de datos",
             "desc": "🟢 Datos < 3min · 🟡 3–8min · 🔴 > 8min de antigüedad."
           },
           {
             "titulo": "Filtros puntos",
-            "desc": "Todos · 🔴 Vacíos · 🟠 < objetivo · 🔵 En objetivo · 🟢 Exceso · 🔗 M1/M2/M3"
+            "desc": "Todos · 🔴 Vacíos · 🟠 < meta · 🔵 En meta · 🟢 Exceso · 🔗 Vinculados (M1/M2/M3 = distancia a la estación JET OS más cercana).",
+            "dica": "El filtro 🔗 muestra puntos GoJet con una estación JET OS a menos de 150 m — útil para operaciones conjuntas."
           },
           {
             "titulo": "Filtros patinetes",
             "desc": "⚠️ Fuera de punto · 🟠 Batería baja · 🟢 Disponibles."
           },
           {
-            "titulo": "Workers en mapa",
+            "titulo": "Operadores en mapa",
             "desc": "Toca 👥 Campo para ver operadores. Toca el nombre para volar a su posición."
           }
         ]
@@ -357,62 +530,159 @@
       "pois": {
         "titulo": "Puntos de interés (POIs)",
         "passos": [
-          { "titulo": "POIs OSM", "desc": "Toca el FAB 🔍 y luego 📍 para cargar puntos de OpenStreetMap." },
-          { "titulo": "Puntos candidatos", "desc": "Toca 🎯 para abrir el panel de puntos candidatos.", "dica": "Ajusta Radio Gap, Radio Área y Puntuación mínima para calibrar las sugerencias." }
+          {
+            "titulo": "POIs OSM",
+            "desc": "Toca el botón 🔍 y luego 📍 para cargar puntos de OpenStreetMap."
+          },
+          {
+            "titulo": "Puntos candidatos",
+            "desc": "Toca 🎯 para abrir el panel de puntos candidatos.",
+            "dica": "Ajusta Radio Gap, Radio Área y Puntuación mínima para calibrar las sugerencias."
+          }
         ]
       },
       "locais-logisticos": {
         "titulo": "Locales Logísticos",
         "passos": [
-          { "titulo": "Qué son", "desc": "Bases de Carga, Centros de Servicio, Depósitos y Puntos de Redistribución — donde los patinetes se cargan, reparan o almacenan." },
-          { "titulo": "Activar en el mapa", "desc": "Toca el FAB 🏭. Los pines aparecen con ícono por tipo.", "dica": "Toca cualquier pin para editar el local." },
-          { "titulo": "Agregar nuevo local", "desc": "Con 🏭 activo, toca 📍 y toca el mapa. El formulario abre con nombre, tipo, foto, capacidad y responsable." },
-          { "titulo": "Gestión financiera", "desc": "Toca 💳 para abrir el panel financiero. Selecciona un local y mes para ver pagos.", "dica": "Para energía, lectura anterior + actual calcula el valor automáticamente." }
+          {
+            "titulo": "Qué son",
+            "desc": "Bases de Carga, Centros de Servicio, Depósitos y Puntos de Redistribución — donde los patinetes se cargan, reparan o almacenan."
+          },
+          {
+            "titulo": "Activar en el mapa",
+            "desc": "Toca el botón 🏭. Los pines aparecen con ícono por tipo.",
+            "dica": "Toca cualquier pin para editar el local."
+          },
+          {
+            "titulo": "Agregar nuevo local",
+            "desc": "Con 🏭 activo, toca 📍 y toca el mapa. El formulario abre con nombre, tipo, foto, capacidad y responsable."
+          },
+          {
+            "titulo": "Gestión financiera",
+            "desc": "Toca 💳 para abrir el panel financiero. Selecciona un local y mes para ver pagos.",
+            "dica": "Para energía, lectura anterior + actual calcula el valor automáticamente."
+          }
         ]
       },
       "zonas": {
         "titulo": "Zonas y polígonos",
         "passos": [
-          { "titulo": "Crear zona", "desc": "Toca el FAB ⬡ y luego 'Nueva zona'. Toca el mapa para agregar vértices." },
-          { "titulo": "Importar KMZ", "desc": "Toca '📂 KMZ' para importar zonas de un archivo Google My Maps. Las estaciones se ignoran — solo se importan polígonos." },
-          { "titulo": "Editar vértices", "desc": "Selecciona una zona y toca 'Editar vértices' para arrastrar los puntos." },
-          { "titulo": "Configurar", "desc": "Define nombre, grupo, fase, color y prioridad." }
+          {
+            "titulo": "Crear zona",
+            "desc": "Toca el botón ⬡ y luego 'Nueva zona'. Toca el mapa para agregar vértices."
+          },
+          {
+            "titulo": "Importar KMZ",
+            "desc": "Toca '📂 KMZ' para importar zonas de un archivo Google My Maps. Las estaciones se ignoran — solo se importan polígonos."
+          },
+          {
+            "titulo": "Editar vértices",
+            "desc": "Selecciona una zona y toca 'Editar vértices' para arrastrar los puntos."
+          },
+          {
+            "titulo": "Configurar",
+            "desc": "Define nombre, grupo, fase, color y prioridad."
+          }
         ]
       },
       "gps-alertas": {
         "titulo": "📡 Alertas GPS automáticas",
         "passos": [
-          { "titulo": "Qué es", "desc": "Cloud Functions monitorean el GPS de los operadores en campo y envían alertas automáticas vía Telegram." },
-          { "titulo": "Alerta de llegada", "desc": "Si el operador no llega al punto en 20 minutos, Telegram avisa al gestor con la distancia actual." },
-          { "titulo": "Alerta de retraso", "desc": "Si una tarea lleva más de 30 minutos sin completarse, se envía alerta con el progreso (ej: 3/5 entregados)." },
-          { "titulo": "GPS perdido", "desc": "Si un operador con tarea activa pasa más de 10 minutos sin enviar GPS, Telegram avisa para verificar la app.", "dica": "Configura en Ajustes → Apps → JET OS → Batería → Sin restricción." },
-          { "titulo": "Cooldown", "desc": "Las alertas tienen cooldown de 30 minutos para evitar spam. El mismo operador/tarea no genera alertas repetidas antes de eso." }
+          {
+            "titulo": "Qué es",
+            "desc": "El sistema monitorea el GPS de los operadores en campo y envía alertas automáticas vía Telegram."
+          },
+          {
+            "titulo": "Alerta de llegada",
+            "desc": "Si el operador no llega al punto en 20 minutos, Telegram avisa al gestor con la distancia actual."
+          },
+          {
+            "titulo": "Alerta de retraso",
+            "desc": "Si una tarea lleva más de 30 minutos sin completarse, se envía alerta con el progreso (ej: 3/5 entregados)."
+          },
+          {
+            "titulo": "GPS perdido",
+            "desc": "Si un operador con tarea activa pasa más de 10 minutos sin enviar GPS, Telegram avisa para verificar la app.",
+            "dica": "Configura en Ajustes → Apps → JET OS → Batería → Sin restricción."
+          },
+          {
+            "titulo": "Cooldown",
+            "desc": "Las alertas tienen cooldown de 30 minutos para evitar spam. El mismo operador/tarea no genera alertas repetidas antes de eso."
+          }
         ]
       },
       "guard-expandido": {
         "titulo": "🛡 Guard & Seguridad",
         "passos": [
-          { "titulo": "Registrar ocurrencia", "desc": "Toca el FAB 🛡. Completa tipo, descripción, ubicación y fotos. Telegram recibe notificación automática para Robo, Vandalismo y Tentativa." },
-          { "titulo": "Tipos de ocurrencia", "desc": "Vandalismo, Robo, Tentativa, Recuperación, Otro. Los robos aparecen en el Panel de Robos. El vandalismo tiene campos extra de daño (%, R$)." },
-          { "titulo": "Daño por vandalismo", "desc": "Al editar una ocurrencia de Vandalismo, completa '% Daño' (0–100) y 'Valor R$' tras evaluación del taller. Aparecen en el Dashboard Guard y en el Informe." },
-          { "titulo": "Historial de ediciones", "desc": "Cada cambio guardado se registra en el historial con nombre del usuario, campo modificado y timestamp. Visible en el modal de edición." },
-          { "titulo": "Pestaña Buscados", "desc": "En la pantalla Guard mobile, la pestaña 🔍 Buscados lista todos los activos marcados como buscado." },
-          { "titulo": "Filtros por ciudad", "desc": "En el panel Guard del mapa, chips de ciudad aparecen arriba de la lista. Toca para filtrar ocurrencias de la ciudad deseada." },
-          { "titulo": "Dashboard Guard", "desc": "El botón '📊 Guard Dash' muestra Robos, Vandalismo, daños R$, pérdidas BRPD, tasa de recuperación y evolución semanal." },
-          { "titulo": "Contador de tiempo", "desc": "Las ocurrencias Abiertas muestran badge '🔓 2h30m' indicando cuánto tiempo llevan abiertas. Amarillo < 6h, naranja > 6h, rojo > 1 día." },
-          { "titulo": "Informe ejecutivo", "desc": "'Enviar Informe' en Guard Dashboard envía al Telegram: mensaje PT-BR + RU y PDF de 4 páginas." },
-          { "titulo": "Role Gestor Seg", "desc": "El role 'gestor_seg' accede a Guard, Analytics Guard, Dashboard Guard y Panel de Robos. Puede aprobar registros de prestadores. Sin acceso a estaciones o slots." }
+          {
+            "titulo": "Registrar ocurrencia",
+            "desc": "Toca el botón 🛡. Completa tipo, descripción, ubicación y fotos. Telegram recibe notificación automática para Robo, Vandalismo y Tentativa."
+          },
+          {
+            "titulo": "Tipos de ocurrencia",
+            "desc": "Vandalismo, Robo, Tentativa, Recuperación, Otro. Los robos aparecen en el Panel de Robos. El vandalismo tiene campos extra de daño (%, R$)."
+          },
+          {
+            "titulo": "Daño por vandalismo",
+            "desc": "Al editar una ocurrencia de Vandalismo, completa '% Daño' (0–100) y 'Valor R$' tras evaluación del taller. Aparecen en el Dashboard Guard y en el Informe."
+          },
+          {
+            "titulo": "Historial de ediciones",
+            "desc": "Cada cambio guardado se registra en el historial con nombre del usuario, campo modificado y timestamp. Visible en el modal de edición."
+          },
+          {
+            "titulo": "Pestaña Buscados",
+            "desc": "En la pantalla Guard mobile, la pestaña 🔍 Buscados lista todos los activos marcados como buscado."
+          },
+          {
+            "titulo": "Filtros por ciudad",
+            "desc": "En el panel Guard del mapa, chips de ciudad aparecen arriba de la lista. Toca para filtrar ocurrencias de la ciudad deseada."
+          },
+          {
+            "titulo": "Dashboard Guard",
+            "desc": "El botón '📊 Guard Dash' muestra Robos, Vandalismo, daños R$, pérdidas BRPD, tasa de recuperación y evolución semanal."
+          },
+          {
+            "titulo": "Contador de tiempo",
+            "desc": "Las ocurrencias Abiertas muestran badge '🔓 2h30m' indicando cuánto tiempo llevan abiertas. Amarillo < 6h, naranja > 6h, rojo > 1 día."
+          },
+          {
+            "titulo": "Informe ejecutivo",
+            "desc": "'Enviar Informe' en Guard Dashboard envía al Telegram: mensaje PT-BR + RU y PDF de 4 páginas."
+          },
+          {
+            "titulo": "Role Gestor Seg",
+            "desc": "El role 'gestor_seg' accede a Guard, Analytics Guard, Dashboard Guard y Panel de Robos. Puede aprobar registros de prestadores. Sin acceso a estaciones o slots."
+          }
         ]
       },
       "roubos": {
         "titulo": "🔴 Robos & Informes Guard",
         "passos": [
-          { "titulo": "Abrir panel", "desc": "Toca 🔴 Robos en los FABs del mapa. Disponible para gestor, gestor_seg y admin." },
-          { "titulo": "KPIs", "desc": "Total robos, recuperados, tasa de recuperación, buscados abiertos. Filtros: 7d / 30d / 90d / todo." },
-          { "titulo": "Informe diario automático", "desc": "Enviado a las 7h de martes a domingo al grupo de Telegram. Reporta el día anterior. Los lunes envía el informe semanal." },
-          { "titulo": "Informe manual", "desc": "Botón 'Enviar Informe' en Dashboard Guard. Genera y envía inmediatamente el PDF ejecutivo de 4 páginas." },
-          { "titulo": "Estructura del PDF", "desc": "Pág 1 PT: Robos abiertos, KPIs, tabla por ciudad, detalles 24h. Pág 2 RU: misma info en ruso. Pág 3: Vandalismo con daños R$ y %. Pág 4: Pérdidas BRPD, KPIs y apéndice completo." },
-          { "titulo": "Fechas reales", "desc": "Ayer aparece con la fecha real. El mes actual muestra el intervalo. El acumulado muestra el rango de años de los datos." }
+          {
+            "titulo": "Abrir panel",
+            "desc": "Toca 🔴 Robos en los botones laterales del mapa. Disponible para gestor, gestor_seg y admin."
+          },
+          {
+            "titulo": "KPIs",
+            "desc": "Total robos, recuperados, tasa de recuperación, buscados abiertos. Filtros: 7d / 30d / 90d / todo."
+          },
+          {
+            "titulo": "Informe diario automático",
+            "desc": "Enviado a las 7h de martes a domingo al grupo de Telegram. Reporta el día anterior. Los lunes envía el informe semanal."
+          },
+          {
+            "titulo": "Informe manual",
+            "desc": "Botón 'Enviar Informe' en Dashboard Guard. Genera y envía inmediatamente el PDF ejecutivo de 4 páginas."
+          },
+          {
+            "titulo": "Estructura del PDF",
+            "desc": "Pág 1 PT: Robos abiertos, KPIs, tabla por ciudad, detalles 24h. Pág 2 RU: misma info en ruso. Pág 3: Vandalismo con daños R$ y %. Pág 4: Pérdidas BRPD, KPIs y apéndice completo."
+          },
+          {
+            "titulo": "Fechas reales",
+            "desc": "Ayer aparece con la fecha real. El mes actual muestra el intervalo. El acumulado muestra el rango de años de los datos."
+          }
         ]
       },
       "gestor-logistica": {
@@ -424,8 +694,8 @@
           },
           {
             "titulo": "Filtro por ciudad",
-            "desc": "Admin: desplegable arriba. Gestor: ve solo su ciudad (cidadesGerenciaLog).",
-            "dica": "Edita el documento Firestore: cidadesGerenciaLog (array)."
+            "desc": "Admin: desplegable arriba. Gestor: ve solo las ciudades asignadas a su perfil.",
+            "dica": "Las ciudades del gestor se configuran en el panel de Usuarios (campo ciudades de gestión logística)."
           },
           {
             "titulo": "Panel de control",
@@ -468,27 +738,160 @@
           },
           {
             "titulo": "Pestaña Resumen",
-            "desc": "Barras de distribución, estadísticas de patinetes, workers en línea y leyenda."
+            "desc": "Barras de distribución, estadísticas de patinetes, operadores en línea y leyenda."
           },
           {
             "titulo": "Pestaña Puntos",
-            "desc": "Estado, disponible, físico, objetivo, barra de ocupación %, badge M1/M2/M3.",
+            "desc": "Estado, disponible, físico, meta, barra de ocupación %, badge M1 (manual) / M2 (semi-auto) / M3 (automático).",
             "dica": "Ordena por Estado (críticos primero), Nombre A-Z o Cantidad."
           },
           {
             "titulo": "Filtros",
-            "desc": "🔴 Vacío · 🟠 <50% · 🟡 50–85% · 🔵 En objetivo · 🟢 Exceso. Buscar por nombre."
+            "desc": "🔴 Vacío · 🟠 <50% · 🟡 50–85% · 🔵 En meta · 🟢 Exceso. Buscar por nombre."
           },
           {
             "titulo": "Pestaña Patinetes",
             "desc": "KPIs clicables. ID, batería visual, en punto o fuera, sub-estado."
           },
           {
-            "titulo": "Pestaña Workers",
+            "titulo": "Pestaña Operadores",
             "desc": "GPS: 🟢<5min / 🟡<15min / 🟠<30min. Hora exacta. Enlace Google Maps."
           }
         ]
+      },
+      "privacidade": {
+        "titulo": "🔒 Privacidad y tus datos",
+        "passos": [
+          {
+            "titulo": "Términos y Privacidad",
+            "desc": "En el primer acceso, aceptas los Términos de Uso y la Política de Privacidad de JET OS. La aceptación queda registrada con fecha y hora.",
+            "dica": "Cuando los términos se actualicen, la app solicita una nueva aceptación automáticamente."
+          },
+          {
+            "titulo": "Consentimiento de ubicación",
+            "desc": "Los perfiles de campo (logística, charger, scalt, guard y prestadores) también aceptan un consentimiento específico de GPS, conforme a la LGPD de Brasil (Ley 13.709/2018), antes de empezar."
+          },
+          {
+            "titulo": "Cuándo se recopila el GPS",
+            "desc": "Tu ubicación solo se registra DURANTE turnos, slots y tareas — de inicio a fin. Fuera de esos períodos, no hay recopilación."
+          },
+          {
+            "titulo": "Para qué sirve",
+            "desc": "Comprobar la ejecución de las actividades, seguridad del operador y de los activos, y optimización logística. Los datos no se venden ni se usan fuera del horario de trabajo."
+          },
+          {
+            "titulo": "Tus derechos",
+            "desc": "Puedes solicitar acceso, corrección o eliminación de tus datos y revocar el consentimiento en cualquier momento. La revocación finaliza el rastreo.",
+            "dica": "Para ejercer tus derechos o hablar con el encargado (DPO), contacta a la gestión de Jet."
+          }
+        ]
+      },
+      "analytics": {
+        "titulo": "Analytics de viajes",
+        "passos": [
+          {
+            "titulo": "Importar datos",
+            "desc": "Haz clic en \"📊 Analytics\" y arrastra el archivo Excel exportado del sistema."
+          },
+          {
+            "titulo": "Mapa de calor",
+            "desc": "El mapa muestra las rutas de inicio y fin de cada viaje con intensidad por volumen."
+          },
+          {
+            "titulo": "Filtros",
+            "desc": "Usa los botones de la barra de herramientas para alternar entre Heatmap, Hexbins, Arcos y Puntos."
+          },
+          {
+            "titulo": "Modo 3D",
+            "desc": "Haz clic en \"🏔 3D\" para inclinar el mapa. Mantén Ctrl + arrastra para rotar.",
+            "dica": "Combina el modo Hexbin 3D con las Zonas para identificar barrios de alta demanda."
+          }
+        ]
+      },
+      "dashboard": {
+        "titulo": "Dashboard y reportes",
+        "passos": [
+          {
+            "titulo": "Reporte de estación",
+            "desc": "En \"📋 Dash\" → Reportes, selecciona una estación y haz clic en \"Generar PDF\"."
+          },
+          {
+            "titulo": "Exportar Guard",
+            "desc": "En Dash → Guard, usa los filtros y haz clic en \"Exportar Excel\"."
+          },
+          {
+            "titulo": "Gestionar usuarios",
+            "desc": "Haz clic en el ícono 👥 en el header. Aprueba solicitudes definiendo el rol. Gestor Seguridad: rol gestor_seg."
+          },
+          {
+            "titulo": "Notificaciones Telegram",
+            "desc": "En Dash → Guard → Config (solo admin), configura qué tipos de incidencias activan alertas.",
+            "dica": "El bot necesita el token configurado en las Cloud Functions."
+          }
+        ]
+      },
+      "tarefas-logistica": {
+        "titulo": "📦 Módulo de Tareas",
+        "passos": [
+          {
+            "titulo": "Abrir el módulo",
+            "desc": "Haz clic en el botón 📦 Tareas en los FABs laterales. Disponible para logística, campo, gestor y admin."
+          },
+          {
+            "titulo": "Worker Home",
+            "desc": "La pestaña 🏠 Inicio muestra tu estado (trabajando/parado), tiempo de turno y tareas activas. Toca \"▶ Iniciar trabajo + Foto\" para empezar."
+          },
+          {
+            "titulo": "Crear tarea — GoJet",
+            "desc": "En la pestaña ➕ Crear, selecciona \"🛴 Punto GoJet\" para ver la lista en vivo ordenada por déficit. Los vacíos aparecen arriba con badge VACÍO.",
+            "dica": "Activa el filtro \"🔴 Solo críticos\" para ver solo puntos por debajo del 50% del objetivo."
+          },
+          {
+            "titulo": "Crear tarea — Estación JET OS",
+            "desc": "Haz clic en cualquier estación del mapa y toca \"📦 + Crear tarea\" en el popup. El nombre y las coordenadas se completan automáticamente."
+          },
+          {
+            "titulo": "Crear tarea — GoJet en el mapa",
+            "desc": "Con el overlay GoJet activo, haz clic en un punto P y toca \"+ Crear tarea\". El punto se preselecciona con el déficit calculado."
+          },
+          {
+            "titulo": "Generación automática",
+            "desc": "Las tareas se generan automáticamente cada hora para puntos GoJet por debajo del 50% del objetivo. Aparecen con badge AUTO en el kanban."
+          },
+          {
+            "titulo": "Kanban pantalla completa",
+            "desc": "En la pestaña 📊 Kanban, haz clic en ⊞ para expandir a pantalla completa. En escritorio, las columnas quedan lado a lado."
+          },
+          {
+            "titulo": "Cambiar destino",
+            "desc": "En el detalle de una tarea, haz clic en 🎯 — un banner naranja aparece en el mapa. Haz clic en cualquier P GoJet para definir el nuevo destino.",
+            "dica": "Solo disponible para gestor/admin."
+          },
+          {
+            "titulo": "Dashboard",
+            "desc": "La pestaña 📈 Stats muestra: tasa de conclusión, duración media, ranking de agentes con oro/plata/bronce, top puntos más atendidos."
+          },
+          {
+            "titulo": "Histórico CSV",
+            "desc": "La pestaña 📂 Histórico tiene filtros por estado, tipo, agente y búsqueda. Haz clic en ⬇ CSV para exportar con BOM (abre directo en Excel)."
+          },
+          {
+            "titulo": "Notificaciones",
+            "desc": "Al asignar una tarea, el agente recibe push nativo (Android FCM) y Telegram simultáneamente."
+          }
+        ]
       }
+    },
+    "roleLabels": {
+      "admin": "Admin",
+      "gestor": "Gestor",
+      "supergestor": "SuperGestor",
+      "gestor_log": "Gest. Log.",
+      "gestor_seg": "Gest. Seg.",
+      "campo": "Campo",
+      "guard": "Guard",
+      "viewer": "Viewer",
+      "logistica": "Logística"
     }
   },
   "fab": {
@@ -511,7 +914,253 @@
     "cancelAction": "Cancelar",
     "slots": "Slots & Logística",
     "gojet": "GoJet en vivo",
-    "gojetDash": "GoJet Dashboard"
+    "gojetDash": "GoJet Dashboard",
+    "gojetAnalytics": "Analytics GoJet",
+    "satelite": "Satélite",
+    "tools": "Herramientas de estación (SV, Medir)",
+    "svCombo": "SV + Medir combo (generar SV y medir)",
+    "svBatch": "Generar SV en lote",
+    "medirBatch": "Medir en lote",
+    "turno": "Registro de Turno"
+  },
+  "sv": {
+    "generating": "Generando Street View...",
+    "saved": "¡Street View guardado!",
+    "noCoverage": "Sin cobertura Street View",
+    "badge": "SV",
+    "replaceWithReal": "Toque para ampliar · reemplace con foto real",
+    "tapToZoom": "Toque para ampliar",
+    "preview": "Street View generado",
+    "save": "Guardar",
+    "saveAndMeasure": "Guardar + Medir",
+    "discard": "Descartar",
+    "batchConfirm": "¿Generar Street View para {{count}} estaciones sin foto visibles en el mapa?",
+    "batchProgress": "SV lote: {{ok}} ok, {{fail}} sin cobertura, {{remaining}} restantes...",
+    "batchDone": "Lote SV listo: {{ok}} generados, {{fail}} sin cobertura",
+    "comboConfirm": "Combo: {{svCount}} SV a generar + {{medirCount}} medidas. ¿Continuar?",
+    "comboDone": "SV listo: {{ok}} generados. Abriendo medición..."
+  },
+  "medir": {
+    "batch": "Medir en lote",
+    "batchEmpty": "Todas las estaciones visibles con foto ya tienen medidas",
+    "saved": "¡Medida guardada! ({{current}}/{{total}})",
+    "skip": "Saltar",
+    "stop": "Parar",
+    "done": "¡Lote terminado!",
+    "doneDesc": "{{count}} estaciones procesadas",
+    "backToMap": "Volver al mapa",
+    "kbSkip": "saltar",
+    "kbStop": "parar"
+  },
+  "foto": {
+    "title": "Foto de la estación",
+    "subtitle": "Seleccione una foto para esta estación",
+    "camera": "Cámara",
+    "gallery": "Galería",
+    "paste": "Pegar",
+    "pasteHint": "Consejo: tome un print (Win+Shift+S), luego haga clic en Pegar",
+    "noClipboard": "Sin imagen en el portapapeles. Copie la imagen primero (Print/Ctrl+C).",
+    "pasting": "Pegando imagen...",
+    "pasteSaved": "¡Foto pegada y guardada!",
+    "cancel": "Cancelar"
+  },
+  "permissions": {
+    "location": "Ubicación",
+    "locationDesc": "Necesaria para registro de turno, GPS en campo y asignación de tareas por proximidad.",
+    "locationAlways": "Ubicación todo el tiempo",
+    "locationAlwaysDesc": "Toque Permitir y elija \"Permitir todo el tiempo\". Sin esto, el GPS se detiene cuando la app está minimizada.",
+    "notifications": "Notificaciones",
+    "notificationsDesc": "Reciba alertas de nuevas tareas, actualizaciones de slot y mensajes del equipo en tiempo real.",
+    "camera": "Cámara",
+    "cameraDesc": "Necesaria para la foto de entrada del turno y registro de ocurrencias.",
+    "background": "Ejecutar en segundo plano",
+    "backgroundDesc": "Mantiene el GPS activo con la pantalla bloqueada. Sin esto, el rastreo se detiene cuando el celular duerme.",
+    "intro": "Para funcionar correctamente, la app necesita los permisos de abajo.",
+    "allow": "Permitir",
+    "denied": "Denegado. Vaya a Configuración → Apps → JET OS → Permisos → Ubicación → \"Permitir todo el tiempo\"",
+    "deniedHint": "Toque 🔄 arriba después de conceder. O abra la configuración directamente:",
+    "openSettings": "Abrir configuración de la app",
+    "continue": "Continuar",
+    "grantAll": "Conceda todos los permisos de arriba para continuar."
+  },
+  "appShell": {
+    "backToLogin": "← Volver al login",
+    "registrationSent": "¡Registro enviado!",
+    "requestSent": "¡Solicitud enviada!",
+    "awaitApprovalProvider": "Espere la aprobación del administrador. Recibirá un correo con los próximos pasos.",
+    "awaitApprovalInternal": "Espere la aprobación del administrador. Recibirá un correo con instrucciones de acceso.",
+    "requestAccess": "Solicitar acceso",
+    "selectRoleHint": "Seleccione su cargo para ver los campos necesarios.",
+    "selectRole": "SELECCIONE SU CARGO *",
+    "operationalTeam": "EQUIPO OPERACIONAL",
+    "serviceProvider": "PRESTADOR DE SERVICIO",
+    "basicInfo": "INFORMACIÓN BÁSICA",
+    "fullName": "Nombre completo *",
+    "fullNamePlaceholder": "Su nombre",
+    "email": "Correo electrónico *",
+    "password": "Contraseña *",
+    "passwordPlaceholder": "Mínimo 8 caracteres",
+    "passwordHint": "Mínimo 8 caracteres, 1 mayúscula y 1 número",
+    "providerInfo": "INFORMACIÓN DEL PRESTADOR",
+    "city": "Ciudad de actuación *",
+    "cityPlaceholder": "Seleccione la ciudad...",
+    "loadingCities": "Cargando ciudades...",
+    "contractType": "Tipo de contrato *",
+    "selectPlaceholder": "Seleccione...",
+    "cpfCnpj": "CPF o CNPJ *",
+    "birthDate": "Fecha de nacimiento *",
+    "pixKey": "Clave Pix *",
+    "pixKeyPlaceholder": "Su clave Pix",
+    "telegramNumber": "Número Telegram *",
+    "telegramHint": "Después de la aprobación, recibirá instrucciones para conectar Telegram.",
+    "cltContract": "Contrato CLT",
+    "cltHint": "El gestor responsable acompañará su período de prueba y agendará la capacitación presencial. La renovación o desvinculación será comunicada antes del fin del período.",
+    "observation": "Observación (opcional)",
+    "observationPlaceholder": "Alguna información adicional relevante...",
+    "additionalInfo": "INFORMACIÓN ADICIONAL",
+    "operatingCountries": "País(es) de actuación *",
+    "companyReason": "Empresa / Motivo (opcional)",
+    "companyReasonPlaceholder": "Ej: Formo parte del equipo de campo de la empresa X",
+    "sending": "Enviando...",
+    "submitProvider": "Enviar registro de prestador",
+    "submitRequest": "Enviar solicitud",
+    "errSelectRole": "Seleccione un cargo.",
+    "errSelectCountry": "Seleccione al menos un país.",
+    "errName": "El nombre es obligatorio.",
+    "errEmail": "El correo es obligatorio.",
+    "errPassword": "La contraseña es obligatoria.",
+    "errCity": "Informe la ciudad de actuación.",
+    "errCpfCnpj": "Informe CPF o CNPJ.",
+    "errContract": "Seleccione el tipo de contrato.",
+    "errTelegram": "Informe el número de Telegram.",
+    "errPix": "Informe la clave Pix.",
+    "errGeneric": "Error al enviar solicitud.",
+    "recoverPassword": "Recuperar contraseña",
+    "emailSent": "¡Correo enviado! Verifique su bandeja de entrada.",
+    "yourEmail": "Su correo electrónico",
+    "sendLink": "Enviar enlace",
+    "emailNotFound": "Correo no encontrado.",
+    "forgotPassword": "Olvidé mi contraseña",
+    "login": "Entrar",
+    "loggingIn": "Entrando...",
+    "noAccess": "¿Sin acceso? Solicitar aquí",
+    "passwordLabel": "Contraseña",
+    "reqMinChars": "Mínimo 8 caracteres",
+    "reqUppercase": "Una letra mayúscula",
+    "reqNumber": "Un número",
+    "reqDifferent": "Diferente de la actual",
+    "reqMatch": "Confirmación coincide",
+    "createPassword": "Cree su contraseña",
+    "firstAccessHint": "Primer acceso — defina una contraseña personal segura",
+    "tempPasswordHint": "💡 Use la contraseña temporal recibida por WhatsApp en el campo \"Contraseña actual\". Después de confirmar, será reemplazada por su contraseña personal.",
+    "currentPassword": "Contraseña actual (temporal)",
+    "currentPasswordPlaceholder": "Contraseña recibida por WhatsApp",
+    "newPassword": "Nueva contraseña",
+    "confirmPassword": "Confirmar nueva contraseña",
+    "reqFixErrors": "Corrija los requisitos antes de continuar.",
+    "invalidSession": "Sesión inválida.",
+    "wrongPassword": "Contraseña actual incorrecta. Use la contraseña temporal recibida por WhatsApp.",
+    "errorChangingPassword": "Error al cambiar la contraseña.",
+    "saving": "⏳ Guardando...",
+    "setMyPassword": "🔐 Definir mi contraseña",
+    "logoutAndBack": "← Salir e iniciar sesión de nuevo",
+    "loading": "Cargando...",
+    "docPublic": "📄 Documentos Públicos",
+    "docCurrent": "📎 Documento actual ↗",
+    "docUrlPlaceholder": "URL del documento",
+    "upload": "📤 Subir",
+    "observationLabel": "📝 Observación",
+    "observationDocPlaceholder": "Ej: Validez 2025...",
+    "cancel": "Cancelar",
+    "savingDocs": "Guardando...",
+    "saveDocs": "💾 Guardar documentos",
+    "errorSaving": "Error al guardar: ",
+    "roleCampo": "Campo",
+    "roleCampoDesc": "Registrar estaciones y ocurrencias",
+    "roleGuard": "Guard",
+    "roleGuardDesc": "Ocurrencias Guard",
+    "roleGestor": "Gestor",
+    "roleGestorDesc": "Gestión completa de la operación",
+    "roleViewer": "Viewer",
+    "roleViewerDesc": "Visualización del mapa",
+    "roleLogistica": "Ag. Logística",
+    "roleLogisticaDesc": "Charger / Scalt — movimiento de patinetes",
+    "rolePromotor": "Promotor",
+    "rolePromotorDesc": "Equipo de ventas y activación",
+    "roleFiscal": "Fiscal",
+    "roleFiscalDesc": "Fiscalización y orientación de clientes",
+    "roleSeguranca": "Seguridad",
+    "roleSegurancaDesc": "Equipo de seguridad (CLT)"
+  },
+  "streetviewModal": {
+    "streetView": "Street View",
+    "satellite": "Satélite",
+    "captureFrame": "Capturar frame",
+    "captureHint": "Abre en nueva ventana para capturar",
+    "useImage": "Usar imagen",
+    "useImageHint": "Pegue o arrastre la imagen",
+    "openMaps": "Abrir en Google Maps",
+    "loadingSV": "Cargando Street View...",
+    "loadingSat": "Cargando satélite...",
+    "footerSV": "Navegue arrastrando. Clic en 📸 Capturar frame para abrir en nueva ventana y capturar fácilmente.",
+    "footerSat": "Satélite zoom 19. Para guardar: tome un print y haga clic en \"Usar foto/print\"."
+  },
+  "form": {
+    "minChars": "Mínimo 8 caracteres",
+    "pixKey": "Su clave Pix",
+    "additionalInfo": "Alguna información adicional relevante...",
+    "teamExample": "Ej: Soy parte del equipo de campo de la empresa X",
+    "docUrl": "URL del documento",
+    "docValidity": "Ej: Validez 2025...",
+    "tempPassword": "Contraseña recibida por WhatsApp",
+    "assetId": "JET-001234",
+    "assetDesc": "Descripción del activo...",
+    "currentPassword": "Contraseña actual (temporal)",
+    "newPassword": "Nueva contraseña",
+    "confirmPassword": "Confirmar nueva contraseña",
+    "refresh": "Actualizar"
+  },
+  "zone": {
+    "noName": "(sin nombre)",
+    "imported": "Importado",
+    "created": "Creado",
+    "stations": "estaciones",
+    "stPerKm2": "est/km²",
+    "area": "Área",
+    "density": "Densidad"
+  },
+  "popup": {
+    "competitor": "Competidor",
+    "publicDocs": "Documentos Públicos",
+    "tpuNotRegistered": "TPU: no registrado",
+    "authNotRegistered": "Autorización: no registrada",
+    "updateDocs": "Actualizar documentos",
+    "addDocs": "Agregar documentos",
+    "nameNotFilled": "(nombre no completado)",
+    "dataNotRegistered": "Datos del establecimiento no registrados — haga clic en Editar",
+    "width": "Ancho",
+    "tapZoomReplace": "Toque para ampliar · reemplace con foto real",
+    "tapZoom": "Toque para ampliar",
+    "addPhoto": "Agregar foto",
+    "croqui": "Croquis",
+    "streetView": "Street View",
+    "edit": "Editar",
+    "del": "Del",
+    "monitor": "Monitor",
+    "createTask": "+ Crear tarea",
+    "measure": "Medir",
+    "photo": "Foto",
+    "maps": "Maps",
+    "view": "Ver",
+    "occurrence": "ocurrencia",
+    "occurrences": "ocurrencias",
+    "addStationHere": "Agregar estación aquí",
+    "delete": "Eliminar",
+    "sv": "SV",
+    "viewDoc": "Ver",
+    "tpu": "TPU",
+    "authorization": "Autorización",
+    "notRegistered": "no registrado"
   },
   "legend": {
     "pub": "Pública",
@@ -536,24 +1185,5 @@
     "guard": "Guard",
     "candidates": "Pts. Candidatos",
     "logout": "Cerrar sesión"
-  },
-  "popup": {
-    "addStationHere": "Agregar estación aquí",
-    "edit": "Editar",
-    "delete": "Eliminar",
-    "streetView": "Street View",
-    "photo": "Foto",
-    "maps": "Maps",
-    "croqui": "Croquis",
-    "sv": "SV",
-    "del": "Del",
-    "addPhoto": "Agregar foto",
-    "viewDoc": "Ver",
-    "addDocs": "Agregar documentos",
-    "updateDocs": "Actualizar documentos",
-    "publicDocs": "Documentos Públicos",
-    "tpu": "TPU",
-    "authorization": "Autorización",
-    "notRegistered": "no registrado"
   }
 }

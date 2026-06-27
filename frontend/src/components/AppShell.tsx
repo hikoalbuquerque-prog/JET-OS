@@ -8,8 +8,13 @@ import {
 import { Timestamp as FsTimestamp } from 'firebase/firestore';
 import { sendPasswordResetEmail, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
+import { guardProviderSupabase, carregarOcorrenciasSupabase, guardWriteSupabase, atualizarOcorrenciaSupabase, deletarOcorrenciaSupabase } from '../lib/ocorrencias-supabase';
+import { logisticaWriteSupabase, criarSolicitacaoSupabase } from '../lib/onda-b-supabase';
 import L from 'leaflet';
 import { uploadComRetry } from '../lib/uploadUtils';
+import { comprimirImagem, capturarFotoNativa } from '../lib/imageUtils';
+import { LangSelector } from './MapaHelpers';
+import { isAndroidNative } from '../lib/gps-native';
 import TelegramVinculo, { useTelegramVinculado } from '../TelegramVinculo';
 import i18n from '../i18n/index';
 import { sanitizarFotoUrl } from '../lib/app-utils';
@@ -17,6 +22,17 @@ import { capturarPosicaoUnica } from '../lib/gps-background';
 import type { Usuario } from '../lib/app-utils';
 import { CIDADES } from '../lib/app-utils';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
+
+// Compressão HEIC-safe (ver lib/imageUtils). Converte HEIC→JPEG antes de comprimir,
+// evitando o bug de foto "quebrada" (HEIC enviado como .jpg que o WebView não renderiza).
+async function comprimir(file: File, maxW = 1280, q = 0.82): Promise<File> {
+  try {
+    return await comprimirImagem(file, maxW, q);
+  } catch (e) {
+    console.warn('[comprimir] falha ao processar imagem, enviando original', e);
+    return file;
+  }
+}
 
 export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
   const [nome,   setNome]   = useState('');
@@ -56,18 +72,20 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
   const [telegramNum,   setTelegramNum]   = useState('');
   const [motivo,        setMotivo]        = useState('');
 
+  const { t } = useTranslation();
+
   const ROLES_INTERNOS = [
-    { k:'campo',  l:'Campo',  d:'Cadastrar estações e ocorrências', cor:'#3b82f6' },
-    { k:'guard',  l:'Guard',  d:'Ocorrências Guard',                 cor:'#a78bfa' },
-    { k:'gestor', l:'Gestor', d:'Gestão completa da operação',       cor:'#fbbf24' },
-    { k:'viewer', l:'Viewer', d:'Visualização do mapa',              cor:'#6b7280' },
+    { k:'campo',  l:t('appShell.roleCampo'),  d:t('appShell.roleCampoDesc'), cor:'#3b82f6' },
+    { k:'guard',  l:t('appShell.roleGuard'),  d:t('appShell.roleGuardDesc'),                 cor:'#a78bfa' },
+    { k:'gestor', l:t('appShell.roleGestor'), d:t('appShell.roleGestorDesc'),       cor:'#fbbf24' },
+    { k:'viewer', l:t('appShell.roleViewer'), d:t('appShell.roleViewerDesc'),              cor:'#6b7280' },
   ];
 
   const ROLES_PRESTADOR = [
-    { k:'logistica',  l:'Ag. Logística', d:'Charger / Scalt — movimentação de patinetes', cor:'#10b981' },
-    { k:'promotor',   l:'Promotor',       d:'Equipe de vendas e ativação',                  cor:'#f59e0b' },
-    { k:'fiscal',     l:'Fiscal',         d:'Fiscalização e orientação de clientes',         cor:'#f97316' },
-    { k:'seguranca',  l:'Segurança',      d:'Equipe de segurança (CLT)',                    cor:'#ef4444' },
+    { k:'logistica',  l:t('appShell.roleLogistica'), d:t('appShell.roleLogisticaDesc'), cor:'#10b981' },
+    { k:'promotor',   l:t('appShell.rolePromotor'),  d:t('appShell.rolePromotorDesc'),                  cor:'#f59e0b' },
+    { k:'fiscal',     l:t('appShell.roleFiscal'),     d:t('appShell.roleFiscalDesc'),         cor:'#f97316' },
+    { k:'seguranca',  l:t('appShell.roleSeguranca'), d:t('appShell.roleSegurancaDesc'),                    cor:'#ef4444' },
   ];
 
   const CONTRATOS_MEI  = ['MEI - JET','MEI - TopDoer','MEI - Outro'];
@@ -96,16 +114,16 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
 
   const enviar = async (ev: React.FormEvent) => {
     ev.preventDefault();
-    if (!roleDesejado)   { setErro('Selecione um cargo.'); return; }
-    if (!paises.length)  { setErro('Selecione pelo menos um país.'); return; }
-    if (!nome.trim())    { setErro('Nome é obrigatório.'); return; }
-    if (!email.trim())   { setErro('Email é obrigatório.'); return; }
-    if (!senha.trim())   { setErro('Senha é obrigatória.'); return; }
-    if (isPrestador && !cidade.trim()) { setErro('Informe a cidade de atuação.'); return; }
-    if (isPrestador && !cpfCnpj.trim()) { setErro('Informe CPF ou CNPJ.'); return; }
-    if (isPrestador && !tipoContrato)   { setErro('Selecione o tipo de contrato.'); return; }
-    if (isPrestador && !telegramNum.trim()) { setErro('Informe o número do Telegram.'); return; }
-    if (isPrestador && !isCLT && !chavePix.trim()) { setErro('Informe a chave Pix.'); return; }
+    if (!roleDesejado)   { setErro(t('appShell.errSelectRole')); return; }
+    if (!paises.length)  { setErro(t('appShell.errSelectCountry')); return; }
+    if (!nome.trim())    { setErro(t('appShell.errName')); return; }
+    if (!email.trim())   { setErro(t('appShell.errEmail')); return; }
+    if (!senha.trim())   { setErro(t('appShell.errPassword')); return; }
+    if (isPrestador && !cidade.trim()) { setErro(t('appShell.errCity')); return; }
+    if (isPrestador && !cpfCnpj.trim()) { setErro(t('appShell.errCpfCnpj')); return; }
+    if (isPrestador && !tipoContrato)   { setErro(t('appShell.errContract')); return; }
+    if (isPrestador && !telegramNum.trim()) { setErro(t('appShell.errTelegram')); return; }
+    if (isPrestador && !isCLT && !chavePix.trim()) { setErro(t('appShell.errPix')); return; }
     
     setBusy(true);
     setErro('');
@@ -138,7 +156,7 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
 
       // 3. SE É PRESTADOR - SALVAR SOLICITAÇÃO
       if (isPrestador) {
-        await addDoc(collection(db, 'solicitacoes_prestadores'), {
+        const novaSolic = {
           uid,
           email,
           nome,
@@ -153,60 +171,68 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
           status: 'pendente',
           data_criacao: new Date(),
           pais: paises[0] || 'BR'
-        });
+        };
+        const solRef = await addDoc(collection(db, 'solicitacoes_prestadores'), novaSolic);
+        if (logisticaWriteSupabase()) {
+          criarSolicitacaoSupabase(solRef.id, novaSolic).catch(err => console.error('[log-write] solicitacao Supabase:', err));
+        }
       }
 
       setOk(true);
     } catch(err: unknown) {
       console.error('Erro ao enviar:', err);
-      setErro(err instanceof Error ? err.message : 'Erro ao enviar solicitação.');
+      setErro(err instanceof Error ? err.message : t('appShell.errGeneric'));
     }
     setBusy(false);
   };
 
   return (
-    <div style={{ 
+    <div style={{
       background: 'linear-gradient(135deg,#0d1220,#0f1928)',
-      fontFamily: 'Inter,sans-serif', 
+      fontFamily: 'Inter,sans-serif',
       minHeight: '100vh',
       maxHeight: '100vh',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
       overflowY: 'auto',
-      WebkitOverflowScrolling: 'touch' as any
+      WebkitOverflowScrolling: 'touch' as any,
+      position: 'relative'
     }}>
+      <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
+        <LangSelector />
+      </div>
       <div style={{ width: '100%', maxWidth: 420, paddingBottom: 40, marginLeft: 'auto', marginRight: 'auto', paddingLeft: 20, paddingRight: 20, paddingTop: 20 }}>
         <button onClick={onVoltar} style={{
           background: 'none', border: 'none', color: 'rgba(255,255,255,.4)',
           fontSize: 13, cursor: 'pointer', marginBottom: 24, padding: 0
-        }}>← Voltar ao login</button>
+        }}>{t('appShell.backToLogin')}</button>
 
         {ok ? (
           <div style={{ textAlign: 'center', padding: 32 }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
             <div style={{ fontSize: 18, fontWeight: 700, color: '#6ee7b7', marginBottom: 8 }}>
-              {isPrestador ? 'Cadastro enviado!' : 'Solicitação enviada!'}
+              {isPrestador ? t('appShell.registrationSent') : t('appShell.requestSent')}
             </div>
             <div style={{ fontSize: 13, color: 'rgba(255,255,255,.5)', marginBottom: 8, lineHeight: 1.6 }}>
               {isPrestador
-                ? 'Aguarde a aprovação do administrador. Você receberá um e-mail com as próximas instruções.'
-                : 'Aguarde a aprovação do administrador. Você receberá um e-mail com instruções de acesso.'}
+                ? t('appShell.awaitApprovalProvider')
+                : t('appShell.awaitApprovalInternal')}
             </div>
             <button onClick={onVoltar} style={{
               padding: '12px 24px', marginTop: 16,
               background: 'linear-gradient(135deg,#1a6fd4,#307FE2)',
               border: 'none', borderRadius: 10, color: '#fff', fontSize: 14, cursor: 'pointer'
-            }}>Voltar ao login</button>
+            }}>{t('appShell.backToLogin')}</button>
           </div>
         ) : (
           <>
             <div style={{ marginBottom: 24 }}>
               <h2 style={{ color: '#fff', fontSize: 20, fontWeight: 700, marginBottom: 6 }}>
-                Solicitar acesso
+                {t('appShell.requestAccess')}
               </h2>
               <p style={{ color: 'rgba(255,255,255,.4)', fontSize: 13 }}>
-                Selecione seu cargo para ver os campos necessários.
+                {t('appShell.selectRoleHint')}
               </p>
             </div>
 
@@ -214,10 +240,10 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
 
               {/* ── CARGO ── */}
               <div style={sec}>
-                <label style={lbl}>SELECIONE SEU CARGO *</label>
+                <label style={lbl}>{t('appShell.selectRole')}</label>
                 <div style={{ marginBottom: 8 }}>
                   <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', marginBottom: 6, fontWeight: 600 }}>
-                    EQUIPE OPERACIONAL
+                    {t('appShell.operationalTeam')}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
                     {ROLES_INTERNOS.map(r => (
@@ -234,7 +260,7 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
                 </div>
                 <div>
                   <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', marginBottom: 6, fontWeight: 600 }}>
-                    PRESTADOR DE SERVIÇO
+                    {t('appShell.serviceProvider')}
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5 }}>
                     {ROLES_PRESTADOR.map(r => (
@@ -254,21 +280,21 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
               {/* ── DADOS BASE (todos) ── */}
               {roleDesejado && (
                 <div style={sec}>
-                  <label style={lbl}>INFORMAÇÕES BÁSICAS</label>
+                  <label style={lbl}>{t('appShell.basicInfo')}</label>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div>
-                      <label style={lbl}>Nome completo *</label>
-                      <input value={nome} onChange={e=>setNome(e.target.value)} required style={inp} placeholder="Seu nome"/>
+                      <label style={lbl}>{t('appShell.fullName')}</label>
+                      <input value={nome} onChange={e=>setNome(e.target.value)} required style={inp} placeholder={t('appShell.fullNamePlaceholder')}/>
                     </div>
                     <div>
-                      <label style={lbl}>E-mail *</label>
+                      <label style={lbl}>{t('appShell.email')}</label>
                       <input type="email" value={email} onChange={e=>setEmail(e.target.value)} required style={inp} placeholder="seu@email.com"/>
                     </div>
                     <div>
-                      <label style={lbl}>Senha *</label>
-                      <input type="password" value={senha} onChange={e=>setSenha(e.target.value)} required style={inp} placeholder="Mínimo 8 caracteres"/>
+                      <label style={lbl}>{t('appShell.password')}</label>
+                      <input type="password" value={senha} onChange={e=>setSenha(e.target.value)} required style={inp} placeholder={t('appShell.passwordPlaceholder')}/>
                       <div style={{ fontSize: 9, color: 'rgba(255,255,255,.3)', marginTop: 4 }}>
-                        Mínimo 8 caracteres, 1 maiúscula e 1 número
+                        {t('appShell.passwordHint')}
                       </div>
                     </div>
                   </div>
@@ -278,28 +304,28 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
               {/* ── DADOS PRESTADOR ── */}
               {isPrestador && (
                 <div style={sec}>
-                  <label style={lbl}>INFORMAÇÕES DO PRESTADOR</label>
+                  <label style={lbl}>{t('appShell.providerInfo')}</label>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    
+
                     {/* Cidade */}
                     <div>
-                      <label style={lbl}>Cidade de atuação *</label>
+                      <label style={lbl}>{t('appShell.city')}</label>
                       <select value={cidade} onChange={e=>setCidade(e.target.value)} required
                         style={{ ...inp, cursor: 'pointer', appearance: 'none' as any }}>
-                        <option value="">Selecione a cidade...</option>
+                        <option value="">{t('appShell.cityPlaceholder')}</option>
                         {cidadesDisponiveis.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
                       {cidadesDisponiveis.length === 0 && (
-                        <div style={{ fontSize: 10, color: '#4a5a7a', marginTop: 4 }}>Carregando cidades...</div>
+                        <div style={{ fontSize: 10, color: '#4a5a7a', marginTop: 4 }}>{t('appShell.loadingCities')}</div>
                       )}
                     </div>
 
                     {/* Tipo contrato */}
                     <div>
-                      <label style={lbl}>Tipo de contrato *</label>
+                      <label style={lbl}>{t('appShell.contractType')}</label>
                       <select value={tipoContrato} onChange={e=>setTipoContrato(e.target.value)} required
                         style={{ ...inp, cursor: 'pointer' }}>
-                        <option value="">Selecione...</option>
+                        <option value="">{t('appShell.selectPlaceholder')}</option>
                         {CONTRATOS_ALL.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
                     </div>
@@ -307,11 +333,11 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
                     {/* CPF/CNPJ + Data nasc */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                       <div>
-                        <label style={lbl}>CPF ou CNPJ *</label>
+                        <label style={lbl}>{t('appShell.cpfCnpj')}</label>
                         <input value={cpfCnpj} onChange={e=>setCpfCnpj(e.target.value)} required style={inp} placeholder="000.000.000-00"/>
                       </div>
                       <div>
-                        <label style={lbl}>Data de nascimento *</label>
+                        <label style={lbl}>{t('appShell.birthDate')}</label>
                         <input type="date" value={dataNasc} onChange={e=>setDataNasc(e.target.value)} required style={{ ...inp, colorScheme: 'dark' as any }}/>
                       </div>
                     </div>
@@ -319,25 +345,25 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
                     {/* Pix — só para MEI */}
                     {!isCLT && (
                       <div>
-                        <label style={lbl}>Chave Pix *</label>
+                        <label style={lbl}>{t('appShell.pixKey')}</label>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <select value={tipoChavePix} onChange={e=>setTipoChavePix(e.target.value)}
                             style={{ ...inp, width: 'auto', cursor: 'pointer', paddingRight: 8 }}>
                             {['CPF','CNPJ','E-mail','Telefone','Aleatória'].map(t => <option key={t}>{t}</option>)}
                           </select>
                           <input value={chavePix} onChange={e=>setChavePix(e.target.value)}
-                            style={{ ...inp, flex: 1 }} placeholder="Sua chave Pix"/>
+                            style={{ ...inp, flex: 1 }} placeholder={t('appShell.pixKeyPlaceholder')}/>
                         </div>
                       </div>
                     )}
 
                     {/* Telegram */}
                     <div>
-                      <label style={lbl}>Número Telegram *</label>
+                      <label style={lbl}>{t('appShell.telegramNumber')}</label>
                       <input value={telegramNum} onChange={e=>setTelegramNum(e.target.value)} required
                         style={inp} placeholder="+55 81 99999-9999"/>
                       <div style={{ fontSize: 9, color: 'rgba(255,255,255,.3)', marginTop: 4 }}>
-                        Após aprovação, você receberá instruções para conectar o Telegram.
+                        {t('appShell.telegramHint')}
                       </div>
                     </div>
 
@@ -346,20 +372,19 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
                       <div style={{ padding: '8px 12px', borderRadius: 8,
                         background: 'rgba(239,68,68,.06)', border: '1px solid rgba(239,68,68,.15)' }}>
                         <div style={{ fontSize: 10, color: '#f87171', fontWeight: 600, marginBottom: 3 }}>
-                          Contrato CLT
+                          {t('appShell.cltContract')}
                         </div>
                         <div style={{ fontSize: 10, color: 'rgba(255,255,255,.4)', lineHeight: 1.5 }}>
-                          O gestor responsável acompanhará seu período de experiência e agendará o treinamento presencial.
-                          A renovação ou desligamento será sinalizado antes do fim do período.
+                          {t('appShell.cltHint')}
                         </div>
                       </div>
                     )}
 
                     <div>
-                      <label style={lbl}>Observação (opcional)</label>
+                      <label style={lbl}>{t('appShell.observation')}</label>
                       <textarea value={motivo} onChange={e=>setMotivo(e.target.value)} rows={2}
                         style={{ ...inp, resize: 'none' as const }}
-                        placeholder="Alguma informação adicional relevante..."/>
+                        placeholder={t('appShell.observationPlaceholder')}/>
                     </div>
                   </div>
                 </div>
@@ -368,10 +393,10 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
               {/* ── DADOS INTERNO (não prestador) ── */}
               {roleDesejado && !isPrestador && (
                 <div style={sec}>
-                  <label style={lbl}>INFORMAÇÕES ADICIONAIS</label>
+                  <label style={lbl}>{t('appShell.additionalInfo')}</label>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div>
-                      <label style={lbl}>País(es) de atuação *</label>
+                      <label style={lbl}>{t('appShell.operatingCountries')}</label>
                       <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' as const }}>
                         {['BR','MX','AR','CO','CL','PE'].map(p => (
                           <button key={p} type="button" onClick={() => togglePais(p)} style={{
@@ -384,10 +409,10 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
                       </div>
                     </div>
                     <div>
-                      <label style={lbl}>Empresa / Motivo (opcional)</label>
+                      <label style={lbl}>{t('appShell.companyReason')}</label>
                       <textarea value={motivo} onChange={e=>setMotivo(e.target.value)} rows={2}
                         style={{ ...inp, resize: 'none' as const }}
-                        placeholder="Ex: Faço parte da equipe de campo da empresa X"/>
+                        placeholder={t('appShell.companyReasonPlaceholder')}/>
                     </div>
                   </div>
                 </div>
@@ -405,12 +430,74 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
                   background: busy ? 'rgba(48,127,226,.4)' : 'linear-gradient(135deg,#1a6fd4,#307FE2)',
                   border: 'none', borderRadius: 10, color: '#fff',
                   fontSize: 14, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer'
-                }}>{busy ? 'Enviando...' : isPrestador ? 'Enviar cadastro de prestador' : 'Enviar solicitação'}</button>
+                }}>{busy ? t('appShell.sending') : isPrestador ? t('appShell.submitProvider') : t('appShell.submitRequest')}</button>
               )}
             </form>
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── APK DOWNLOAD BANNER ─────────────────────────────────────────
+const APK_META_URL = 'https://ducdbrupxpzqcblfreqn.supabase.co/storage/v1/object/public/apk/version.json';
+const APK_URL = 'https://ducdbrupxpzqcblfreqn.supabase.co/storage/v1/object/public/apk/jet-os-latest.apk';
+
+function ApkBanner() {
+  const [show, setShow] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [latestVersion, setLatestVersion] = useState('');
+  const lang = (i18n.language?.slice(0,2) || 'pt') as 'pt'|'en'|'es'|'ru';
+  const pick = (o: {pt:string;en:string;es:string;ru:string}) => o[lang] ?? o.pt;
+
+  useEffect(() => {
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const isCapacitor = !!(window as any).Capacitor;
+    if (!isAndroid || isCapacitor) return;
+
+    fetch(APK_META_URL).then(r => r.ok ? r.json() : null).then(meta => {
+      if (!meta?.version) { setShow(true); return; }
+      setLatestVersion(meta.version);
+      const dismissedVersion = localStorage.getItem('jet_apk_banner_dismissed_v');
+      if (dismissedVersion === meta.version) return;
+      setShow(true);
+      if (dismissedVersion) setUpdateAvailable(true);
+    }).catch(() => setShow(true));
+  }, []);
+
+  if (!show) return null;
+
+  return (
+    <div style={{
+      background: 'rgba(99,102,241,.12)', border: '1px solid rgba(99,102,241,.3)',
+      borderRadius: 12, padding: '12px 14px', marginBottom: 16,
+      display: 'flex', alignItems: 'center', gap: 10, position: 'relative',
+    }}>
+      <span style={{ fontSize: 28, lineHeight: 1 }}>📱</span>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#a5b4fc', marginBottom: 2 }}>
+          {updateAvailable
+            ? pick({ pt:'Nova versão disponível!', en:'New version available!', es:'Nueva versión disponible!', ru:'Доступна новая версия!' })
+            : pick({ pt:'Instale o app para GPS em background', en:'Install the app for background GPS', es:'Instala la app para GPS en segundo plano', ru:'Установите приложение для GPS в фоне' })}
+        </div>
+        <div style={{ fontSize: 10, color: 'rgba(255,255,255,.4)', marginBottom: 8 }}>
+          {updateAvailable
+            ? pick({ pt:`Versão ${latestVersion} — toque para atualizar`, en:`Version ${latestVersion} — tap to update`, es:`Versión ${latestVersion} — toca para actualizar`, ru:`Версия ${latestVersion} — нажмите для обновления` })
+            : pick({ pt:'Melhor experiência + rastreamento contínuo', en:'Better experience + continuous tracking', es:'Mejor experiencia + rastreo continuo', ru:'Лучший опыт + непрерывное отслеживание' })}
+        </div>
+        <a href={APK_URL} download style={{
+          display: 'inline-block', padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+          background: 'linear-gradient(135deg,#6366f1,#818cf8)', color: '#fff', textDecoration: 'none',
+        }}>
+          {pick({ pt:'Baixar APK', en:'Download APK', es:'Descargar APK', ru:'Скачать APK' })}
+        </a>
+      </div>
+      <button onClick={() => { setShow(false); if (latestVersion) localStorage.setItem('jet_apk_banner_dismissed_v', latestVersion); }}
+        style={{ position: 'absolute', top: 6, right: 8, background: 'none', border: 'none',
+          color: 'rgba(255,255,255,.3)', fontSize: 16, cursor: 'pointer', padding: 2, lineHeight: 1 }}>
+        ✕
+      </button>
     </div>
   );
 }
@@ -428,11 +515,12 @@ export function TelaLogin({ onLogin }: { onLogin: (e: string, s: string) => Prom
   const [verSenha,    setVerSenha]    = useState(false);
   const [senhaFocada, setSenhaFocada] = useState(false);
 
-  // Requisitos de senha
+  const { t } = useTranslation();
+
   const requisitos = [
-    { label: 'Mínimo 8 caracteres', ok: senha.length >= 8 },
-    { label: 'Uma letra maiúscula',  ok: /[A-Z]/.test(senha) },
-    { label: 'Um número',            ok: /[0-9]/.test(senha) },
+    { label: t('appShell.reqMinChars'), ok: senha.length >= 8 },
+    { label: t('appShell.reqUppercase'),  ok: /[A-Z]/.test(senha) },
+    { label: t('appShell.reqNumber'),            ok: /[0-9]/.test(senha) },
   ];
   const senhaValida = requisitos.every(r => r.ok);
 
@@ -454,7 +542,7 @@ export function TelaLogin({ onLogin }: { onLogin: (e: string, s: string) => Prom
       await sendPasswordResetEmail(auth, resetEmail);
       setResetOk(true);
     } catch {
-      setErro('E-mail não encontrado.');
+      setErro(t('appShell.emailNotFound'));
     }
     setBusy(false);
   };
@@ -463,7 +551,11 @@ export function TelaLogin({ onLogin }: { onLogin: (e: string, s: string) => Prom
 
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg,#0d1220,#0f1928)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif' }}>
+      display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,sans-serif',
+      position: 'relative' }}>
+      <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
+        <LangSelector />
+      </div>
       <div style={{ width: 360, padding: '0 20px' }}>
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
           <div style={{ width: 64, height: 64, borderRadius: 16, margin: '0 auto 16px',
@@ -476,23 +568,25 @@ export function TelaLogin({ onLogin }: { onLogin: (e: string, s: string) => Prom
           <h1 style={{ color: '#fff', fontSize: 22, fontWeight: 700 }}>Jet OS</h1>
         </div>
 
+        <ApkBanner />
+
         {resetMode ? (
           // Modo recuperar senha
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: '#fff', marginBottom: 6 }}>
-              Recuperar senha
+              {t('appShell.recoverPassword')}
             </div>
             {resetOk ? (
               <div style={{ padding: '12px 14px', borderRadius: 8, marginBottom: 16,
                 background: 'rgba(16,185,129,.1)', border: '1px solid rgba(16,185,129,.2)',
                 color: '#6ee7b7', fontSize: 13 }}>
-                Email enviado! Verifique sua caixa de entrada.
+                {t('appShell.emailSent')}
               </div>
             ) : (
               <form onSubmit={handleReset}>
                 <div style={{ marginBottom: 14 }}>
                   <label style={{ display: 'block', color: 'rgba(255,255,255,.5)', fontSize: 12, marginBottom: 6 }}>
-                    Seu e-mail
+                    {t('appShell.yourEmail')}
                   </label>
                   <input type="email" value={resetEmail} onChange={e => setResetEmail(e.target.value)}
                     required style={inp} placeholder="seu@email.com" />
@@ -505,28 +599,28 @@ export function TelaLogin({ onLogin }: { onLogin: (e: string, s: string) => Prom
                   background: busy ? 'rgba(48,127,226,.4)' : 'linear-gradient(135deg,#1a6fd4,#307FE2)',
                   border: 'none', borderRadius: 10, color: '#fff',
                   fontSize: 14, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer'
-                }}>{busy ? 'Enviando...' : 'Enviar link'}</button>
+                }}>{busy ? t('appShell.sending') : t('appShell.sendLink')}</button>
               </form>
             )}
             <button onClick={() => { setResetMode(false); setErro(''); setResetOk(false); }} style={{
               background: 'none', border: 'none', color: 'rgba(255,255,255,.4)',
               fontSize: 13, cursor: 'pointer', marginTop: 16, padding: 0
-            }}>← Voltar ao login</button>
+            }}>{t('appShell.backToLogin')}</button>
           </div>
         ) : (
           // Modo login normal
           <form onSubmit={submit}>
             <div style={{ marginBottom: 14 }}>
-              <label style={{ display: 'block', color: 'rgba(255,255,255,.5)', fontSize: 12, marginBottom: 6 }}>E-mail</label>
+              <label style={{ display: 'block', color: 'rgba(255,255,255,.5)', fontSize: 12, marginBottom: 6 }}>{t('appShell.email')}</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} required style={inp} />
             </div>
             <div style={{ marginBottom: 20 }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-                <label style={{ color: 'rgba(255,255,255,.5)', fontSize: 12 }}>Senha</label>
+                <label style={{ color: 'rgba(255,255,255,.5)', fontSize: 12 }}>{t('appShell.passwordLabel')}</label>
                 <button type="button" onClick={() => setResetMode(true)} style={{
                   background: 'none', border: 'none', color: 'rgba(255,255,255,.35)',
                   fontSize: 11, cursor: 'pointer', padding: 0
-                }}>Esqueci minha senha</button>
+                }}>{t('appShell.forgotPassword')}</button>
               </div>
               <div style={{ position:'relative' }}>
                 <input
@@ -569,16 +663,28 @@ export function TelaLogin({ onLogin }: { onLogin: (e: string, s: string) => Prom
               background: busy ? 'rgba(48,127,226,.4)' : 'linear-gradient(135deg,#1a6fd4,#307FE2)',
               border: 'none', borderRadius: 10, color: '#fff',
               fontSize: 15, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer'
-            }}>{busy ? 'Entrando...' : 'Entrar'}</button>
+            }}>{busy ? t('appShell.loggingIn') : t('appShell.login')}</button>
 
             <div style={{ textAlign: 'center', marginTop: 20 }}>
               <button type="button" onClick={() => setSolicitando(true)} style={{
                 background: 'none', border: 'none', color: 'rgba(255,255,255,.35)',
                 fontSize: 13, cursor: 'pointer'
-              }}>Não tem acesso? Solicitar aqui</button>
+              }}>{t('appShell.noAccess')}</button>
             </div>
           </form>
         )}
+
+        {/* APK download link — always visible */}
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+          <a href={APK_URL} download style={{
+            color: 'rgba(255,255,255,.25)', fontSize: 11, textDecoration: 'none',
+          }}>
+            {(() => {
+              const l = (i18n.language?.slice(0,2) || 'pt') as 'pt'|'en'|'es'|'ru';
+              return ({ pt:'📲 Baixar app Android', en:'📲 Download Android app', es:'📲 Descargar app Android', ru:'📲 Скачать Android приложение' })[l] ?? '📲 Baixar app Android';
+            })()}
+          </a>
+        </div>
       </div>
     </div>
   );
@@ -651,6 +757,7 @@ export function DocPublicoModal({ estacaoId, cidade, docAtual, onFechar, onSalvo
   estacaoId: string; cidade: string; docAtual: any;
   onFechar: () => void; onSalvo: () => void;
 }) {
+  const { t } = useTranslation();
   const [tpuUrl,  setTpuUrl]  = useState(docAtual.tpu        || '');
   const [autUrl,  setAutUrl]  = useState(docAtual.autorizacao || '');
   const [obs,     setObs]     = useState(docAtual.obs         || '');
@@ -679,7 +786,7 @@ export function DocPublicoModal({ estacaoId, cidade, docAtual, onFechar, onSalvo
         docPublico: { tpu: finalTpu, autorizacao: finalAut, obs, atualizadoEm: new Date().toISOString() }
       });
       onSalvo();
-    } catch(e: any) { alert('Erro ao salvar: ' + e.message); }
+    } catch(e: any) { alert(t('appShell.errorSaving') + e.message); }
     setBusy(false);
   };
 
@@ -691,7 +798,7 @@ export function DocPublicoModal({ estacaoId, cidade, docAtual, onFechar, onSalvo
         border:'1px solid rgba(21,101,192,.3)', borderRadius:16, padding:20, fontFamily:'Inter,sans-serif' }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
           <div>
-            <div style={{ fontSize:15, fontWeight:700, color:'#60a5fa' }}>📄 Documentos Públicos</div>
+            <div style={{ fontSize:15, fontWeight:700, color:'#60a5fa' }}>{t('appShell.docPublic')}</div>
             <div style={{ fontSize:10, color:'#4a5a7a', marginTop:2 }}>{cidade} · {estacaoId}</div>
           </div>
           <button onClick={onFechar} style={{ background:'none', border:'none', color:'rgba(255,255,255,.4)', fontSize:20, cursor:'pointer' }}>✕</button>
@@ -702,11 +809,11 @@ export function DocPublicoModal({ estacaoId, cidade, docAtual, onFechar, onSalvo
         ].map(item => (
           <div key={item.label} style={{ marginBottom:14 }}>
             <label style={{ fontSize:11, color:'#93c5fd', display:'block', marginBottom:5, fontWeight:600 }}>{item.label}</label>
-            {item.url && <a href={item.url} target="_blank" rel="noreferrer" style={{ display:'block', fontSize:11, color:'#60a5fa', marginBottom:6, textDecoration:'none' }}>📎 Documento atual ↗</a>}
-            <input type="text" value={item.url} onChange={e=>item.setUrl(e.target.value)} placeholder="URL do documento" style={inp} />
+            {item.url && <a href={item.url} target="_blank" rel="noreferrer" style={{ display:'block', fontSize:11, color:'#60a5fa', marginBottom:6, textDecoration:'none' }}>{t('appShell.docCurrent')}</a>}
+            <input type="text" value={item.url} onChange={e=>item.setUrl(e.target.value)} placeholder={t('appShell.docUrlPlaceholder')} style={inp} />
             <div style={{ marginTop:6 }}>
               <label style={{ fontSize:10, color:'#4a5a7a', cursor:'pointer', background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.1)', borderRadius:6, padding:'5px 10px', display:'inline-block' }}>
-                📤 Upload
+                {t('appShell.upload')}
                 <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display:'none' }} onChange={e=>item.setFile(e.target.files?.[0]||null)} />
               </label>
               {item.file && <span style={{ fontSize:10, color:'#4ade80', marginLeft:8 }}>✓ {item.file.name}</span>}
@@ -714,13 +821,13 @@ export function DocPublicoModal({ estacaoId, cidade, docAtual, onFechar, onSalvo
           </div>
         ))}
         <div style={{ marginBottom:18 }}>
-          <label style={{ fontSize:11, color:'#93c5fd', display:'block', marginBottom:5, fontWeight:600 }}>📝 Observação</label>
-          <input type="text" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Ex: Validade 2025..." style={inp} />
+          <label style={{ fontSize:11, color:'#93c5fd', display:'block', marginBottom:5, fontWeight:600 }}>{t('appShell.observationLabel')}</label>
+          <input type="text" value={obs} onChange={e=>setObs(e.target.value)} placeholder={t('appShell.observationDocPlaceholder')} style={inp} />
         </div>
         <div style={{ display:'flex', gap:8 }}>
-          <button onClick={onFechar} style={{ flex:1, padding:'10px', borderRadius:10, cursor:'pointer', background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.1)', color:'rgba(255,255,255,.5)', fontSize:12 }}>Cancelar</button>
+          <button onClick={onFechar} style={{ flex:1, padding:'10px', borderRadius:10, cursor:'pointer', background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.1)', color:'rgba(255,255,255,.5)', fontSize:12 }}>{t('appShell.cancel')}</button>
           <button onClick={salvar} disabled={busy} style={{ flex:2, padding:'10px', borderRadius:10, cursor:busy?'not-allowed':'pointer', background:busy?'rgba(21,101,192,.3)':'linear-gradient(135deg,#1565c0,#1976d2)', border:'none', color:'#fff', fontSize:13, fontWeight:700 }}>
-            {busy?'Salvando...':'💾 Salvar documentos'}
+            {busy?t('appShell.savingDocs'):t('appShell.saveDocs')}
           </button>
         </div>
       </div>
@@ -750,11 +857,12 @@ export function NovaOcorrenciaInline({ usuario, onSucesso }: { usuario: Usuario;
 export function TelaGuardFormWrapper({ usuario, showToast, onSucesso }: {
   usuario: Usuario; showToast: (msg:string)=>void; onSucesso: ()=>void;
 }) {
+  const { t } = useTranslation();
   const [Comp, setComp] = useState<React.ComponentType<any>|null>(null);
   useEffect(() => {
     import('../TelaGuard').then(m => setComp(() => m.FormNovaOcorrenciaExport||null));
   }, []);
-  if (!Comp) return <div style={{ padding:32, textAlign:'center', color:'#4a5a7a' }}>Carregando...</div>;
+  if (!Comp) return <div style={{ padding:32, textAlign:'center', color:'#4a5a7a' }}>{t('appShell.loading')}</div>;
   return <Comp usuario={usuario} showToast={showToast} onSucesso={onSucesso} />;
 }
 
@@ -772,22 +880,24 @@ export function TelaTrocarSenha({ onConcluido, onLogout }: {
   const [verNova,     setVerNova]     = useState(false);
   const [verConf,     setVerConf]     = useState(false);
 
+  const { t } = useTranslation();
+
   const requisitos = [
-    { label: 'Mínimo 8 caracteres',  ok: novaSenha.length >= 8 },
-    { label: 'Uma letra maiúscula',   ok: /[A-Z]/.test(novaSenha) },
-    { label: 'Um número',             ok: /[0-9]/.test(novaSenha) },
-    { label: 'Diferente da atual',    ok: novaSenha !== senhaAtual && novaSenha.length > 0 },
-    { label: 'Confirmação confere',   ok: novaSenha === confirmar && confirmar.length > 0 },
+    { label: t('appShell.reqMinChars'),  ok: novaSenha.length >= 8 },
+    { label: t('appShell.reqUppercase'),   ok: /[A-Z]/.test(novaSenha) },
+    { label: t('appShell.reqNumber'),             ok: /[0-9]/.test(novaSenha) },
+    { label: t('appShell.reqDifferent'),    ok: novaSenha !== senhaAtual && novaSenha.length > 0 },
+    { label: t('appShell.reqMatch'),   ok: novaSenha === confirmar && confirmar.length > 0 },
   ];
   const senhaValida = requisitos.every(r => r.ok);
 
   const handleTrocar = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!senhaValida) { setErro('Corrija os requisitos antes de continuar.'); return; }
+    if (!senhaValida) { setErro(t('appShell.reqFixErrors')); return; }
     setBusy(true); setErro('');
     try {
       const user = auth.currentUser;
-      if (!user || !user.email) throw new Error('Sessão inválida.');
+      if (!user || !user.email) throw new Error(t('appShell.invalidSession'));
 
       // Re-autenticar com senha atual antes de trocar
       const cred = EmailAuthProvider.credential(user.email, senhaAtual);
@@ -800,12 +910,19 @@ export function TelaTrocarSenha({ onConcluido, onLogout }: {
       const { doc: fsDoc, updateDoc, collection: col } = await import('firebase/firestore');
       await updateDoc(fsDoc(col(db, 'usuarios'), user.uid), { senhaTemporaria: false });
 
+      try {
+        const { usuariosWriteSupabase, escreverUsuarioSupabase } = await import('../lib/usuarios-supabase');
+        if (usuariosWriteSupabase()) {
+          await escreverUsuarioSupabase(user.uid, { senhaTemporaria: false });
+        }
+      } catch (e) { console.warn('[supa] senhaTemporaria dual-write falhou', e); }
+
       onConcluido();
     } catch (err: any) {
       if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
-        setErro('Senha atual incorreta. Use a senha temporária recebida pelo WhatsApp.');
+        setErro(t('appShell.wrongPassword'));
       } else {
-        setErro(err.message || 'Erro ao trocar a senha.');
+        setErro(err.message || t('appShell.errorChangingPassword'));
       }
     }
     setBusy(false);
@@ -853,10 +970,10 @@ export function TelaTrocarSenha({ onConcluido, onLogout }: {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 24 }}>🔐</div>
           <h1 style={{ color: '#fff', fontSize: 20, fontWeight: 700, margin: 0 }}>
-            Crie sua senha
+            {t('appShell.createPassword')}
           </h1>
           <p style={{ color: 'rgba(255,255,255,.4)', fontSize: 13, marginTop: 6 }}>
-            Primeiro acesso — defina uma senha pessoal segura
+            {t('appShell.firstAccessHint')}
           </p>
         </div>
 
@@ -864,17 +981,16 @@ export function TelaTrocarSenha({ onConcluido, onLogout }: {
         <div style={{ padding: '10px 14px', borderRadius: 10, marginBottom: 20,
           background: 'rgba(251,191,36,.08)', border: '1px solid rgba(251,191,36,.2)' }}>
           <div style={{ fontSize: 11, color: '#fbbf24', lineHeight: 1.6 }}>
-            💡 Use a senha temporária recebida pelo WhatsApp no campo "Senha atual".
-            Após confirmar, ela será substituída pela sua senha pessoal.
+            {t('appShell.tempPasswordHint')}
           </div>
         </div>
 
         <form onSubmit={handleTrocar}>
-          <CampoSenha label="Senha atual (temporária)" value={senhaAtual}
+          <CampoSenha label={t('appShell.currentPassword')} value={senhaAtual}
             onChange={setSenhaAtual} ver={verAtual} setVer={setVerAtual}
-            placeholder="Senha recebida pelo WhatsApp" />
+            placeholder={t('appShell.currentPasswordPlaceholder')} />
 
-          <CampoSenha label="Nova senha" value={novaSenha}
+          <CampoSenha label={t('appShell.newPassword')} value={novaSenha}
             onChange={setNovaSenha} ver={verNova} setVer={setVerNova} />
 
           {/* Requisitos em tempo real */}
@@ -892,7 +1008,7 @@ export function TelaTrocarSenha({ onConcluido, onLogout }: {
             </div>
           )}
 
-          <CampoSenha label="Confirmar nova senha" value={confirmar}
+          <CampoSenha label={t('appShell.confirmPassword')} value={confirmar}
             onChange={setConfirmar} ver={verConf} setVer={setVerConf} />
 
           {erro && (
@@ -910,14 +1026,14 @@ export function TelaTrocarSenha({ onConcluido, onLogout }: {
               fontSize: 15, fontWeight: 600,
               cursor: senhaValida && !busy ? 'pointer' : 'not-allowed',
               transition: 'all .2s' }}>
-            {busy ? '⏳ Salvando...' : '🔐 Definir minha senha'}
+            {busy ? t('appShell.saving') : t('appShell.setMyPassword')}
           </button>
         </form>
 
         <button onClick={onLogout}
           style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.25)',
             fontSize: 12, cursor: 'pointer', marginTop: 16, width: '100%', padding: 8 }}>
-          ← Sair e fazer login novamente
+          {t('appShell.logoutAndBack')}
         </button>
       </div>
     </div>
@@ -1051,6 +1167,31 @@ export function OnboardingWizard({ usuario, onConcluir }: { usuario: Usuario; on
               <div>
                 <span style={{ fontSize:12, fontWeight:600, color:item.c }}>{item.t}</span>
                 <span style={{ fontSize:10, color:'#4a5a7a', marginLeft:8 }}>{item.d}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ),
+    },
+    {
+      icone: '🔒',
+      titulo: { pt:'Privacidade e seus dados', en:'Privacy and your data', es:'Privacidad y tus datos', ru:'Конфиденциальность и данные' },
+      desc:   { pt:'No 1º acesso você aceita os Termos de Uso e a Política de Privacidade. Perfis de campo também consentem com o uso do GPS (LGPD).', en:'On first access you accept the Terms of Use and Privacy Policy. Field profiles also consent to GPS use (Brazilian LGPD).', es:'En el primer acceso aceptas los Términos de Uso y la Política de Privacidad. Los perfiles de campo también consienten el uso del GPS (LGPD).', ru:'При первом входе вы принимаете Условия использования и Политику конфиденциальности. Полевые профили также дают согласие на использование GPS (LGPD).' },
+      conteudo: () => (
+        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          {[
+            { ic:'📄', c:'#3b82f6', t:'Termos & Privacidade', d:'Aceite registrado com data/hora no 1º acesso' },
+            { ic:'📍', c:'#10b981', t:'GPS só em serviço', d:'Coleta apenas durante turnos, slots e tarefas' },
+            { ic:'🔐', c:'#8b5cf6', t:'Seus direitos', d:'Acesso, exclusão e revogação a qualquer momento' },
+          ].map(item => (
+            <div key={item.t} style={{ display:'flex', gap:10, padding:'8px 10px', borderRadius:8,
+              background:item.c+'10', border:'1px solid '+item.c+'25' }}>
+              <div style={{ width:32, height:32, borderRadius:8, background:item.c+'22',
+                border:'1px solid '+item.c+'44', display:'flex', alignItems:'center',
+                justifyContent:'center', fontSize:16, flexShrink:0 }}>{item.ic}</div>
+              <div>
+                <div style={{ fontSize:12, fontWeight:600, color:'#dce8ff' }}>{item.t}</div>
+                <div style={{ fontSize:10, color:'#4a5a7a' }}>{item.d}</div>
               </div>
             </div>
           ))}
@@ -1549,7 +1690,15 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
   const TURNOS_G  = [['shiftMorning','Manhã (06–14h)'],['shiftAfternoon','Tarde (14–22h)'],['shiftNight','Noite (22–06h)']];
 
   const isGestorModal = ['gestor','admin'].includes(usuario.role);
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = (i18n.language?.slice(0,2) || 'pt') as 'pt'|'en'|'es'|'ru';
+  const pick = (o: Record<string,string>) => o[lang] ?? o.pt;
+
+  const TG = {
+    phDescAtivo: { pt:'Descrição do ativo...', en:'Asset description...', es:'Descripción del activo...', ru:'Описание актива...' },
+    phNumBO:     { pt:'Número do BO', en:'Police report number', es:'Número del parte', ru:'Номер протокола' },
+    phOpcional:  { pt:'Opcional', en:'Optional', es:'Opcional', ru:'Необязательно' },
+  };
 
   const [tipo,        setTipo]        = useState(ocorrencia.tipo || 'Outro');
   const [status,      setStatus]      = useState(ocorrencia.status || 'Aberto');
@@ -1635,8 +1784,8 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
     try {
       let boUrl = ocorrencia.bo_url || '';
       if (boFile) {
-        const ext = boFile.name.split('.').pop()||'jpg';
-        boUrl = await uploadComRetry(boFile, 'ocorrencias/bo_'+ocorrencia.id+'.'+ext);
+        const comp = await comprimir(boFile);
+        boUrl = await uploadComRetry(comp, 'ocorrencias/bo_'+ocorrencia.id+'.jpg');
       }
       const patch: any = {
         tipo, status, asset_id: assetId.trim(), ativo_tipo: ativoTipo,
@@ -1664,6 +1813,7 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
       if (bairro)     patch.bairro_inicial   = bairro.trim();
       if (cidade)     patch.cidade_inicial   = cidade.trim();
       await updateDoc(doc(db,'ocorrencias',ocorrencia.id), patch);
+      if (guardWriteSupabase()) atualizarOcorrenciaSupabase(ocorrencia.id, patch).catch(err => console.error('[guard-write] update Supabase:', err));
       onSalvo();
     } catch(e:any) { setErro('Erro: '+(e?.message||'tente novamente')); }
     setBusy(false);
@@ -1678,6 +1828,7 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
     try {
       const { deleteDoc: delFn } = await import('firebase/firestore');
       await delFn(doc(db, 'ocorrencias', docId));
+      if (guardWriteSupabase()) deletarOcorrenciaSupabase(docId).catch(err => console.error('[guard-write] delete Supabase:', err));
       console.log('[excluir ocorrencia] OK deletado do Firestore:', docId);
       onFechar();
       onSalvo();
@@ -1788,7 +1939,7 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
               background:'rgba(239,68,68,.06)', border:'1px solid rgba(239,68,68,.15)' }}>
               <label style={{ ...lbl, color:'#f87171' }}>Procurando</label>
               <input value={procurando} onChange={e=>setProcurando(e.target.value)}
-                placeholder="Descrição do ativo..." style={{ ...inp, borderColor:'rgba(239,68,68,.2)' }}/>
+                placeholder={pick(TG.phDescAtivo)} style={{ ...inp, borderColor:'rgba(239,68,68,.2)' }}/>
             </div>
           )}
 
@@ -1853,7 +2004,7 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
             </div>
             <div>
               <label style={lbl}>ID da estação</label>
-              <input value={estacaoId} onChange={e=>setEstacaoId(e.target.value)} placeholder="Opcional" style={inp}/>
+              <input value={estacaoId} onChange={e=>setEstacaoId(e.target.value)} placeholder={pick(TG.phOpcional)} style={inp}/>
             </div>
           </div>
 
@@ -1966,9 +2117,17 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
             background:'rgba(234,179,8,.05)', border:'1px solid rgba(234,179,8,.15)' }}>
             <label style={{ ...lbl, color:'#fbbf24' }}>Boletim de Ocorrência</label>
             <input value={boNum} onChange={e=>setBoNum(e.target.value)}
-              placeholder="Número do BO" style={{ ...inp, marginBottom:8, borderColor:'rgba(234,179,8,.2)' }}/>
+              placeholder={pick(TG.phNumBO)} style={{ ...inp, marginBottom:8, borderColor:'rgba(234,179,8,.2)' }}/>
             <div style={{ display:'flex', gap:6 }}>
-              <button onClick={()=>boRef.current?.click()}
+              <button onClick={async (e)=>{
+                  if (isAndroidNative()) {
+                    e.preventDefault();
+                    let f: File | null = null;
+                    try { f = await capturarFotoNativa(); } catch {}
+                    if (f) { handleBoFile(f); return; }
+                  }
+                  boRef.current?.click();
+                }}
                 style={{ flex:1, padding:'7px', borderRadius:7, cursor:'pointer', fontSize:10,
                   background:'rgba(234,179,8,.1)', border:'1px solid rgba(234,179,8,.2)', color:'#fbbf24' }}>
                 📷 Câmera
@@ -2089,12 +2248,8 @@ export function GuardOverlay({ mapInstance, onOcorrenciasChange, onFechar, cidad
       desdeMs = Date.now() - filtroDias * 24 * 60 * 60 * 1000;
       ateMs   = Date.now() + 300000; // +5min para cobrir serverTimestamp do servidor
     }
-    const q = query(collection(db, 'ocorrencias'));
-    const unsub = onSnapshot(q,
-      snap => {
-        if (!ativo) return;
-        const lista = snap.docs
-          .map(d => ({ docId: d.id, ...d.data(), id: d.id }))
+    const processar = (docs: any[]) => {
+        const lista = docs
           .filter((o: any) => {
             // Modo Total: inclui TUDO sem filtro de data
             if (filtroDias === 0 && !modoCustom) return true;
@@ -2129,10 +2284,26 @@ export function GuardOverlay({ mapInstance, onOcorrenciasChange, onFechar, cidad
               })(),
             };
           })
-          .sort((a: any, b: any) =>
-            (b.criadoEm?.toDate?.()?.getTime() || 0) - (a.criadoEm?.toDate?.()?.getTime() || 0));
+          .sort((a: any, b: any) => {
+            const ta = a.criadoEm?.toDate?.()?.getTime() ?? (new Date(a.criadoEm).getTime() || 0);
+            const tb = b.criadoEm?.toDate?.()?.getTime() ?? (new Date(b.criadoEm).getTime() || 0);
+            return tb - ta;
+          });
         setOcorrencias(lista);
         onOcorrenciasChange(lista);
+    };
+    // Fase 2 / Onda B — leitura do Supabase atrás de flag (read-only).
+    if (guardProviderSupabase()) {
+      carregarOcorrenciasSupabase({ limit: 10000 })
+        .then(rows => { if (ativo) processar(rows.map((r: any) => ({ ...r, docId: r.id }))); })
+        .catch(err => console.error('[GuardOverlay] Supabase', err));
+      return () => { ativo = false; };
+    }
+    const q = query(collection(db, 'ocorrencias'));
+    const unsub = onSnapshot(q,
+      snap => {
+        if (!ativo) return;
+        processar(snap.docs.map(d => ({ docId: d.id, ...d.data(), id: d.id })));
       },
       err => { console.error('[GuardOverlay] Firestore error:', err.code, err.message); }
     );

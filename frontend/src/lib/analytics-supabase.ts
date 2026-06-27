@@ -7,8 +7,14 @@
 
 import { supabase } from './supabase';
 
-export const analyticsProviderSupabase = () =>
-  (import.meta.env.VITE_ANALYTICS_PROVIDER as string) === 'supabase';
+export const analyticsProviderSupabase = (): boolean => {
+  try {
+    const v = localStorage.getItem('jet_analytics_provider');
+    if (v === 'supabase') return true;
+    if (v === 'firebase') return false;
+  } catch { /* sem localStorage */ }
+  return (import.meta.env.VITE_ANALYTICS_PROVIDER as string) !== 'firebase';
+};
 
 export type Periodo = '7d' | '30d' | '90d' | 'todos';
 
@@ -113,6 +119,26 @@ export async function fetchGojetSnapshot(cidade: string): Promise<{
     const t = Date.parse(r.atualizado_em); return (!m || t > m) ? t : m;
   }, null as number | null);
   return { parkings, bikes, savedAtMs };
+}
+
+// GoJet: pontos atualmente vazios com HÁ QUANTO TEMPO estão vazios (duração em minutos),
+// via RPC parkings_empty_summary (migration 0044). O snapshot só diz QUE está vazio; isto
+// usa parking_history (série temporal) para dizer DESDE QUANDO. Já vem ordenado por duração
+// (mais urgente primeiro). Resolve cidade→city_id pelo mesmo gojet_config do snapshot.
+export interface PontoVazio {
+  parking_id: string;
+  nome: string;
+  is_monitor: boolean;
+  empty_since: string | null;
+  empty_minutes: number;
+}
+export async function fetchPontosVazios(cidade: string): Promise<PontoVazio[]> {
+  const { data: cfg } = await supabase.from('gojet_config').select('city_id').eq('cidade', cidade).maybeSingle();
+  const cityId = (cfg as any)?.city_id;
+  if (!cityId) return [];
+  const { data, error } = await supabase.rpc('parkings_empty_summary', { p_city_id: cityId });
+  if (error) { console.warn('[analytics] parkings_empty_summary:', error.message); return []; }
+  return (data ?? []) as PontoVazio[];
 }
 
 // KPIs globais do período (soma das linhas) — para os cards do topo.

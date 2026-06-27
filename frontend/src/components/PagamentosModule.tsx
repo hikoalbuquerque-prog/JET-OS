@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   collection,
   query,
@@ -14,6 +15,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { uploadComRetry } from '../lib/uploadUtils';
 
 // ---------------------------------------------------------------------------
@@ -122,18 +124,286 @@ function timestampToDate(ts: Timestamp): Date {
 }
 
 // ---------------------------------------------------------------------------
+// i18n (mesmo padrão do TermosUsoGate: objeto T { pt, en, es, ru } + seletor)
+// ---------------------------------------------------------------------------
+
+type Lang = 'pt' | 'en' | 'es' | 'ru';
+type Texto = { pt: string; en: string; es: string; ru: string };
+
+const T = {
+  // Header
+  titulo: {
+    pt: 'Meus Pagamentos',
+    en: 'My Payments',
+    es: 'Mis Pagos',
+    ru: 'Мои выплаты',
+  },
+  fechar: {
+    pt: 'Fechar',
+    en: 'Close',
+    es: 'Cerrar',
+    ru: 'Закрыть',
+  },
+  // Tabs
+  abaSemanaAtual: {
+    pt: 'Semana Atual',
+    en: 'Current Week',
+    es: 'Semana Actual',
+    ru: 'Текущая неделя',
+  },
+  abaHistorico: {
+    pt: 'Histórico',
+    en: 'History',
+    es: 'Historial',
+    ru: 'История',
+  },
+  // Status labels
+  statusAberto: {
+    pt: 'Aberto',
+    en: 'Open',
+    es: 'Abierto',
+    ru: 'Открыто',
+  },
+  statusNfEnviada: {
+    pt: 'NF em análise',
+    en: 'Invoice under review',
+    es: 'Factura en revisión',
+    ru: 'Счёт на проверке',
+  },
+  statusNfAprovada: {
+    pt: 'NF aprovada – aguardando pagamento',
+    en: 'Invoice approved – awaiting payment',
+    es: 'Factura aprobada – esperando pago',
+    ru: 'Счёт одобрен – ожидается оплата',
+  },
+  statusRejeitada: {
+    pt: 'NF rejeitada',
+    en: 'Invoice rejected',
+    es: 'Factura rechazada',
+    ru: 'Счёт отклонён',
+  },
+  statusPago: {
+    pt: 'Pago ✓',
+    en: 'Paid ✓',
+    es: 'Pagado ✓',
+    ru: 'Оплачено ✓',
+  },
+  // Upload button
+  enviandoNF: {
+    pt: 'Enviando NF...',
+    en: 'Uploading invoice...',
+    es: 'Enviando factura...',
+    ru: 'Отправка счёта...',
+  },
+  enviarNotaFiscal: {
+    pt: 'Enviar Nota Fiscal',
+    en: 'Upload Invoice',
+    es: 'Enviar Factura',
+    ru: 'Отправить счёт',
+  },
+  // Loading / errors / empty
+  carregando: {
+    pt: 'Carregando...',
+    en: 'Loading...',
+    es: 'Cargando...',
+    ru: 'Загрузка...',
+  },
+  carregandoHistorico: {
+    pt: 'Carregando histórico...',
+    en: 'Loading history...',
+    es: 'Cargando historial...',
+    ru: 'Загрузка истории...',
+  },
+  erro: {
+    pt: 'Erro',
+    en: 'Error',
+    es: 'Error',
+    ru: 'Ошибка',
+  },
+  tentarNovamente: {
+    pt: 'Tentar novamente',
+    en: 'Try again',
+    es: 'Intentar de nuevo',
+    ru: 'Повторить',
+  },
+  erroCarregarDados: {
+    pt: 'Erro ao carregar dados',
+    en: 'Error loading data',
+    es: 'Error al cargar los datos',
+    ru: 'Ошибка загрузки данных',
+  },
+  semTitulo: {
+    pt: '(sem título)',
+    en: '(no title)',
+    es: '(sin título)',
+    ru: '(без названия)',
+  },
+  nenhumRegistro: {
+    pt: 'Nenhum registro encontrado.',
+    en: 'No records found.',
+    es: 'No se encontraron registros.',
+    ru: 'Записей не найдено.',
+  },
+  // Período
+  labelPeriodo: {
+    pt: 'Período',
+    en: 'Period',
+    es: 'Período',
+    ru: 'Период',
+  },
+  seg: {
+    pt: 'Seg',
+    en: 'Mon',
+    es: 'Lun',
+    ru: 'Пн',
+  },
+  dom: {
+    pt: 'Dom',
+    en: 'Sun',
+    es: 'Dom',
+    ru: 'Вс',
+  },
+  semanaEmAndamento: {
+    pt: 'Semana ainda em andamento — o envio de NF será liberado ao encerrar.',
+    en: 'Week still in progress — invoice upload will be enabled once it ends.',
+    es: 'Semana aún en curso — el envío de la factura se habilitará al finalizar.',
+    ru: 'Неделя ещё продолжается — отправка счёта станет доступна после её завершения.',
+  },
+  // Tarefas
+  tarefasConcluidas: {
+    pt: 'Tarefas concluídas esta semana',
+    en: 'Tasks completed this week',
+    es: 'Tareas completadas esta semana',
+    ru: 'Задачи, выполненные на этой неделе',
+  },
+  // Valor estimado
+  valorEstimado: {
+    pt: 'Valor estimado',
+    en: 'Estimated amount',
+    es: 'Monto estimado',
+    ru: 'Расчётная сумма',
+  },
+  porTarefa: {
+    pt: 'por tarefa',
+    en: 'per task',
+    es: 'por tarea',
+    ru: 'за задачу',
+  },
+  // Status pagamento / NF
+  statusPagamento: {
+    pt: 'Status do pagamento',
+    en: 'Payment status',
+    es: 'Estado del pago',
+    ru: 'Статус оплаты',
+  },
+  pagoEm: {
+    pt: 'Pago em',
+    en: 'Paid on',
+    es: 'Pagado el',
+    ru: 'Оплачено',
+  },
+  motivo: {
+    pt: 'Motivo',
+    en: 'Reason',
+    es: 'Motivo',
+    ru: 'Причина',
+  },
+  motivoRejeicao: {
+    pt: 'Motivo rejeição',
+    en: 'Rejection reason',
+    es: 'Motivo del rechazo',
+    ru: 'Причина отклонения',
+  },
+  verNFEnviada: {
+    pt: 'Ver NF enviada ↗',
+    en: 'View submitted invoice ↗',
+    es: 'Ver factura enviada ↗',
+    ru: 'Посмотреть отправленный счёт ↗',
+  },
+  verNF: {
+    pt: 'Ver NF ↗',
+    en: 'View invoice ↗',
+    es: 'Ver factura ↗',
+    ru: 'Посмотреть счёт ↗',
+  },
+  notaFiscal: {
+    pt: 'Nota Fiscal',
+    en: 'Invoice',
+    es: 'Factura',
+    ru: 'Счёт',
+  },
+  semanaEncerradaEnvie: {
+    pt: 'Semana encerrada. Envie sua Nota Fiscal para receber o pagamento.',
+    en: 'Week closed. Upload your invoice to receive payment.',
+    es: 'Semana cerrada. Envía tu factura para recibir el pago.',
+    ru: 'Неделя завершена. Отправьте счёт, чтобы получить оплату.',
+  },
+  nfEnviadaSucesso: {
+    pt: 'NF enviada com sucesso!',
+    en: 'Invoice uploaded successfully!',
+    es: '¡Factura enviada con éxito!',
+    ru: 'Счёт успешно отправлен!',
+  },
+  // Histórico
+  semana: {
+    pt: 'Semana',
+    en: 'Week',
+    es: 'Semana',
+    ru: 'Неделя',
+  },
+  colTarefas: {
+    pt: 'TAREFAS',
+    en: 'TASKS',
+    es: 'TAREAS',
+    ru: 'ЗАДАЧИ',
+  },
+  colValor: {
+    pt: 'VALOR',
+    en: 'AMOUNT',
+    es: 'MONTO',
+    ru: 'СУММА',
+  },
+  // Alerts
+  erroEnviarNF: {
+    pt: 'Erro ao enviar NF: ',
+    en: 'Error uploading invoice: ',
+    es: 'Error al enviar la factura: ',
+    ru: 'Ошибка отправки счёта: ',
+  },
+  tenteNovamente: {
+    pt: 'tente novamente',
+    en: 'please try again',
+    es: 'inténtalo de nuevo',
+    ru: 'попробуйте снова',
+  },
+} satisfies Record<string, Texto>;
+
+// Mapeia o status interno para a chave de rótulo traduzido (não altera o valor interno)
+const STATUS_LABEL_KEY: Record<StatusPagamento, keyof typeof T> = {
+  aberto: 'statusAberto',
+  nf_enviada: 'statusNfEnviada',
+  nf_aprovada: 'statusNfAprovada',
+  rejeitada: 'statusRejeitada',
+  pago: 'statusPago',
+};
+
+// ---------------------------------------------------------------------------
 // Status chip
 // ---------------------------------------------------------------------------
 
-const STATUS_CONFIG: Record<StatusPagamento, { label: string; bg: string; color: string }> = {
-  aberto:      { label: 'Aberto',                         bg: 'rgba(255,255,255,.08)', color: '#94a3b8' },
-  nf_enviada:  { label: 'NF em análise',                  bg: 'rgba(251,191,36,.15)',  color: '#fbbf24' },
-  nf_aprovada: { label: 'NF aprovada – aguardando pagamento', bg: 'rgba(96,165,250,.15)', color: '#60a5fa' },
-  rejeitada:   { label: 'NF rejeitada',                   bg: 'rgba(239,68,68,.15)',   color: '#ef4444' },
-  pago:        { label: 'Pago ✓',                         bg: 'rgba(74,222,128,.15)',  color: '#4ade80' },
+// Cores do chip por status (rótulo agora vem do T, traduzido)
+const STATUS_CONFIG: Record<StatusPagamento, { bg: string; color: string }> = {
+  aberto:      { bg: 'rgba(255,255,255,.08)', color: '#94a3b8' },
+  nf_enviada:  { bg: 'rgba(251,191,36,.15)',  color: '#fbbf24' },
+  nf_aprovada: { bg: 'rgba(96,165,250,.15)',  color: '#60a5fa' },
+  rejeitada:   { bg: 'rgba(239,68,68,.15)',   color: '#ef4444' },
+  pago:        { bg: 'rgba(74,222,128,.15)',  color: '#4ade80' },
 };
 
 function StatusChip({ status }: { status: StatusPagamento }) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Texto) => o[lang] ?? o.pt;
   const cfg = STATUS_CONFIG[status];
   return (
     <span
@@ -149,7 +419,7 @@ function StatusChip({ status }: { status: StatusPagamento }) {
         letterSpacing: '.3px',
       }}
     >
-      {cfg.label}
+      {pick(T[STATUS_LABEL_KEY[status]])}
     </span>
   );
 }
@@ -164,6 +434,9 @@ interface UploadNFProps {
 }
 
 function UploadNFButton({ onUpload, uploading }: UploadNFProps) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Texto) => o[lang] ?? o.pt;
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   const handleChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -204,10 +477,10 @@ function UploadNFButton({ onUpload, uploading }: UploadNFProps) {
         {uploading ? (
           <>
             <Spinner />
-            Enviando NF...
+            {pick(T.enviandoNF)}
           </>
         ) : (
-          'Enviar Nota Fiscal'
+          pick(T.enviarNotaFiscal)
         )}
       </button>
     </>
@@ -235,6 +508,10 @@ function Spinner() {
 // ---------------------------------------------------------------------------
 
 export default function PagamentosModule({ usuario, onFechar }: Props) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: Texto) => o[lang] ?? o.pt;
+
   const [aba, setAba] = useState<'atual' | 'historico'>('atual');
 
   // --- Semana atual state ---
@@ -280,7 +557,7 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
       const tarefasSnap = await getDocs(tarefasQ);
       const tarefasList: TarefaLogistica[] = tarefasSnap.docs.map((d) => ({
         id: d.id,
-        titulo: d.data().titulo ?? '(sem título)',
+        titulo: d.data().titulo ?? pick(T.semTitulo),
         concluidoEm: d.data().concluidoEm,
       }));
       setTarefas(tarefasList);
@@ -305,7 +582,7 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
         setRegistroSemana(null);
       }
     } catch (e: any) {
-      setErrorAtual(e?.message ?? 'Erro ao carregar dados');
+      setErrorAtual(e?.message ?? pick(T.erroCarregarDados));
     } finally {
       setLoadingAtual(false);
     }
@@ -367,6 +644,13 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
         status: 'nf_enviada',
         atualizadoEm: serverTimestamp(),
       });
+      // dual-write Supabase
+      supabase.from('pagamentos_semana').update({
+        nf_url: nfUrl,
+        nf_enviada_em: new Date().toISOString(),
+        status: 'nf_enviada',
+        atualizado_em: new Date().toISOString(),
+      }).eq('id', docId).then(({ error }) => { if (error) console.error('[PagModule] update pagamentos_semana:', error.message); });
     } else {
       const inicioTs = Timestamp.fromDate(info.inicio);
       const fimTs = Timestamp.fromDate(info.fim);
@@ -392,6 +676,30 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
         criadoEm: serverTimestamp(),
         atualizadoEm: serverTimestamp(),
       });
+      // dual-write Supabase
+      supabase.from('pagamentos_semana').upsert({
+        id: docId,
+        uid: usuario.uid,
+        nome: usuario.nome,
+        email: usuario.email,
+        cidade,
+        cargo,
+        semana_inicio: info.inicio.toISOString(),
+        semana_fim: info.fim.toISOString(),
+        ano: info.ano,
+        semana_iso: info.semana,
+        tarefas_count: count,
+        valor_unitario: valorUni,
+        valor_total: count * valorUni,
+        status: 'nf_enviada',
+        nf_url: nfUrl,
+        nf_enviada_em: new Date().toISOString(),
+        nf_validada_por: null,
+        motivo_rejeicao: null,
+        pago_em: null,
+        criado_em: new Date().toISOString(),
+        atualizado_em: new Date().toISOString(),
+      }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[PagModule] upsert pagamentos_semana:', error.message); });
     }
   };
 
@@ -410,7 +718,7 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
       setUploadSuccess(true);
       await loadSemanaAtual();
     } catch (e: any) {
-      alert('Erro ao enviar NF: ' + (e?.message ?? 'tente novamente'));
+      alert(pick(T.erroEnviarNF) + (e?.message ?? pick(T.tenteNovamente)));
     } finally {
       setUploadingNF(false);
     }
@@ -432,7 +740,7 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
       await uploadNF(file, info, reg.tarefas_count, reg.valor_unitario, reg.id, reg);
       await loadHistorico();
     } catch (e: any) {
-      alert('Erro ao enviar NF: ' + (e?.message ?? 'tente novamente'));
+      alert(pick(T.erroEnviarNF) + (e?.message ?? pick(T.tenteNovamente)));
     } finally {
       setUploadingHistoricoId(null);
     }
@@ -481,19 +789,19 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
     if (loadingAtual) {
       return (
         <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748b' }}>
-          <Spinner /> Carregando...
+          <Spinner /> {pick(T.carregando)}
         </div>
       );
     }
     if (errorAtual) {
       return (
         <div style={{ color: '#ef4444', padding: '20px 0', fontSize: 14 }}>
-          Erro: {errorAtual}
+          {pick(T.erro)}: {errorAtual}
           <button
             onClick={loadSemanaAtual}
             style={{ marginLeft: 12, color: '#60a5fa', background: 'none', border: 'none', cursor: 'pointer' }}
           >
-            Tentar novamente
+            {pick(T.tentarNovamente)}
           </button>
         </div>
       );
@@ -506,20 +814,20 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
       <div>
         {/* Period */}
         <div style={cardStyle}>
-          <div style={labelStyle}>Período</div>
+          <div style={labelStyle}>{pick(T.labelPeriodo)}</div>
           <div style={{ fontSize: 15, color: '#cbd5e1', fontWeight: 600 }}>
-            Seg {formatDate(weekInfo.inicio)} – Dom {formatDateFull(weekInfo.fim)}
+            {pick(T.seg)} {formatDate(weekInfo.inicio)} – {pick(T.dom)} {formatDateFull(weekInfo.fim)}
           </div>
           {!semanaEncerrada && (
             <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>
-              Semana ainda em andamento — o envio de NF será liberado ao encerrar.
+              {pick(T.semanaEmAndamento)}
             </div>
           )}
         </div>
 
         {/* Tasks count */}
         <div style={cardStyle}>
-          <div style={labelStyle}>Tarefas concluídas esta semana</div>
+          <div style={labelStyle}>{pick(T.tarefasConcluidas)}</div>
           <div style={valueStyle}>{tarefas.length}</div>
           {tarefas.length > 0 && (
             <ul
@@ -556,28 +864,28 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
 
         {/* Estimated value */}
         <div style={cardStyle}>
-          <div style={labelStyle}>Valor estimado</div>
+          <div style={labelStyle}>{pick(T.valorEstimado)}</div>
           <div style={valueStyle}>R$ {formatCurrency(valorTotal)}</div>
           <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
-            {tarefas.length} × R$ {formatCurrency(valorUnitario)} por tarefa
+            {tarefas.length} × R$ {formatCurrency(valorUnitario)} {pick(T.porTarefa)}
           </div>
         </div>
 
         {/* NF status / upload */}
         {registroSemana && registroSemana.status !== 'aberto' ? (
           <div style={{ ...cardStyle, borderColor: STATUS_CONFIG[registroSemana.status].color + '44' }}>
-            <div style={labelStyle}>Status do pagamento</div>
+            <div style={labelStyle}>{pick(T.statusPagamento)}</div>
             <div style={{ marginBottom: 10 }}>
               <StatusChip status={registroSemana.status} />
             </div>
             {registroSemana.status === 'pago' && registroSemana.pago_em && (
               <div style={{ fontSize: 13, color: '#4ade80' }}>
-                Pago em {formatDateFull(timestampToDate(registroSemana.pago_em))}
+                {pick(T.pagoEm)} {formatDateFull(timestampToDate(registroSemana.pago_em))}
               </div>
             )}
             {registroSemana.status === 'rejeitada' && registroSemana.motivo_rejeicao && (
               <div style={{ fontSize: 13, color: '#ef4444', marginTop: 4 }}>
-                Motivo: {registroSemana.motivo_rejeicao}
+                {pick(T.motivo)}: {registroSemana.motivo_rejeicao}
               </div>
             )}
             {registroSemana.nf_url && (
@@ -587,7 +895,7 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
                 rel="noopener noreferrer"
                 style={{ fontSize: 12, color: '#60a5fa', marginTop: 8, display: 'inline-block' }}
               >
-                Ver NF enviada ↗
+                {pick(T.verNFEnviada)}
               </a>
             )}
             {registroSemana.status === 'rejeitada' && (
@@ -598,13 +906,13 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
           </div>
         ) : podeEnviarNFAtual ? (
           <div style={cardStyle}>
-            <div style={labelStyle}>Nota Fiscal</div>
+            <div style={labelStyle}>{pick(T.notaFiscal)}</div>
             <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 12 }}>
-              Semana encerrada. Envie sua Nota Fiscal para receber o pagamento.
+              {pick(T.semanaEncerradaEnvie)}
             </div>
             {uploadSuccess && (
               <div style={{ fontSize: 13, color: '#4ade80', marginBottom: 10 }}>
-                NF enviada com sucesso!
+                {pick(T.nfEnviadaSucesso)}
               </div>
             )}
             <UploadNFButton onUpload={handleUploadAtual} uploading={uploadingNF} />
@@ -622,14 +930,14 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
     if (loadingHistorico) {
       return (
         <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748b' }}>
-          <Spinner /> Carregando histórico...
+          <Spinner /> {pick(T.carregandoHistorico)}
         </div>
       );
     }
     if (historico.length === 0) {
       return (
         <div style={{ color: '#64748b', fontSize: 14, padding: '20px 0' }}>
-          Nenhum registro encontrado.
+          {pick(T.nenhumRegistro)}
         </div>
       );
     }
@@ -659,10 +967,10 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
               >
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>
-                    Seg {formatDate(inicio)} – Dom {formatDateFull(fim)}
+                    {pick(T.seg)} {formatDate(inicio)} – {pick(T.dom)} {formatDateFull(fim)}
                   </div>
                   <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                    Semana {reg.semana_iso}/{reg.ano}
+                    {pick(T.semana)} {reg.semana_iso}/{reg.ano}
                   </div>
                 </div>
                 <StatusChip status={reg.status} />
@@ -678,23 +986,23 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
                 }}
               >
                 <span>
-                  <span style={{ color: '#64748b', fontSize: 11 }}>TAREFAS </span>
+                  <span style={{ color: '#64748b', fontSize: 11 }}>{pick(T.colTarefas)} </span>
                   <span style={{ fontWeight: 700, color: '#e2e8f0' }}>{reg.tarefas_count}</span>
                 </span>
                 <span>
-                  <span style={{ color: '#64748b', fontSize: 11 }}>VALOR </span>
+                  <span style={{ color: '#64748b', fontSize: 11 }}>{pick(T.colValor)} </span>
                   <span style={{ fontWeight: 700, color: '#4ade80' }}>R$ {formatCurrency(reg.valor_total)}</span>
                 </span>
               </div>
 
               {reg.status === 'pago' && reg.pago_em && (
                 <div style={{ fontSize: 12, color: '#4ade80', marginBottom: 8 }}>
-                  Pago em {formatDateFull(timestampToDate(reg.pago_em))}
+                  {pick(T.pagoEm)} {formatDateFull(timestampToDate(reg.pago_em))}
                 </div>
               )}
               {reg.status === 'rejeitada' && reg.motivo_rejeicao && (
                 <div style={{ fontSize: 12, color: '#ef4444', marginBottom: 8 }}>
-                  Motivo rejeição: {reg.motivo_rejeicao}
+                  {pick(T.motivoRejeicao)}: {reg.motivo_rejeicao}
                 </div>
               )}
 
@@ -706,7 +1014,7 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
                     rel="noopener noreferrer"
                     style={{ fontSize: 12, color: '#60a5fa' }}
                   >
-                    Ver NF ↗
+                    {pick(T.verNF)}
                   </a>
                 )}
                 {podeEnviar && (
@@ -779,7 +1087,7 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
           }}
         >
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9' }}>Meus Pagamentos</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9' }}>{pick(T.titulo)}</div>
             <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
               {usuario.nome} · {cidade}
             </div>
@@ -795,7 +1103,7 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
               lineHeight: 1,
               padding: '0 4px',
             }}
-            aria-label="Fechar"
+            aria-label={pick(T.fechar)}
           >
             ×
           </button>
@@ -826,7 +1134,7 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
                 transition: 'color .15s',
               }}
             >
-              {tab === 'atual' ? 'Semana Atual' : 'Histórico'}
+              {tab === 'atual' ? pick(T.abaSemanaAtual) : pick(T.abaHistorico)}
             </button>
           ))}
         </div>

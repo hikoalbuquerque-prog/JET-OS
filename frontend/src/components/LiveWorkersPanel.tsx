@@ -13,7 +13,78 @@ import {
   Timestamp, getDocs, limit,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { gpsProviderSupabase, fetchGpsAtual } from '../lib/gps-supabase';
+import { usuariosReadSupabase, fetchUsuariosByIds } from '../lib/usuarios-supabase';
 import L from 'leaflet';
+import { useTranslation } from 'react-i18next';
+
+// ─────────────────────────── Textos (pt / en / es / ru) ───────────────────────────
+const T = {
+  semGps: {
+    pt: 'sem GPS',
+    en: 'no GPS',
+    es: 'sin GPS',
+    ru: 'нет GPS',
+  },
+  online: {
+    pt: 'online',
+    en: 'online',
+    es: 'en línea',
+    ru: 'в сети',
+  },
+  lento: {
+    pt: 'lento',
+    en: 'slow',
+    es: 'lento',
+    ru: 'медленно',
+  },
+  parado: {
+    pt: 'parado',
+    en: 'stopped',
+    es: 'detenido',
+    ru: 'остановлен',
+  },
+  ultimaAtt: {
+    pt: 'Última att',
+    en: 'Last update',
+    es: 'Última act.',
+    ru: 'Посл. обновл.',
+  },
+  ultimaAttMin: {
+    pt: 'última att',
+    en: 'last update',
+    es: 'última act.',
+    ru: 'посл. обновл.',
+  },
+  gpsFalso: {
+    pt: '⚠️ GPS FALSO DETECTADO',
+    en: '⚠️ FAKE GPS DETECTED',
+    es: '⚠️ GPS FALSO DETECTADO',
+    ru: '⚠️ ОБНАРУЖЕН ПОДДЕЛЬНЫЙ GPS',
+  },
+  campoAoVivo: {
+    pt: 'CAMPO AO VIVO',
+    en: 'LIVE FIELD',
+    es: 'CAMPO EN VIVO',
+    ru: 'ПОЛЕ В РЕАЛЬНОМ ВРЕМЕНИ',
+  },
+  semOperadores: {
+    pt: 'Sem operadores com GPS recente',
+    en: 'No operators with recent GPS',
+    es: 'Sin operadores con GPS reciente',
+    ru: 'Нет операторов с недавним GPS',
+  },
+};
+type Lang = 'pt' | 'en' | 'es' | 'ru';
+type L4 = { pt: string; en: string; es: string; ru: string };
+
+// Traduz o label canônico (fonte PT) de statusCor para o idioma atual
+function statusLabel(canon: string, pick: (o: L4) => string): string {
+  if (canon === 'online') return pick(T.online);
+  if (canon === 'lento')  return pick(T.lento);
+  if (canon === 'parado') return pick(T.parado);
+  return pick(T.semGps);
+}
 
 interface GPS {
   uid: string;
@@ -68,6 +139,9 @@ function workerIcon(uid: string, cor: string, isMock?: boolean): L.DivIcon {
 }
 
 export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Props) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
+  const pick = (o: L4) => o[lang] ?? o.pt;
   const [workers, setWorkers] = useState<GPS[]>([]);
   const [nomes, setNomes] = useState<Map<string, string>>(new Map());
   const [tick, setTick] = useState(0); // força rerender a cada 15s para atualizar cores/tempos
@@ -87,24 +161,62 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
     if (uidsComNome.length === 0) return;
     const batches: string[][] = [];
     for (let i = 0; i < uidsComNome.length; i += 30) batches.push(uidsComNome.slice(i, i + 30));
-    Promise.all(batches.map(batch =>
-      getDocs(query(collection(db, 'usuarios'), where('__name__', 'in', batch)))
-    )).then(snaps => {
-      setNomes(prev => {
-        const next = new Map(prev);
-        snaps.flatMap(s => s.docs).forEach(d => {
-          const data = d.data();
-          const nome = [data.nome, data.sobrenome].filter(Boolean).join(' ') || d.id.slice(0, 8);
-          next.set(d.id, nome);
+    if (usuariosReadSupabase()) {
+      const allUids = batches.flat();
+      fetchUsuariosByIds(allUids).then(users => {
+        setNomes(prev => {
+          const next = new Map(prev);
+          users.forEach(u => {
+            const nome = [u.nome, u.sobrenome].filter(Boolean).join(' ') || (u.uid || '').slice(0, 8);
+            next.set(u.uid, nome);
+          });
+          return next;
         });
-        return next;
-      });
-    }).catch(() => {});
+      }).catch(() => {});
+    } else {
+      Promise.all(batches.map(batch =>
+        getDocs(query(collection(db, 'usuarios'), where('__name__', 'in', batch)))
+      )).then(snaps => {
+        setNomes(prev => {
+          const next = new Map(prev);
+          snaps.flatMap(s => s.docs).forEach(d => {
+            const data = d.data();
+            const nome = [data.nome, data.sobrenome].filter(Boolean).join(' ') || d.id.slice(0, 8);
+            next.set(d.id, nome);
+          });
+          return next;
+        });
+      }).catch(() => {});
+    }
   }, [workers]);
 
-  // Realtime GPS
+  // Realtime GPS — Supabase polling (Onda D) ou Firestore onSnapshot (fallback)
   useEffect(() => {
     if (!visivel) return;
+
+    if (gpsProviderSupabase()) {
+      // Supabase: polling a cada 10s
+      let alive = true;
+      const poll = () => {
+        fetchGpsAtual(JANELA_MIN).then(pts => {
+          if (!alive) return;
+          const byUid = new Map<string, GPS>();
+          for (const p of pts) {
+            if (!byUid.has(p.uid) || (p.criadoEm?.seconds ?? 0) > (byUid.get(p.uid)!.criadoEm?.seconds ?? 0)) {
+              byUid.set(p.uid, { uid: p.uid, lat: p.lat, lng: p.lng, criadoEm: p.criadoEm, accuracy: p.accuracy ?? undefined, nome: p.nome, slotId: p.slotId, cidade: p.cidade, isMock: p.isMock });
+            }
+          }
+          let lista = [...byUid.values()];
+          if (cidade) lista = lista.filter(w => !w.cidade || w.cidade === cidade);
+          setWorkers(lista);
+        });
+      };
+      poll();
+      const id = setInterval(poll, 10_000);
+      return () => { alive = false; clearInterval(id); };
+    }
+
+    // Firestore fallback
     const desde = new Date(Date.now() - JANELA_MIN * 60_000);
 
     const constraints = [
@@ -170,16 +282,16 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
       const idade = fmtIdade(w.criadoEm);
       const nome  = w.nome || nomes.get(w.uid) || w.uid.slice(0, 8);
       const mockBanner = w.isMock
-        ? `<div style="margin-top:4px;padding:3px 6px;background:#f9731620;border:1px solid #f97316;border-radius:4px;font-size:10px;color:#f97316;font-weight:600">⚠️ GPS FALSO DETECTADO</div>`
+        ? `<div style="margin-top:4px;padding:3px 6px;background:#f9731620;border:1px solid #f97316;border-radius:4px;font-size:10px;color:#f97316;font-weight:600">${pick(T.gpsFalso)}</div>`
         : '';
       const popup = `
         <div style="font-family:Inter,sans-serif;font-size:12px;min-width:160px">
           <div style="font-weight:700;font-size:13px;color:#0d0d1a;margin-bottom:4px">👤 ${nome}</div>
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
             <div style="width:8px;height:8px;border-radius:50%;background:${s.dot}"></div>
-            <span style="color:#374151">${s.label}</span>
+            <span style="color:#374151">${statusLabel(s.label, pick)}</span>
           </div>
-          <div style="font-size:10px;color:#6b7280">Última att: ${idade}</div>
+          <div style="font-size:10px;color:#6b7280">${pick(T.ultimaAtt)}: ${idade}</div>
           ${w.accuracy ? `<div style="font-size:10px;color:#9ca3af">±${Math.round(w.accuracy)}m</div>` : ''}
           ${mockBanner}
         </div>`;
@@ -196,7 +308,7 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
         markers.set(w.uid, mk);
       }
     }
-  }, [mapa, visivel, workers, nomes, tick]);
+  }, [mapa, visivel, workers, nomes, tick, lang]);
 
   if (!visivel) return null;
 
@@ -214,12 +326,12 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
     }}>
       <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,.35)',
         letterSpacing: 1, marginBottom: 8 }}>
-        CAMPO AO VIVO — {online}/{workers.length} online
+        {pick(T.campoAoVivo)} — {online}/{workers.length} {pick(T.online)}
       </div>
 
       {workers.length === 0 ? (
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,.3)' }}>
-          Sem operadores com GPS recente
+          {pick(T.semOperadores)}
         </div>
       ) : (
         workers
@@ -254,7 +366,7 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
                     )}
                   </div>
                   <div style={{ fontSize: 9, color: 'rgba(255,255,255,.3)' }}>
-                    {s.label} · última att {fmtIdade(w.criadoEm)}
+                    {statusLabel(s.label, pick)} · {pick(T.ultimaAttMin)} {fmtIdade(w.criadoEm)}
                   </div>
                 </div>
                 <span style={{ fontSize: 10, color: 'rgba(255,255,255,.25)' }}>›</span>

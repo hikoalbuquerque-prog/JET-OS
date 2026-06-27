@@ -4,12 +4,65 @@
 // com badge "EV" e pulse, tratado como monitor M3 dentro da lógica de tarefas.
 
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   collection, query, where, getDocs, addDoc, updateDoc, deleteDoc,
   doc, serverTimestamp, Timestamp,
 } from 'firebase/firestore';
 import L from 'leaflet';
 import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
+
+// Flag dual-run: localStorage.setItem('jet_estacoes_provider','supabase')
+const estacoesProviderSupabase = (): boolean => {
+  try {
+    const v = localStorage.getItem('jet_estacoes_provider');
+    if (v === 'supabase') return true;
+    if (v === 'firebase') return false;
+  } catch {}
+  return (import.meta.env.VITE_ESTACOES_PROVIDER as string) !== 'firebase';
+};
+
+const T = {
+  statusPlanejado: { pt: 'Planejado', en: 'Planned', es: 'Planeado', ru: 'Запланировано' },
+  statusAtivo:     { pt: 'Ao Vivo', en: 'Live', es: 'En Vivo', ru: 'В эфире' },
+  statusEncerrado: { pt: 'Encerrado', en: 'Ended', es: 'Finalizado', ru: 'Завершено' },
+  encerrado:       { pt: 'Encerrado', en: 'Ended', es: 'Finalizado', ru: 'Завершено' },
+  eventoSemNome:   { pt: 'Evento sem nome', en: 'Unnamed event', es: 'Evento sin nombre', ru: 'Событие без названия' },
+  erroCarregar:    { pt: 'Erro ao carregar eventos', en: 'Error loading events', es: 'Error al cargar eventos', ru: 'Ошибка загрузки событий' },
+  coordsInvalidas: { pt: 'Coordenadas inválidas', en: 'Invalid coordinates', es: 'Coordenadas inválidas', ru: 'Неверные координаты' },
+  erroSalvar:      { pt: 'Erro ao salvar ponto', en: 'Error saving point', es: 'Error al guardar punto', ru: 'Ошибка сохранения точки' },
+  erroRemover:     { pt: 'Erro ao remover ponto', en: 'Error removing point', es: 'Error al eliminar punto', ru: 'Ошибка удаления точки' },
+  titulo:          { pt: '📅 Eventos GoJet', en: '📅 GoJet Events', es: '📅 Eventos GoJet', ru: '📅 События GoJet' },
+  subtitulo:       { pt: 'pontos M3 temporários', en: 'temporary M3 points', es: 'puntos M3 temporales', ru: 'временные точки M3' },
+  bannerPick:      { pt: '👆 Clique no mapa para definir a localização do ponto', en: '👆 Click on the map to set the point location', es: '👆 Haz clic en el mapa para definir la ubicación del punto', ru: '👆 Нажмите на карту, чтобы задать расположение точки' },
+  carregando:      { pt: 'Carregando eventos...', en: 'Loading events...', es: 'Cargando eventos...', ru: 'Загрузка событий...' },
+  nenhumEvento:    { pt: 'Nenhum evento próximo ou ativo em', en: 'No upcoming or active event in', es: 'Ningún evento próximo o activo en', ru: 'Нет предстоящих или активных событий в' },
+  crieEventosA:    { pt: 'Crie eventos na coleção', en: 'Create events in the collection', es: 'Crea eventos en la colección', ru: 'Создайте события в коллекции' },
+  crieEventosB:    { pt: 'com campo', en: 'with field', es: 'con campo', ru: 'с полем' },
+  restantes:       { pt: 'restantes', en: 'remaining', es: 'restantes', ru: 'осталось' },
+  comecaEm:        { pt: 'começa em', en: 'starts in', es: 'comienza en', ru: 'начинается через' },
+  pontoConfigA:    { pt: 'EV ✓ Ponto configurado ·', en: 'EV ✓ Point configured ·', es: 'EV ✓ Punto configurado ·', ru: 'EV ✓ Точка настроена ·' },
+  bikes:           { pt: 'bikes', en: 'bikes', es: 'bicis', ru: 'велосипедов' },
+  semPonto:        { pt: 'Sem ponto GoJet configurado', en: 'No GoJet point configured', es: 'Sin punto GoJet configurado', ru: 'Точка GoJet не настроена' },
+  editar:          { pt: 'Editar', en: 'Edit', es: 'Editar', ru: 'Изменить' },
+  remover:         { pt: 'Remover', en: 'Remove', es: 'Eliminar', ru: 'Удалить' },
+  editarPonto:     { pt: '✏️ Editar ponto GoJet', en: '✏️ Edit GoJet point', es: '✏️ Editar punto GoJet', ru: '✏️ Изменить точку GoJet' },
+  adicionarPonto:  { pt: '+ Adicionar ponto GoJet (M3 temp)', en: '+ Add GoJet point (temp M3)', es: '+ Agregar punto GoJet (M3 temp)', ru: '+ Добавить точку GoJet (врем. M3)' },
+  localizacao:     { pt: '📍 Localização do ponto GoJet', en: '📍 GoJet point location', es: '📍 Ubicación del punto GoJet', ru: '📍 Расположение точки GoJet' },
+  cliquePara:      { pt: '👆 Clique no mapa para selecionar', en: '👆 Click on the map to select', es: '👆 Haz clic en el mapa para seleccionar', ru: '👆 Нажмите на карту, чтобы выбрать' },
+  parkingProximo:  { pt: '💡 Parking GoJet mais próximo:', en: '💡 Nearest GoJet parking:', es: '💡 Parking GoJet más cercano:', ru: '💡 Ближайший паркинг GoJet:' },
+  aDist:           { pt: 'a', en: 'at', es: 'a', ru: 'на расстоянии' },
+  usar:            { pt: 'Usar', en: 'Use', es: 'Usar', ru: 'Использовать' },
+  latitude:        { pt: 'Latitude', en: 'Latitude', es: 'Latitud', ru: 'Широта' },
+  longitude:       { pt: 'Longitude', en: 'Longitude', es: 'Longitud', ru: 'Долгота' },
+  targetBikes:     { pt: 'Target de bikes', en: 'Bike target', es: 'Meta de bicis', ru: 'Целевое число велосипедов' },
+  raio:            { pt: 'Raio (m)', en: 'Radius (m)', es: 'Radio (m)', ru: 'Радиус (м)' },
+  cancelar:        { pt: 'Cancelar', en: 'Cancel', es: 'Cancelar', ru: 'Отмена' },
+  salvando:        { pt: '⏳ Salvando...', en: '⏳ Saving...', es: '⏳ Guardando...', ru: '⏳ Сохранение...' },
+  salvarPonto:     { pt: '✓ Salvar ponto GoJet', en: '✓ Save GoJet point', es: '✓ Guardar punto GoJet', ru: '✓ Сохранить точку GoJet' },
+  rodape:          { pt: 'Pontos EV são M3 temporários · expiram automaticamente ao fim do evento', en: 'EV points are temporary M3 · they expire automatically when the event ends', es: 'Los puntos EV son M3 temporales · expiran automáticamente al finalizar el evento', ru: 'Точки EV — это временные M3 · истекают автоматически по окончании события' },
+};
 
 interface Evento {
   id: string;
@@ -49,19 +102,13 @@ const STATUS_COR: Record<string, string> = {
   encerrado: '#6b7280',
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  planejado: 'Planejado',
-  ativo:     'Ao Vivo',
-  encerrado: 'Encerrado',
-};
-
 function fmtData(d: Date): string {
   return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-function tempoRestante(fim: Date): string {
+function tempoRestante(fim: Date, encerradoLabel: string): string {
   const diff = fim.getTime() - Date.now();
-  if (diff <= 0) return 'Encerrado';
+  if (diff <= 0) return encerradoLabel;
   const h = Math.floor(diff / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);
   if (h >= 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
@@ -82,6 +129,16 @@ function parkingMaisProximo(lat: number, lng: number, parkings: GoJetParking[]):
 }
 
 export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCriada }: Props) {
+  const { i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
+  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
+
+  const STATUS_LABEL: Record<string, string> = {
+    planejado: pick(T.statusPlanejado),
+    ativo:     pick(T.statusAtivo),
+    encerrado: pick(T.statusEncerrado),
+  };
+
   const [eventos, setEventos]     = useState<Evento[]>([]);
   const [loading, setLoading]     = useState(true);
   const [editandoId, setEditandoId] = useState<string | null>(null);
@@ -98,39 +155,69 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
   // Carrega eventos próximos/ativos para a cidade
   useEffect(() => {
     setLoading(true);
-    const agora   = Timestamp.now();
-    const em7dias = Timestamp.fromDate(new Date(Date.now() + 7 * 86400000));
 
-    // Busca eventos: ativos ou planejados nos próximos 7 dias, nesta cidade
-    getDocs(query(
-      collection(db, 'eventos'),
-      where('cidade', '==', cidade),
-    )).then(snap => {
+    const processarLista = (raw: any[], idKey: string) => {
       const now = new Date();
-      const lista: Evento[] = snap.docs
-        .map(d => {
-          const x = d.data();
-          const inicio = (x.inicio as Timestamp)?.toDate?.() ?? new Date(x.inicio ?? 0);
-          const fim    = (x.fim    as Timestamp)?.toDate?.() ?? new Date(x.fim    ?? 0);
+      const lista: Evento[] = raw
+        .map((x: any) => {
+          const inicio = x.inicio instanceof Date ? x.inicio
+            : (x.inicio as Timestamp)?.toDate?.() ?? new Date(x.inicio ?? 0);
+          const fim = x.fim instanceof Date ? x.fim
+            : (x.fim as Timestamp)?.toDate?.() ?? new Date(x.fim ?? 0);
           const status: Evento['status'] = fim < now ? 'encerrado' : inicio <= now ? 'ativo' : 'planejado';
           return {
-            id: d.id,
-            nome: x.nome ?? x.name ?? 'Evento sem nome',
+            id: x[idKey] ?? x.id,
+            nome: x.nome ?? x.name ?? pick(T.eventoSemNome),
             cidade: x.cidade, estado: x.estado, pais: x.pais ?? 'BR',
             inicio, fim, status,
-            pontoGoJetEstacaoId: x.pontoGoJetEstacaoId,
-            pontoGoJetLat:       x.pontoGoJetLat,
-            pontoGoJetLng:       x.pontoGoJetLng,
-            pontoGoJetTarget:    x.pontoGoJetTarget,
-            pontoGoJetRaio:      x.pontoGoJetRaio,
+            pontoGoJetEstacaoId: x.pontoGoJetEstacaoId ?? x.ponto_gojet_estacao_id,
+            pontoGoJetLat:       x.pontoGoJetLat       ?? x.ponto_gojet_lat,
+            pontoGoJetLng:       x.pontoGoJetLng       ?? x.ponto_gojet_lng,
+            pontoGoJetTarget:    x.pontoGoJetTarget    ?? x.ponto_gojet_target,
+            pontoGoJetRaio:      x.pontoGoJetRaio      ?? x.ponto_gojet_raio,
           };
         })
-        // Só mostra não-encerrados + encerrados recentemente (últimas 2h)
         .filter(e => e.status !== 'encerrado' || Date.now() - e.fim.getTime() < 2 * 3600000)
         .sort((a, b) => a.inicio.getTime() - b.inicio.getTime());
       setEventos(lista);
-    }).catch(() => setErro('Erro ao carregar eventos'))
-      .finally(() => setLoading(false));
+    };
+
+    if (estacoesProviderSupabase()) {
+      // ── Supabase ──
+      (async () => {
+        try {
+          const { data, error } = await supabase
+            .from('eventos')
+            .select('*')
+            .eq('cidade', cidade);
+          if (error) throw error;
+          processarLista(
+            (data ?? []).map((r: any) => ({
+              ...r,
+              inicio: r.inicio ? new Date(r.inicio) : new Date(0),
+              fim: r.fim ? new Date(r.fim) : new Date(0),
+            })),
+            'firebase_id',
+          );
+        } catch {
+          setErro(pick(T.erroCarregar));
+        } finally {
+          setLoading(false);
+        }
+      })();
+    } else {
+      // ── Firestore (fallback) ──
+      getDocs(query(
+        collection(db, 'eventos'),
+        where('cidade', '==', cidade),
+      )).then(snap => {
+        processarLista(
+          snap.docs.map(d => ({ ...d.data(), _docId: d.id })),
+          '_docId',
+        );
+      }).catch(() => setErro(pick(T.erroCarregar)))
+        .finally(() => setLoading(false));
+    }
   }, [cidade]);
 
   // Pick-from-map: click no mapa para definir coordenadas
@@ -161,7 +248,7 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
     const raio   = parseInt(formRaio, 10);
 
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      setErro('Coordenadas inválidas'); return;
+      setErro(pick(T.coordsInvalidas)); return;
     }
 
     setSalvando(true); setErro(null);
@@ -209,7 +296,7 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
       if (mapa) mapa.flyTo([lat, lng], Math.max(mapa.getZoom(), 16));
 
     } catch (e: any) {
-      setErro(e.message ?? 'Erro ao salvar ponto');
+      setErro(e.message ?? pick(T.erroSalvar));
     } finally {
       setSalvando(false);
     }
@@ -231,7 +318,7 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
       ));
       onEstacaoCriada();
     } catch (e: any) {
-      setErro(e.message ?? 'Erro ao remover ponto');
+      setErro(e.message ?? pick(T.erroRemover));
     } finally {
       setSalvando(false);
     }
@@ -252,8 +339,8 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
         background: 'rgba(217,119,6,.08)',
       }}>
         <div>
-          <div style={{ fontWeight: 800, fontSize: 14, color: '#fbbf24' }}>📅 Eventos GoJet</div>
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,.4)', marginTop: 1 }}>{cidade} — pontos M3 temporários</div>
+          <div style={{ fontWeight: 800, fontSize: 14, color: '#fbbf24' }}>{pick(T.titulo)}</div>
+          <div style={{ fontSize: 10, color: 'rgba(255,255,255,.4)', marginTop: 1 }}>{cidade} — {pick(T.subtitulo)}</div>
         </div>
         <button onClick={onFechar}
           style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.4)', fontSize: 16, cursor: 'pointer' }}>✕</button>
@@ -266,7 +353,7 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
           border: '1px solid rgba(251,191,36,.3)', margin: 8, borderRadius: 8,
           fontSize: 11, color: '#fbbf24', fontWeight: 700, textAlign: 'center',
         }}>
-          👆 Clique no mapa para definir a localização do ponto
+          {pick(T.bannerPick)}
         </div>
       )}
 
@@ -281,16 +368,16 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
       <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
         {loading && (
           <div style={{ textAlign: 'center', padding: 24, color: 'rgba(255,255,255,.3)', fontSize: 12 }}>
-            Carregando eventos...
+            {pick(T.carregando)}
           </div>
         )}
 
         {!loading && eventos.length === 0 && (
           <div style={{ textAlign: 'center', padding: 24, color: 'rgba(255,255,255,.3)', fontSize: 12 }}>
-            Nenhum evento próximo ou ativo em {cidade}.
+            {pick(T.nenhumEvento)} {cidade}.
             <br /><br />
             <span style={{ fontSize: 10, color: 'rgba(255,255,255,.2)' }}>
-              Crie eventos na coleção <code style={{ color: '#a78bfa' }}>eventos</code> com campo <code style={{ color: '#a78bfa' }}>cidade</code>.
+              {pick(T.crieEventosA)} <code style={{ color: '#a78bfa' }}>eventos</code> {pick(T.crieEventosB)} <code style={{ color: '#a78bfa' }}>cidade</code>.
             </span>
           </div>
         )}
@@ -323,13 +410,13 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
 
                 {ev.status === 'ativo' && (
                   <div style={{ fontSize: 10, color: '#f59e0b', fontWeight: 700 }}>
-                    ⏱ {tempoRestante(ev.fim)} restantes
+                    ⏱ {tempoRestante(ev.fim, pick(T.encerrado))} {pick(T.restantes)}
                   </div>
                 )}
 
                 {ev.status === 'planejado' && (
                   <div style={{ fontSize: 10, color: '#60a5fa' }}>
-                    🕐 começa em {tempoRestante(ev.inicio)}
+                    🕐 {pick(T.comecaEm)} {tempoRestante(ev.inicio, pick(T.encerrado))}
                   </div>
                 )}
 
@@ -342,8 +429,8 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
                 }}>
                   <div style={{ fontSize: 10 }}>
                     {temPonto
-                      ? <span style={{ color: '#f59e0b', fontWeight: 700 }}>EV ✓ Ponto configurado · {ev.pontoGoJetTarget} bikes</span>
-                      : <span style={{ color: 'rgba(255,255,255,.3)' }}>Sem ponto GoJet configurado</span>}
+                      ? <span style={{ color: '#f59e0b', fontWeight: 700 }}>{pick(T.pontoConfigA)} {ev.pontoGoJetTarget} {pick(T.bikes)}</span>
+                      : <span style={{ color: 'rgba(255,255,255,.3)' }}>{pick(T.semPonto)}</span>}
                   </div>
                   {temPonto && (
                     <div style={{ display: 'flex', gap: 4 }}>
@@ -351,14 +438,14 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
                         <button
                           onClick={() => abrirForm(ev)}
                           style={{ fontSize: 8, padding: '2px 5px', borderRadius: 3, border: 'none', background: 'rgba(217,119,6,.3)', color: '#fbbf24', cursor: 'pointer', fontWeight: 700 }}>
-                          Editar
+                          {pick(T.editar)}
                         </button>
                       )}
                       <button
                         onClick={() => removerPonto(ev)}
                         disabled={salvando}
                         style={{ fontSize: 8, padding: '2px 5px', borderRadius: 3, border: 'none', background: 'rgba(239,68,68,.2)', color: '#f87171', cursor: 'pointer', fontWeight: 700 }}>
-                        Remover
+                        {pick(T.remover)}
                       </button>
                     </div>
                   )}
@@ -377,14 +464,14 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
                         color: temPonto ? '#f59e0b' : '#10b981',
                         fontSize: 10, fontWeight: 700, cursor: 'pointer',
                       }}>
-                      {temPonto ? '✏️ Editar ponto GoJet' : '+ Adicionar ponto GoJet (M3 temp)'}
+                      {temPonto ? pick(T.editarPonto) : pick(T.adicionarPonto)}
                     </button>
                   )}
 
                   {isEditando && (
                     <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,.06)', background: 'rgba(0,0,0,.2)' }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: '#fbbf24', marginBottom: 8 }}>
-                        📍 Localização do ponto GoJet
+                        {pick(T.localizacao)}
                       </div>
 
                       {/* Pick from map button */}
@@ -395,7 +482,7 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
                           background: 'rgba(251,191,36,.08)', color: '#fbbf24',
                           fontSize: 10, fontWeight: 700, cursor: 'pointer', marginBottom: 8,
                         }}>
-                        👆 Clique no mapa para selecionar
+                        {pick(T.cliquePara)}
                       </button>
 
                       {/* Sugestão: parking mais próximo */}
@@ -413,11 +500,11 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
                             padding: '5px 8px', borderRadius: 5, background: 'rgba(59,130,246,.1)',
                             border: '1px solid rgba(59,130,246,.2)', marginBottom: 8, fontSize: 9, color: '#93c5fd',
                           }}>
-                            💡 Parking GoJet mais próximo: <strong>{prox.name}</strong> a {dist}m
+                            {pick(T.parkingProximo)} <strong>{prox.name}</strong> {pick(T.aDist)} {dist}m
                             <button
                               onClick={() => { setFormLat(prox.latitude.toFixed(6)); setFormLng(prox.longitude.toFixed(6)); }}
                               style={{ marginLeft: 6, fontSize: 8, padding: '1px 5px', borderRadius: 3, border: 'none', background: 'rgba(59,130,246,.3)', color: '#93c5fd', cursor: 'pointer' }}>
-                              Usar
+                              {pick(T.usar)}
                             </button>
                           </div>
                         );
@@ -426,24 +513,24 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
                       {/* Lat/Lng inputs */}
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
                         <label style={{ fontSize: 9, color: 'rgba(255,255,255,.45)' }}>
-                          Latitude
+                          {pick(T.latitude)}
                           <input type="number" step="any" value={formLat} onChange={e => setFormLat(e.target.value)}
                             style={{ display: 'block', width: '100%', padding: '4px 6px', borderRadius: 4, border: '1px solid rgba(255,255,255,.15)', background: 'rgba(255,255,255,.06)', color: '#f0f4ff', fontSize: 11, marginTop: 2 }}
                             placeholder="-23.5613" />
                         </label>
                         <label style={{ fontSize: 9, color: 'rgba(255,255,255,.45)' }}>
-                          Longitude
+                          {pick(T.longitude)}
                           <input type="number" step="any" value={formLng} onChange={e => setFormLng(e.target.value)}
                             style={{ display: 'block', width: '100%', padding: '4px 6px', borderRadius: 4, border: '1px solid rgba(255,255,255,.15)', background: 'rgba(255,255,255,.06)', color: '#f0f4ff', fontSize: 11, marginTop: 2 }}
                             placeholder="-46.6543" />
                         </label>
                         <label style={{ fontSize: 9, color: 'rgba(255,255,255,.45)' }}>
-                          Target de bikes
+                          {pick(T.targetBikes)}
                           <input type="number" min={1} max={200} value={formTarget} onChange={e => setFormTarget(e.target.value)}
                             style={{ display: 'block', width: '100%', padding: '4px 6px', borderRadius: 4, border: '1px solid rgba(255,255,255,.15)', background: 'rgba(255,255,255,.06)', color: '#f0f4ff', fontSize: 11, marginTop: 2 }} />
                         </label>
                         <label style={{ fontSize: 9, color: 'rgba(255,255,255,.45)' }}>
-                          Raio (m)
+                          {pick(T.raio)}
                           <input type="number" min={50} max={500} value={formRaio} onChange={e => setFormRaio(e.target.value)}
                             style={{ display: 'block', width: '100%', padding: '4px 6px', borderRadius: 4, border: '1px solid rgba(255,255,255,.15)', background: 'rgba(255,255,255,.06)', color: '#f0f4ff', fontSize: 11, marginTop: 2 }} />
                         </label>
@@ -453,13 +540,13 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
                         <button
                           onClick={() => setEditandoId(null)}
                           style={{ flex: 1, padding: '7px', borderRadius: 6, border: '1px solid rgba(255,255,255,.1)', background: 'transparent', color: 'rgba(255,255,255,.4)', fontSize: 10, cursor: 'pointer', fontWeight: 700 }}>
-                          Cancelar
+                          {pick(T.cancelar)}
                         </button>
                         <button
                           onClick={() => salvarPonto(ev)}
                           disabled={salvando}
                           style={{ flex: 2, padding: '7px', borderRadius: 6, border: 'none', background: 'rgba(217,119,6,.9)', color: '#0d0d1a', fontSize: 10, fontWeight: 800, cursor: salvando ? 'wait' : 'pointer' }}>
-                          {salvando ? '⏳ Salvando...' : '✓ Salvar ponto GoJet'}
+                          {salvando ? pick(T.salvando) : pick(T.salvarPonto)}
                         </button>
                       </div>
                     </div>
@@ -473,7 +560,7 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
 
       {/* Footer */}
       <div style={{ padding: '8px 12px', borderTop: '1px solid rgba(255,255,255,.06)', fontSize: 9, color: 'rgba(255,255,255,.2)', textAlign: 'center' }}>
-        Pontos EV são M3 temporários · expiram automaticamente ao fim do evento
+        {pick(T.rodape)}
       </div>
     </div>
   );
