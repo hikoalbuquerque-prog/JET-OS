@@ -15,8 +15,6 @@ import { supabaseGetOne, supabaseUpdate } from './lib/supabase-rest';
 
 
 
-const db = admin.firestore();
-
 // ─── CORS helper (mesmo padrão do index.ts existente) ────────────────────────
 
 function addCORS(res: any) {
@@ -211,16 +209,14 @@ async function notificarGestoresCidade(
     : cidadeConfig.gestores;
 
   for (const g of gestores) {
-    // Tenta enviar DM via chat_id guardado no doc do usuário
-    const userDoc = await db.collection('usuarios').doc(g.uid).get();
-    const telegramChatId = userDoc.data()?.telegramChatId;
+    const user = await supabaseGetOne<{ telegram_chat_id?: string }>('usuarios', `select=telegram_chat_id&firebase_uid=eq.${encodeURIComponent(g.uid)}`);
+    const telegramChatId = user?.telegram_chat_id;
     if (telegramChatId) {
       await sendTelegram(token, { chatId: telegramChatId }, texto);
     }
   }
 }
 
-// Envia para diretoria e regionais (alertas críticos)
 async function notificarDiretoria(
   token: string,
   globalCfg: ConfigGlobal,
@@ -228,8 +224,8 @@ async function notificarDiretoria(
 ) {
   const todos = [...globalCfg.diretoria, ...globalCfg.regionais];
   for (const g of todos) {
-    const userDoc = await db.collection('usuarios').doc(g.uid).get();
-    const telegramChatId = userDoc.data()?.telegramChatId;
+    const user = await supabaseGetOne<{ telegram_chat_id?: string }>('usuarios', `select=telegram_chat_id&firebase_uid=eq.${encodeURIComponent(g.uid)}`);
+    const telegramChatId = user?.telegram_chat_id;
     if (telegramChatId) {
       await sendTelegram(token, { chatId: telegramChatId }, texto);
     }
@@ -250,67 +246,54 @@ export const aceitarSlot = onCall(async (request) => {
     }
 
     const uid = request.auth!.uid;
-    const slotRef = db.collection('slots').doc(slotId);
-    const userRef = db.collection('usuarios').doc(uid);
 
-    // Busca dados do operador
-    const userSnap = await userRef.get();
-    if (!userSnap.exists) {
+    const userData = await supabaseGetOne<any>('usuarios', `select=*&id=eq.${encodeURIComponent(uid)}`);
+    if (!userData) {
       throw new HttpsError('not-found', 'Usuário não encontrado');
     }
-    const userData = userSnap.data()!;
 
-    // Verifica se é prestador ativo
-    if (userData.statusPrestador !== 'ativo') {
+    if (userData.status_prestador !== 'ativo') {
       throw new HttpsError('permission-denied', 'Prestador inativo');
     }
 
-    // Transação atômica — garante que só um operador aceita
     let slotData: any;
     try {
-      await db.runTransaction(async tx => {
-        const slotSnap = await tx.get(slotRef);
-        if (!slotSnap.exists) {
-          throw new HttpsError('not-found', 'Slot não encontrado');
-        }
+      slotData = await supabaseGetOne<any>('slots', `select=*&id=eq.${encodeURIComponent(slotId)}`);
+      if (!slotData) {
+        throw new HttpsError('not-found', 'Slot não encontrado');
+      }
 
-        slotData = slotSnap.data()!;
+      if (slotData.status !== 'aberto') {
+        throw new HttpsError(
+          'failed-precondition',
+          slotData.status === 'aceito'
+            ? 'Este slot já foi aceito por outro operador'
+            : `Slot não está disponível (status: ${slotData.status})`
+        );
+      }
 
-        if (slotData.status !== 'aberto') {
-          throw new HttpsError(
-            'failed-precondition',
-            slotData.status === 'aceito'
-              ? 'Este slot já foi aceito por outro operador'
-              : `Slot não está disponível (status: ${slotData.status})`
-          );
-        }
+      if (slotData.cargo !== userData.cargo_prestador) {
+        throw new HttpsError(
+          'permission-denied',
+          `Este slot é para ${slotData.cargo}, seu cargo é ${userData.cargo_prestador}`
+        );
+      }
 
-        // Verifica se o cargo bate
-        if (slotData.cargo !== userData.cargoPrestador) {
-          throw new HttpsError(
-            'permission-denied',
-            `Este slot é para ${slotData.cargo}, seu cargo é ${userData.cargoPrestador}`
-          );
-        }
+      const agora = new Date().toISOString();
+      await supabaseUpdate('slots', {
+        status: 'aceito',
+        aceito_por: uid,
+        aceito_por_nome: userData.nome,
+        aceito_em: agora,
+        atualizado_em: agora,
+      }, `id=eq.${encodeURIComponent(slotId)}&status=eq.aberto`);
 
-        // Escreve atomicamente
-        tx.update(slotRef, {
-          status: 'aceito',
-          aceitoPor: uid,
-          aceitoPorNome: userData.nome,
-          aceitoEm: admin.firestore.FieldValue.serverTimestamp(),
-          atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        tx.update(userRef, {
-          slotAtualId: slotId,
-          ultimaAtividade: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      });
+      await supabaseUpdate('usuarios', {
+        slot_atual_id: slotId,
+      }, `id=eq.${encodeURIComponent(uid)}`);
     } catch (e: any) {
-      // Re-throw HttpsError direto
       if (e instanceof HttpsError) throw e;
-      console.error('[aceitarSlot] transaction error:', e);
+      console.error('[aceitarSlot] error:', e);
       throw new HttpsError('internal', 'Erro ao aceitar slot');
     }
 
@@ -521,9 +504,8 @@ export const testarTelegram = onRequest((req, res) => {
         const token = auth.split(' ')[1];
         const decoded = await admin.auth().verifyIdToken(token);
 
-        // Verifica se é admin
-        const userDoc = await db.collection('usuarios').doc(decoded.uid).get();
-        if (!['admin', 'gestor'].includes(userDoc.data()?.role)) {
+        const userRow = await supabaseGetOne<{ role: string }>('usuarios', `select=role&id=eq.${encodeURIComponent(decoded.uid)}`);
+        if (!['admin', 'gestor'].includes(userRow?.role ?? '')) {
           res.status(403).json({ erro: 'Permissão negada' });
           return;
         }
@@ -564,10 +546,9 @@ export const registrarTelegramChatId = onCall(async (request) => {
       throw new HttpsError('invalid-argument', 'telegramChatId obrigatório');
     }
 
-    await db.collection('usuarios').doc(request.auth!.uid).update({
-      telegramChatId: String(telegramChatId),
-      atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    await supabaseUpdate('usuarios', {
+      telegram_chat_id: String(telegramChatId),
+    }, `id=eq.${encodeURIComponent(request.auth!.uid)}`);
 
     return { sucesso: true };
   });

@@ -13,7 +13,6 @@ import ZonasManager from '../ZonasManager';
 import { useCidadesExpansao, CidadeExpansaoModal, STATUS_META, type CidadeExpansao } from '../CidadesExpansao';
 import UsuariosManager from '../UsuariosManager';
 import DashboardManager from '../DashboardManager';
-import SlotsModule from '../SlotsModule';
 import PainelConfiguracoes from '../components/PainelConfiguracoes';
 import MonitorPanel from '../MonitorPanel';
 import TelegramVinculo, { useTelegramVinculado } from '../TelegramVinculo';

@@ -3298,10 +3298,35 @@ Migrados **todos os 15 arquivos** que importavam de `lib/firebase.ts` ou diretam
 
 #### 📊 Estado final — Firebase no frontend: ZERO
 
+### §19.27 — slots.ts Firestore→Supabase + dual-push 5 CFs + SlotsModule aposentado
+
+**slots.ts — zero `db.*`:**
+- `notificarGestoresCidade` e `notificarDiretoria`: `db.collection('usuarios')` → `supabaseGetOne`
+- `aceitarSlot`: transaction Firestore → `supabaseGetOne` + `supabaseUpdate` com optimistic lock (`status=eq.aberto`)
+- `testarTelegram`: `db.collection('usuarios')` → `supabaseGetOne`
+- `registrarTelegramChatId`: `db.collection('usuarios').update` → `supabaseUpdate`
+- `const db = admin.firestore()` **removido**; `admin` mantido só para `verifyIdToken`
+
+**Dual-push (Telegram + Web Push) integrado em 5 CFs:**
+- `notificarGestorNovaSolicitacao` → `enviarPushParaRole`
+- `notificarTurnoFn` → `enviarPushParaRole` (gestores da cidade)
+- `notificarAprovacaoPrestador` → `enviarPushParaUsuario`
+- `notificarStatusNF` → `enviarPushParaUsuario`
+- `notificarTarefaAtribuida` → `enviarPushParaUsuario`
+
+**Slots convergência (§15 Fase 1 — parcial):**
+- `SlotsModule.tsx` **deletado** (2531 linhas) + `slots-supabase.ts` + `slots-schema.ts`
+- Import morto removido de TelaMapa.tsx
+- `aceitarSlot` edge-function entry removida
+- `SlotsTeamsModule` é agora o **único** sistema de slots ativo
+- `gerarSlotsAgendado` já era no-op; `escalarSlotsSLA` já lê do Supabase
+- Demanda GoJet como insumo (`fetchDemandaGojet`) já integrada na escala
+- Migrations 0069 (tarefas.motivo_rejeicao) + 0070 (slots/usuarios missing cols) aplicadas
+
 **Próximos passos:**
-1. Integrar `enviarPushParaUsuario` nas CFs que enviam notificações (push + Telegram dual)
-2. Rotacionar service_role key (exposta em chat) — **SEGURANÇA**
-3. Rotacionar keystore password (mover de build.gradle para keystore.properties)
-4. Desabilitar Firebase Auth no console
-5. Remover `firebase` do package.json do frontend
-6. Features: NFS-e, Chat in-app, Guard v2, Slots convergência
+1. Rotacionar service_role key (exposta em chat) — **SEGURANÇA**
+2. Rotacionar keystore password (mover de build.gradle para keystore.properties)
+3. Desabilitar Firebase Auth no console
+4. Remover `firebase-admin` das functions (avaliar dependências restantes: `admin.auth().verifyIdToken`)
+5. Guardrails de escala (§15.5): janela fixa, tetos/mínimos, override do gestor, SLA, métricas
+6. Features: NFS-e, Chat in-app, Guard v2
