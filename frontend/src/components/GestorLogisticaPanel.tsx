@@ -14,6 +14,7 @@ import { db } from '../lib/firebase';
 import { logisticaProviderSupabase, carregarTurnosLogisticaSupabase } from '../lib/onda-b-supabase';
 import { gpsProviderSupabase, fetchGpsAtual, fetchGpsHist } from '../lib/gps-supabase';
 import { usuariosReadSupabase, fetchUsuarios } from '../lib/usuarios-supabase';
+import { salvarGojetConfigSupabase } from '../lib/gojet-config-supabase';
 import LiveTrackingMap from './LiveTrackingMap';
 import GpsHeatmapPanel from './GpsHeatmapPanel';
 
@@ -2110,6 +2111,7 @@ function AbaGoJetConfig({ cidade, isAdmin }: AbaProps) {
     setBusy(true); setMsg('');
     try {
       await setDoc(doc(db, 'gojet_config', cidade), cfg, { merge: true });
+      salvarGojetConfigSupabase(cidade, cfg.cityId || '', cfg.ativo ?? true, cfg as unknown as Record<string, unknown>).catch(() => {});
       setMsg(pick(TR.configGoJetSalva));
       setTimeout(() => setMsg(''), 3000);
     } catch (e: any) { setMsg(pick(TR.erroPrefix) + ' ' + e.message); }

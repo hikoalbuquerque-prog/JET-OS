@@ -51,6 +51,8 @@ const v2_1 = require("firebase-functions/v2");
 const https = __importStar(require("firebase-functions/v2/https"));
 const scheduler = __importStar(require("firebase-functions/v2/scheduler"));
 const firestore = __importStar(require("firebase-functions/v2/firestore"));
+const config_supabase_1 = require("./config-supabase");
+const supabase_rest_1 = require("./lib/supabase-rest");
 const db = admin.firestore();
 function classificarPonto(p) {
     const avail = p.availableCount ?? 0;
@@ -96,18 +98,53 @@ async function sendTelegram(token, chatId, msg) {
 }
 async function gerarTarefasDeSnapshot(opts = {}) {
     const { cidade = 'São Paulo', pais = 'BR', limiarPct = 0.5, somenteMonitor = true, evitarDuplicatas = true, } = opts;
-    // 1. Ler snapshot mais recente
-    const snapshotDoc = await db.collection('gojet_snapshots').doc('latest').get();
-    if (!snapshotDoc.exists) {
+    // 1. Ler snapshot mais recente — Supabase-first (Onda G: parkings table), fallback Firestore
+    let parkings = [];
+    let idadeMin = 999;
+    const SB_URL = process.env.SUPABASE_URL ?? '';
+    const SB_KEY = process.env.SUPABASE_SERVICE_ROLE ?? '';
+    if (SB_URL && SB_KEY) {
+        try {
+            const hdr = { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` };
+            const cidadeFilter = cidade ? `&cidade=eq.${encodeURIComponent(cidade)}` : '';
+            const resp = await fetch(`${SB_URL}/rest/v1/parkings?select=id,nome,bikes_total,bikes_disponiveis,dados,atualizado_em${cidadeFilter}&order=atualizado_em.desc&limit=500`, { headers: hdr });
+            if (resp.ok) {
+                const rows = await resp.json();
+                if (rows.length > 0) {
+                    parkings = rows.map(r => ({
+                        id: r.id,
+                        name: r.nome ?? r.id,
+                        latitude: r.dados?.latitude ?? 0,
+                        longitude: r.dados?.longitude ?? 0,
+                        monitor: r.dados?.monitor ?? false,
+                        monitorLevel: r.dados?.monitorLevel ?? null,
+                        availableCount: r.bikes_disponiveis ?? 0,
+                        bikes_count: r.bikes_total ?? 0,
+                        target_bikes_count: r.dados?.target_bikes_count ?? 0,
+                    }));
+                    const newest = new Date(rows[0].atualizado_em).getTime();
+                    idadeMin = (Date.now() - newest) / 60000;
+                }
+            }
+        }
+        catch (e) {
+            v2_1.logger.warn('[gerarTarefas] Supabase parkings read failed, trying Firestore:', e);
+        }
+    }
+    // Fallback: Firestore gojet_snapshots/latest
+    if (parkings.length === 0) {
+        const snapshotDoc = await db.collection('gojet_snapshots').doc('latest').get();
+        if (!snapshotDoc.exists) {
+            return { criadas: 0, puladas: 0, erros: 0, detalhes: ['Snapshot não encontrado'] };
+        }
+        const snap = snapshotDoc.data();
+        parkings = snap.parkings ?? [];
+        const atualizadoEm = snap.atualizadoEm;
+        idadeMin = atualizadoEm ? (Date.now() - atualizadoEm.toMillis()) / 60000 : 999;
+    }
+    if (parkings.length === 0) {
         return { criadas: 0, puladas: 0, erros: 0, detalhes: ['Snapshot não encontrado'] };
     }
-    const snap = snapshotDoc.data();
-    const parkings = snap.parkings ?? [];
-    const atualizadoEm = snap.atualizadoEm;
-    // Verifica se o snapshot não é muito antigo (> 30 minutos)
-    const idadeMin = atualizadoEm
-        ? (Date.now() - atualizadoEm.toMillis()) / 60000
-        : 999;
     if (idadeMin > 30) {
         return {
             criadas: 0, puladas: 0, erros: 0,
@@ -196,19 +233,28 @@ async function gerarTarefasDeSnapshot(opts = {}) {
             zerados > 0 ? `🚨 Pontos zerados: ${zerados}` : '',
             `⏰ ${new Date().toLocaleString('pt-BR')}`,
         ].filter(Boolean).join('\n');
-        await sendTelegram(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, msg);
+        // Onda G: usa getBotTokenLocal (Supabase-first), fallback env var
+        const tgToken = await getBotTokenLocal() || TELEGRAM_BOT_TOKEN;
+        await sendTelegram(tgToken, TELEGRAM_CHAT_ID, msg);
     }
     return { criadas, puladas, erros, detalhes };
 }
 // ─── Cloud Function callable (gestor pode acionar manualmente) ───────────────
-exports.gerarTarefasGoJetFn = https.onCall({ region: 'southamerica-east1' }, async (request) => {
+exports.gerarTarefasGoJetFn = https.onCall({ region: 'southamerica-east1', maxInstances: 10 }, async (request) => {
     // Verificar autenticação
     if (!request.auth) {
         throw new https.HttpsError('unauthenticated', 'Não autenticado');
     }
-    // Verificar role
-    const userDoc = await db.collection('usuarios').doc(request.auth.uid).get();
-    const role = userDoc.data()?.role ?? '';
+    // Verificar role — Supabase-first com fallback Firestore
+    let role = '';
+    const sbUser = await (0, supabase_rest_1.supabaseGetOne)('usuarios', `select=role&id=eq.${encodeURIComponent(request.auth.uid)}`);
+    if (sbUser) {
+        role = sbUser.role ?? '';
+    }
+    else {
+        const userDoc = await db.collection('usuarios').doc(request.auth.uid).get();
+        role = userDoc.data()?.role ?? '';
+    }
     if (!['admin', 'gestor', 'gestor_log', 'supergestor'].includes(role)) {
         throw new https.HttpsError('permission-denied', 'Sem permissão');
     }
@@ -221,15 +267,34 @@ exports.gerarTarefasAgendado = scheduler.onSchedule({
     schedule: '0 * * * *', // toda hora em ponto
     timeZone: 'America/Sao_Paulo',
     region: 'southamerica-east1',
+    maxInstances: 10,
 }, async () => {
     try {
-        // Buscar cidades ativas no Firestore
-        const gojetConfig = await db.collection('gojet_config')
-            .where('ativo', '==', true)
-            .get();
-        const cidades = gojetConfig.empty
-            ? [{ nome: 'São Paulo', pais: 'BR' }]
-            : gojetConfig.docs.map(d => ({ nome: d.data().nome, pais: d.data().pais ?? 'BR' }));
+        // Buscar cidades ativas — Supabase-first (Onda G), fallback Firestore
+        let cidades = [];
+        const SB_URL = process.env.SUPABASE_URL ?? '';
+        const SB_KEY = process.env.SUPABASE_SERVICE_ROLE ?? '';
+        if (SB_URL && SB_KEY) {
+            try {
+                const resp = await fetch(`${SB_URL}/rest/v1/gojet_config?ativo=eq.true&select=cidade,nome,pais`, { headers: { apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}` } });
+                if (resp.ok) {
+                    const rows = await resp.json();
+                    if (rows.length > 0) {
+                        cidades = rows.map(r => ({ nome: r.nome ?? r.cidade, pais: r.pais ?? 'BR' }));
+                    }
+                }
+            }
+            catch { /* fallback */ }
+        }
+        // Fallback Firestore
+        if (cidades.length === 0) {
+            const gojetConfig = await db.collection('gojet_config')
+                .where('ativo', '==', true)
+                .get();
+            cidades = gojetConfig.empty
+                ? [{ nome: 'São Paulo', pais: 'BR' }]
+                : gojetConfig.docs.map(d => ({ nome: d.data().nome, pais: d.data().pais ?? 'BR' }));
+        }
         for (const cidade of cidades) {
             const result = await gerarTarefasDeSnapshot({
                 cidade: cidade.nome,
@@ -246,7 +311,7 @@ exports.gerarTarefasAgendado = scheduler.onSchedule({
     }
 });
 // ─── Cloud Function: notificar agente via Telegram ───────────────────────────
-exports.notificarTarefaFn = https.onCall({ region: 'southamerica-east1' }, async (request) => {
+exports.notificarTarefaFn = https.onCall({ region: 'southamerica-east1', maxInstances: 10 }, async (request) => {
     if (!request.auth)
         throw new https.HttpsError('unauthenticated', 'Não autenticado');
     const { tarefaTitulo, assigneeUid, cidade, fcmToken } = request.data ?? {};
@@ -282,8 +347,9 @@ exports.notificarTarefaFn = https.onCall({ region: 'southamerica-east1' }, async
         }
         // 2. Telegram (se tiver chat_id cadastrado)
         const telegramChatId = userData.telegramChatId ?? null;
-        if (telegramChatId && TELEGRAM_BOT_TOKEN) {
-            await sendTelegram(TELEGRAM_BOT_TOKEN, telegramChatId, `📦 <b>Nova tarefa atribuída!</b>\n\n${tarefaTitulo}\n📍 ${cidade}\n\nAbra o JET OS para ver os detalhes.`);
+        const tgTokenNotif = await getBotTokenLocal() || TELEGRAM_BOT_TOKEN;
+        if (telegramChatId && tgTokenNotif) {
+            await sendTelegram(tgTokenNotif, telegramChatId, `📦 <b>Nova tarefa atribuída!</b>\n\n${tarefaTitulo}\n📍 ${cidade}\n\nAbra o JET OS para ver os detalhes.`);
             resultados.push('telegram:ok');
         }
     }
@@ -315,6 +381,12 @@ function isBikeOperacional(b) {
 }
 async function getBotTokenLocal() {
     try {
+        // Supabase-first
+        const supa = await (0, config_supabase_1.getAppSetting)('telegram');
+        const supaToken = String(supa?.bot_token || supa?.botToken || '').trim();
+        if (supaToken)
+            return supaToken;
+        // Fallback Firestore
         const snap = await db.collection('telegram_config').doc('global').get();
         return snap.data()?.botToken ?? '';
     }
@@ -350,8 +422,14 @@ function prioridadeHorario(tzOffset = -3) {
 // Busca clima da cidade (OpenWeatherMap se token configurado)
 async function getClimaStatus(cidade) {
     try {
-        const cfgSnap = await db.collection('app_config').doc('clima').get();
-        const apiKey = cfgSnap.data()?.openweatherApiKey ?? '';
+        // Supabase-first
+        const supa = await (0, config_supabase_1.getAppSetting)('clima');
+        let apiKey = String(supa?.openweather_api_key || supa?.openweatherApiKey || '').trim();
+        // Fallback Firestore
+        if (!apiKey) {
+            const cfgSnap = await db.collection('app_config').doc('clima').get();
+            apiKey = cfgSnap.data()?.openweatherApiKey ?? '';
+        }
         if (!apiKey)
             return 'ok';
         const resp = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(cidade)}&appid=${apiKey}`);
@@ -392,25 +470,33 @@ function ajustarPorClima(qtdAlvo, climaStatus, sensibilidade) {
 // Busca os N workers mais próximos disponíveis
 async function encontrarWorkersProximos(cidade, tipoSlot, lat, lng, qtd = 1) {
     try {
-        const snap = await db.collection('usuarios')
-            .where('tipoCadastro', '==', 'prestador')
-            .where('statusPrestador', '==', 'ativo')
-            .where('cidade', '==', cidade)
-            .where('cargoPrestador', 'in', tipoSlot === 'charger' ? ['charger'] : ['scalt', 'scout'])
-            .get();
-        const disponiveis = snap.docs
-            .map(d => ({ uid: d.id, ...d.data() }))
-            .filter(u => !u.slotAtualId);
+        // Supabase-first
+        const cargos = tipoSlot === 'charger' ? 'charger' : 'scalt,scout';
+        const sbWorkers = await (0, supabase_rest_1.supabaseGet)('usuarios', `select=id,nome,lat,lng,slot_atual_id&tipo_cadastro=eq.prestador&status_prestador=eq.ativo&cidade=eq.${encodeURIComponent(cidade)}&cargo_prestador=in.(${cargos})`);
+        let disponiveis = [];
+        if (sbWorkers && sbWorkers.length > 0) {
+            disponiveis = sbWorkers.filter(u => !u.slot_atual_id).map(u => ({ uid: u.id, nome: u.nome, lat: u.lat, lng: u.lng }));
+        }
+        else {
+            // Fallback Firestore
+            const snap = await db.collection('usuarios')
+                .where('tipoCadastro', '==', 'prestador')
+                .where('statusPrestador', '==', 'ativo')
+                .where('cidade', '==', cidade)
+                .where('cargoPrestador', 'in', tipoSlot === 'charger' ? ['charger'] : ['scalt', 'scout'])
+                .get();
+            disponiveis = snap.docs.map(d => ({ uid: d.id, ...d.data() })).filter((u) => !u.slotAtualId);
+        }
         if (disponiveis.length === 0)
             return [];
         return disponiveis
-            .map(u => {
+            .map((u) => {
             const uLat = u.lat ?? 0, uLng = u.lng ?? 0;
             return { uid: u.uid ?? u.id, nome: u.nome ?? '—', dist: distKm(lat, lng, uLat, uLng) };
         })
             .sort((a, b) => a.dist - b.dist)
             .slice(0, qtd)
-            .map(u => ({ uid: u.uid, nome: u.nome }));
+            .map((u) => ({ uid: u.uid, nome: u.nome }));
     }
     catch {
         return [];
@@ -532,13 +618,36 @@ function getFaixaAtiva(faixas, tzOffset = -3) {
 // ─── Motor principal ─────────────────────────────────────────────────────────
 async function executarMotorSlots() {
     v2_1.logger.info('[motor-slots] Iniciando execução');
-    // 1. Buscar todas as configs de zona ativas
-    const configSnap = await db.collection('config_auto_slots').where('ativo', '==', true).get();
-    if (configSnap.empty) {
+    // 1. Buscar todas as configs de zona ativas — Supabase-first
+    let configs = [];
+    const sbAutoSlots = await (0, supabase_rest_1.supabaseGet)('config_auto_slots', 'select=*&ativo=eq.true');
+    if (sbAutoSlots && sbAutoSlots.length > 0) {
+        configs = sbAutoSlots.map((r) => ({
+            ...r,
+            zonaId: r.zona_id, zonaNome: r.zona_nome,
+            scoutAtivo: r.scout_ativo, bikesMinimo: r.bikes_minimo, bikesAlvo: r.bikes_alvo, bikesMaximo: r.bikes_maximo,
+            usarHistorico: r.usar_historico,
+            chargerAtivo: r.charger_ativo, bateriaThreshold: r.bateria_threshold, chargerMinimo: r.charger_minimo,
+            incluirForaPonto: r.incluir_fora_ponto,
+            qtdWorkers: r.qtd_workers,
+            faixasHorario: r.faixas_horario,
+            horarioAtivoInicio: r.horario_ativo_inicio, horarioAtivoFim: r.horario_ativo_fim,
+            intervaloChecagemMin: r.intervalo_checagem_min, slaAceiteMin: r.sla_aceite_min,
+            autoAssign: r.auto_assign, sensibilidadeClima: r.sensibilidade_clima, notificarGestor: r.notificar_gestor,
+        }));
+    }
+    else {
+        const configSnap = await db.collection('config_auto_slots').where('ativo', '==', true).get();
+        if (configSnap.empty) {
+            v2_1.logger.info('[motor-slots] Nenhuma zona configurada');
+            return;
+        }
+        configs = configSnap.docs.map(d => d.data());
+    }
+    if (configs.length === 0) {
         v2_1.logger.info('[motor-slots] Nenhuma zona configurada');
         return;
     }
-    const configs = configSnap.docs.map(d => d.data());
     // Agrupar por cidade
     const porCidade = new Map();
     for (const cfg of configs) {
@@ -549,31 +658,91 @@ async function executarMotorSlots() {
     }
     for (const [cidadeKey, cfgs] of porCidade) {
         const [cidade, pais] = cidadeKey.split('|');
-        // 2. Buscar snapshot GoJet (parkings em 'latest', bikes em 'bikes_latest')
-        const [snapDoc, bikesDoc] = await Promise.all([
-            db.collection('gojet_snapshots').doc('latest').get(),
-            db.collection('gojet_snapshots').doc('bikes_latest').get(),
-        ]);
-        if (!snapDoc.exists)
+        // 2. Buscar snapshot GoJet — Supabase-first (parkings/bikes), fallback Firestore
+        let parkings = [];
+        let bikes = [];
+        let idadeMin = 999;
+        const SB_URL2 = process.env.SUPABASE_URL ?? '';
+        const SB_KEY2 = process.env.SUPABASE_SERVICE_ROLE ?? '';
+        if (SB_URL2 && SB_KEY2) {
+            try {
+                const hdr = { apikey: SB_KEY2, Authorization: `Bearer ${SB_KEY2}` };
+                const cidadeEnc = encodeURIComponent(cidade);
+                const [pResp, bResp] = await Promise.all([
+                    fetch(`${SB_URL2}/rest/v1/parkings?cidade=eq.${cidadeEnc}&select=*&order=atualizado_em.desc&limit=500`, { headers: hdr }),
+                    fetch(`${SB_URL2}/rest/v1/bikes?cidade=eq.${cidadeEnc}&select=*&order=atualizado_em.desc&limit=2000`, { headers: hdr }),
+                ]);
+                if (pResp.ok) {
+                    const pRows = await pResp.json();
+                    if (pRows.length > 0) {
+                        parkings = pRows.map(r => ({
+                            id: r.id, name: r.nome ?? r.id,
+                            latitude: r.dados?.latitude ?? 0, longitude: r.dados?.longitude ?? 0,
+                            monitor: r.dados?.monitor ?? false, monitorLevel: r.dados?.monitorLevel ?? null,
+                            availableCount: r.bikes_disponiveis ?? 0, bikes_count: r.bikes_total ?? 0,
+                            target_bikes_count: r.dados?.target_bikes_count ?? 0,
+                        }));
+                        const newest = new Date(pRows[0].atualizado_em).getTime();
+                        idadeMin = (Date.now() - newest) / 60000;
+                    }
+                }
+                if (bResp.ok) {
+                    const bRows = await bResp.json();
+                    bikes = bRows.map(r => ({
+                        id: r.id, identifier: r.dados?.identifier, name: r.dados?.name,
+                        location_lat: r.dados?.location_lat ?? 0, location_lng: r.dados?.location_lng ?? 0,
+                        parking_id: r.dados?.parking_id ?? null,
+                        business_status: r.dados?.business_status,
+                        business_sub_status: r.dados?.business_sub_status,
+                        disabled: r.dados?.disabled, ordered: r.dados?.ordered,
+                        booked: r.dados?.booked, service_mode: r.dados?.service_mode,
+                        battery_percent: r.bateria != null ? r.bateria / 100 : r.dados?.battery_percent ?? null,
+                    }));
+                }
+            }
+            catch (e) {
+                v2_1.logger.warn('[motor-slots] Supabase parkings/bikes failed, trying Firestore:', e);
+            }
+        }
+        // Fallback: Firestore gojet_snapshots
+        if (parkings.length === 0) {
+            const [snapDoc, bikesDoc] = await Promise.all([
+                db.collection('gojet_snapshots').doc('latest').get(),
+                db.collection('gojet_snapshots').doc('bikes_latest').get(),
+            ]);
+            if (!snapDoc.exists)
+                continue;
+            const snapData = snapDoc.data();
+            const bikesData = bikesDoc.exists ? bikesDoc.data() : snapData;
+            parkings = snapData.parkings ?? [];
+            bikes = bikesData.bikes ?? snapData.bikes ?? [];
+            const tsSnap = snapData.savedAt ?? snapData.atualizadoEm;
+            idadeMin = tsSnap ? (Date.now() - tsSnap.toMillis()) / 60000 : 999;
+        }
+        if (parkings.length === 0)
             continue;
-        const snapData = snapDoc.data();
-        const bikesData = bikesDoc.exists ? bikesDoc.data() : snapData;
-        const parkings = snapData.parkings ?? [];
-        // Bikes: tenta bikes_latest primeiro, fallback em latest.bikes
-        const bikes = bikesData.bikes ?? snapData.bikes ?? [];
-        // Verificar idade do snapshot
-        const tsSnap = snapData.savedAt ?? snapData.atualizadoEm;
-        const idadeMin = tsSnap ? (Date.now() - tsSnap.toMillis()) / 60000 : 999;
         if (idadeMin > 45) {
             v2_1.logger.warn(`[motor-slots] Snapshot desatualizado (${Math.round(idadeMin)}min)`);
             continue;
         }
         // 3. Buscar clima da cidade (uma vez por cidade)
         const climaStatus = await getClimaStatus(cidade);
-        // 4. Buscar token Telegram
+        // 4. Buscar token Telegram — Supabase-first (Onda G)
         const botToken = await getBotTokenLocal();
-        const telegramCfgSnap = await db.collection('telegram_config').doc('global').get();
-        const diretoriaChatId = telegramCfgSnap.data()?.diretoria?.[0]?.chatId ?? '';
+        let diretoriaChatId = '';
+        try {
+            const { getTelegramConfigSupa } = await Promise.resolve().then(() => __importStar(require('./telegram-supabase')));
+            const supaTgCfg = await getTelegramConfigSupa('global');
+            if (supaTgCfg?.diretoria) {
+                const dir = Array.isArray(supaTgCfg.diretoria) ? supaTgCfg.diretoria : [];
+                diretoriaChatId = dir[0]?.chatId ?? '';
+            }
+        }
+        catch { /* fallback */ }
+        if (!diretoriaChatId) {
+            const telegramCfgSnap = await db.collection('telegram_config').doc('global').get();
+            diretoriaChatId = telegramCfgSnap.data()?.diretoria?.[0]?.chatId ?? '';
+        }
         // 5. Processar cada zona configurada
         for (const cfg of cfgs) {
             try {
@@ -780,6 +949,14 @@ async function executarMotorSlots() {
                             slotId: slotId ?? null,
                             ts: admin.firestore.FieldValue.serverTimestamp(),
                         });
+                        // Dual-write: Supabase
+                        (0, supabase_rest_1.supabaseInsert)('monitor_alertas', {
+                            tipo: 'bateria_critica', cidade, zona: cfg.zonaNome,
+                            qtd_bikes: criticas.length,
+                            bat_min_pct: Math.round(Math.min(...criticas.map(b => b.battery_percent ?? 0)) * 100),
+                            slot_id: slotId ?? null,
+                            ts: new Date().toISOString(),
+                        }).catch(() => { });
                         // Push FCM para gestores logística da cidade
                         try {
                             const gestoresSnap = await db.collection('usuarios')
@@ -829,7 +1006,7 @@ async function executarMotorSlots() {
     }
 }
 // ─── Scheduler: roda a cada 15 minutos ───────────────────────────────────────
-exports.gerarSlotsInteligenteFn = scheduler.onSchedule({ schedule: '*/15 * * * *', timeZone: 'America/Sao_Paulo', region: 'southamerica-east1' }, async () => {
+exports.gerarSlotsInteligenteFn = scheduler.onSchedule({ schedule: '*/15 * * * *', timeZone: 'America/Sao_Paulo', region: 'southamerica-east1', maxInstances: 10 }, async () => {
     try {
         await executarMotorSlots();
     }
@@ -838,25 +1015,46 @@ exports.gerarSlotsInteligenteFn = scheduler.onSchedule({ schedule: '*/15 * * * *
     }
 });
 // ─── Callable manual: gestor aciona pelo painel ───────────────────────────────
-exports.gerarSlotsManualFn = https.onCall({ region: 'southamerica-east1' }, async (request) => {
+exports.gerarSlotsManualFn = https.onCall({ region: 'southamerica-east1', maxInstances: 10 }, async (request) => {
     if (!request.auth)
         throw new https.HttpsError('unauthenticated', 'Não autenticado');
-    const userDoc = await db.collection('usuarios').doc(request.auth.uid).get();
-    if (!['admin', 'gestor', 'gestor_log', 'supergestor'].includes(userDoc.data()?.role ?? ''))
+    // Role check — Supabase-first com fallback Firestore
+    let roleManual = '';
+    const sbUserManual = await (0, supabase_rest_1.supabaseGetOne)('usuarios', `select=role&id=eq.${encodeURIComponent(request.auth.uid)}`);
+    if (sbUserManual) {
+        roleManual = sbUserManual.role ?? '';
+    }
+    else {
+        const userDoc = await db.collection('usuarios').doc(request.auth.uid).get();
+        roleManual = userDoc.data()?.role ?? '';
+    }
+    if (!['admin', 'gestor', 'gestor_log', 'supergestor'].includes(roleManual))
         throw new https.HttpsError('permission-denied', 'Sem permissão');
     await executarMotorSlots();
     return { ok: true };
 });
 // ─── Escalamento SLA: roda a cada 5 minutos ──────────────────────────────────
-exports.escalarSlotsSLA = scheduler.onSchedule({ schedule: '*/5 * * * *', timeZone: 'America/Sao_Paulo', region: 'southamerica-east1' }, async () => {
+exports.escalarSlotsSLA = scheduler.onSchedule({ schedule: '*/5 * * * *', timeZone: 'America/Sao_Paulo', region: 'southamerica-east1', maxInstances: 10 }, async () => {
     try {
         const agora = admin.firestore.Timestamp.now();
         const snap = await db.collection('slots')
             .where('status', '==', 'aberto')
             .get();
         const botToken = await getBotTokenLocal();
-        const telegramCfgSnap = await db.collection('telegram_config').doc('global').get();
-        const diretoriaChatId = telegramCfgSnap.data()?.diretoria?.[0]?.chatId ?? '';
+        // telegram_config — Supabase-first com fallback Firestore
+        let diretoriaChatId = '';
+        try {
+            const sbTgCfg = await (0, supabase_rest_1.supabaseGetOne)('telegram_config', 'select=*&id=eq.global');
+            if (sbTgCfg?.diretoria) {
+                const dir = Array.isArray(sbTgCfg.diretoria) ? sbTgCfg.diretoria : [];
+                diretoriaChatId = dir[0]?.chatId ?? '';
+            }
+        }
+        catch { /* ignore */ }
+        if (!diretoriaChatId) {
+            const telegramCfgSnap = await db.collection('telegram_config').doc('global').get();
+            diretoriaChatId = telegramCfgSnap.data()?.diretoria?.[0]?.chatId ?? '';
+        }
         const batch = db.batch();
         let escalados = 0;
         for (const slotDoc of snap.docs) {
@@ -890,7 +1088,7 @@ exports.escalarSlotsSLA = scheduler.onSchedule({ schedule: '*/5 * * * *', timeZo
 // ══════════════════════════════════════════════════════════════════════════════
 // NOTIFICAÇÕES DE TURNO — dispara quando worker registra entrada/saída
 // ══════════════════════════════════════════════════════════════════════════════
-exports.notificarTurnoFn = firestore.onDocumentCreated({ document: 'turnos/{turnoId}', region: 'southamerica-east1' }, async (event) => {
+exports.notificarTurnoFn = firestore.onDocumentCreated({ document: 'turnos/{turnoId}', region: 'southamerica-east1', maxInstances: 10 }, async (event) => {
     const turno = event.data?.data();
     if (!turno)
         return;
@@ -902,14 +1100,19 @@ exports.notificarTurnoFn = firestore.onDocumentCreated({ document: 'turnos/{turn
         const botToken = await getBotTokenLocal();
         if (!botToken)
             return;
-        // Notifica todos os gestores da cidade
-        const gestoresSnap = await db.collection('usuarios')
-            .where('cidade', '==', cidade)
-            .where('role', 'in', ['admin', 'gestor', 'gestor_log', 'supergestor'])
-            .get();
-        const chatIds = gestoresSnap.docs
-            .map(d => d.data().telegramChatId)
-            .filter(Boolean);
+        // Notifica todos os gestores da cidade — Supabase-first
+        const sbGestores = await (0, supabase_rest_1.supabaseGet)('usuarios', `select=id,telegram_chat_id&cidade=eq.${encodeURIComponent(cidade)}&role=in.(admin,gestor,gestor_log,supergestor)`);
+        let chatIds = [];
+        if (sbGestores && sbGestores.length > 0) {
+            chatIds = sbGestores.map(u => u.telegram_chat_id).filter(Boolean);
+        }
+        else {
+            const gestoresSnap = await db.collection('usuarios')
+                .where('cidade', '==', cidade)
+                .where('role', 'in', ['admin', 'gestor', 'gestor_log', 'supergestor'])
+                .get();
+            chatIds = gestoresSnap.docs.map(d => d.data().telegramChatId).filter(Boolean);
+        }
         await Promise.allSettled(chatIds.map(chatId => sendTelegramLocal(botToken, chatId, msg)));
         v2_1.logger.info(`[notificarTurno] ${acao} de ${nome} (${cidade}) notificado para ${chatIds.length} gestores`);
     }
@@ -921,7 +1124,7 @@ exports.notificarTurnoFn = firestore.onDocumentCreated({ document: 'turnos/{turn
 // HISTÓRICO DE PARKINGS — salva snapshot diário para análise histórica
 // Roda às 23:55 todo dia — salva estado final do dia em parking_history
 // ══════════════════════════════════════════════════════════════════════════════
-exports.salvarHistoricoParking = scheduler.onSchedule({ schedule: '55 23 * * *', timeZone: 'America/Sao_Paulo', region: 'southamerica-east1' }, async () => {
+exports.salvarHistoricoParking = scheduler.onSchedule({ schedule: '55 23 * * *', timeZone: 'America/Sao_Paulo', region: 'southamerica-east1', maxInstances: 10 }, async () => {
     try {
         const hoje = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
         const agora = admin.firestore.Timestamp.now();
@@ -979,7 +1182,7 @@ exports.salvarHistoricoParking = scheduler.onSchedule({ schedule: '55 23 * * *',
 // CALLABLE: exportar histórico de parkings (últimos N dias)
 // Retorna array de {data, cidade, eficienciaPct, zerados, bikesTotal}
 // ══════════════════════════════════════════════════════════════════════════════
-exports.exportarHistoricoParking = https.onCall({ region: 'southamerica-east1' }, async (request) => {
+exports.exportarHistoricoParking = https.onCall({ region: 'southamerica-east1', maxInstances: 10 }, async (request) => {
     if (!request.auth)
         throw new https.HttpsError('unauthenticated', 'Não autenticado');
     const { cidade, dias = 30 } = request.data ?? {};

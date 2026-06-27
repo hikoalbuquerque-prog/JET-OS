@@ -102,7 +102,7 @@ function str(...vals) {
     }
     return null;
 }
-exports.espelharOcorrenciaSupabase = (0, firestore_1.onDocumentWritten)({ document: 'ocorrencias/{id}', region: 'southamerica-east1' }, async (event) => {
+exports.espelharOcorrenciaSupabase = (0, firestore_1.onDocumentWritten)({ document: 'ocorrencias/{id}', region: 'southamerica-east1', maxInstances: 10 }, async (event) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE)
         return; // migração não cortada ainda
     const firebaseDocId = event.params.id;

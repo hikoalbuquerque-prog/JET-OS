@@ -17,6 +17,7 @@ import * as https from 'firebase-functions/v2/https';
 import * as scheduler from 'firebase-functions/v2/scheduler';
 import * as firestore from 'firebase-functions/v2/firestore';
 import { getAppSetting } from './config-supabase';
+import { supabaseGet, supabaseGetOne, supabaseInsert } from './lib/supabase-rest';
 
 const db = admin.firestore();
 
@@ -293,9 +294,15 @@ export const gerarTarefasGoJetFn = https.onCall(
       throw new https.HttpsError('unauthenticated', 'Não autenticado');
     }
 
-    // Verificar role
-    const userDoc = await db.collection('usuarios').doc(request.auth.uid).get();
-    const role = userDoc.data()?.role ?? '';
+    // Verificar role — Supabase-first com fallback Firestore
+    let role = '';
+    const sbUser = await supabaseGetOne<{ role?: string }>('usuarios', `select=role&id=eq.${encodeURIComponent(request.auth.uid)}`);
+    if (sbUser) {
+      role = sbUser.role ?? '';
+    } else {
+      const userDoc = await db.collection('usuarios').doc(request.auth.uid).get();
+      role = userDoc.data()?.role ?? '';
+    }
     if (!['admin', 'gestor', 'gestor_log', 'supergestor'].includes(role)) {
       throw new https.HttpsError('permission-denied', 'Sem permissão');
     }
@@ -557,27 +564,36 @@ async function encontrarWorkersProximos(
   qtd = 1,
 ): Promise<Array<{ uid: string; nome: string }>> {
   try {
-    const snap = await db.collection('usuarios')
-      .where('tipoCadastro', '==', 'prestador')
-      .where('statusPrestador', '==', 'ativo')
-      .where('cidade', '==', cidade)
-      .where('cargoPrestador', 'in', tipoSlot === 'charger' ? ['charger'] : ['scalt', 'scout'])
-      .get();
-
-    const disponiveis = snap.docs
-      .map(d => ({ uid: d.id, ...d.data() } as any))
-      .filter(u => !u.slotAtualId);
+    // Supabase-first
+    const cargos = tipoSlot === 'charger' ? 'charger' : 'scalt,scout';
+    const sbWorkers = await supabaseGet<{ id: string; nome: string; lat: number; lng: number; slot_atual_id?: string }>(
+      'usuarios',
+      `select=id,nome,lat,lng,slot_atual_id&tipo_cadastro=eq.prestador&status_prestador=eq.ativo&cidade=eq.${encodeURIComponent(cidade)}&cargo_prestador=in.(${cargos})`
+    );
+    let disponiveis: any[] = [];
+    if (sbWorkers && sbWorkers.length > 0) {
+      disponiveis = sbWorkers.filter(u => !u.slot_atual_id).map(u => ({ uid: u.id, nome: u.nome, lat: u.lat, lng: u.lng }));
+    } else {
+      // Fallback Firestore
+      const snap = await db.collection('usuarios')
+        .where('tipoCadastro', '==', 'prestador')
+        .where('statusPrestador', '==', 'ativo')
+        .where('cidade', '==', cidade)
+        .where('cargoPrestador', 'in', tipoSlot === 'charger' ? ['charger'] : ['scalt', 'scout'])
+        .get();
+      disponiveis = snap.docs.map(d => ({ uid: d.id, ...d.data() })).filter((u: any) => !u.slotAtualId);
+    }
 
     if (disponiveis.length === 0) return [];
 
     return disponiveis
-      .map(u => {
+      .map((u: any) => {
         const uLat = u.lat ?? 0, uLng = u.lng ?? 0;
         return { uid: u.uid ?? u.id, nome: u.nome ?? '—', dist: distKm(lat, lng, uLat, uLng) };
       })
-      .sort((a, b) => a.dist - b.dist)
+      .sort((a: any, b: any) => a.dist - b.dist)
       .slice(0, qtd)
-      .map(u => ({ uid: u.uid, nome: u.nome }));
+      .map((u: any) => ({ uid: u.uid, nome: u.nome }));
   } catch { return []; }
 }
 
@@ -714,11 +730,29 @@ function getFaixaAtiva(faixas: any[], tzOffset = -3): any | null {
 async function executarMotorSlots(): Promise<void> {
   logger.info('[motor-slots] Iniciando execução');
 
-  // 1. Buscar todas as configs de zona ativas
-  const configSnap = await db.collection('config_auto_slots').where('ativo', '==', true).get();
-  if (configSnap.empty) { logger.info('[motor-slots] Nenhuma zona configurada'); return; }
-
-  const configs: ConfigZona[] = configSnap.docs.map(d => d.data() as ConfigZona);
+  // 1. Buscar todas as configs de zona ativas — Supabase-first
+  let configs: ConfigZona[] = [];
+  const sbAutoSlots = await supabaseGet<any>('config_auto_slots', 'select=*&ativo=eq.true');
+  if (sbAutoSlots && sbAutoSlots.length > 0) {
+    configs = sbAutoSlots.map((r: any) => ({
+      ...r,
+      zonaId: r.zona_id, zonaNome: r.zona_nome,
+      scoutAtivo: r.scout_ativo, bikesMinimo: r.bikes_minimo, bikesAlvo: r.bikes_alvo, bikesMaximo: r.bikes_maximo,
+      usarHistorico: r.usar_historico,
+      chargerAtivo: r.charger_ativo, bateriaThreshold: r.bateria_threshold, chargerMinimo: r.charger_minimo,
+      incluirForaPonto: r.incluir_fora_ponto,
+      qtdWorkers: r.qtd_workers,
+      faixasHorario: r.faixas_horario,
+      horarioAtivoInicio: r.horario_ativo_inicio, horarioAtivoFim: r.horario_ativo_fim,
+      intervaloChecagemMin: r.intervalo_checagem_min, slaAceiteMin: r.sla_aceite_min,
+      autoAssign: r.auto_assign, sensibilidadeClima: r.sensibilidade_clima, notificarGestor: r.notificar_gestor,
+    })) as ConfigZona[];
+  } else {
+    const configSnap = await db.collection('config_auto_slots').where('ativo', '==', true).get();
+    if (configSnap.empty) { logger.info('[motor-slots] Nenhuma zona configurada'); return; }
+    configs = configSnap.docs.map(d => d.data() as ConfigZona);
+  }
+  if (configs.length === 0) { logger.info('[motor-slots] Nenhuma zona configurada'); return; }
 
   // Agrupar por cidade
   const porCidade = new Map<string, ConfigZona[]>();
@@ -1025,6 +1059,14 @@ async function executarMotorSlots(): Promise<void> {
               slotId: slotId ?? null,
               ts: admin.firestore.FieldValue.serverTimestamp(),
             });
+            // Dual-write: Supabase
+            supabaseInsert('monitor_alertas', {
+              tipo: 'bateria_critica', cidade, zona: cfg.zonaNome,
+              qtd_bikes: criticas.length,
+              bat_min_pct: Math.round(Math.min(...criticas.map(b => b.battery_percent ?? 0)) * 100),
+              slot_id: slotId ?? null,
+              ts: new Date().toISOString(),
+            }).catch(() => {});
             // Push FCM para gestores logística da cidade
             try {
               const gestoresSnap = await db.collection('usuarios')
@@ -1092,8 +1134,16 @@ export const gerarSlotsManualFn = https.onCall(
   { region: 'southamerica-east1', maxInstances: 10 },
   async (request) => {
     if (!request.auth) throw new https.HttpsError('unauthenticated', 'Não autenticado');
-    const userDoc = await db.collection('usuarios').doc(request.auth.uid).get();
-    if (!['admin', 'gestor', 'gestor_log', 'supergestor'].includes(userDoc.data()?.role ?? ''))
+    // Role check — Supabase-first com fallback Firestore
+    let roleManual = '';
+    const sbUserManual = await supabaseGetOne<{ role?: string }>('usuarios', `select=role&id=eq.${encodeURIComponent(request.auth.uid)}`);
+    if (sbUserManual) {
+      roleManual = sbUserManual.role ?? '';
+    } else {
+      const userDoc = await db.collection('usuarios').doc(request.auth.uid).get();
+      roleManual = userDoc.data()?.role ?? '';
+    }
+    if (!['admin', 'gestor', 'gestor_log', 'supergestor'].includes(roleManual))
       throw new https.HttpsError('permission-denied', 'Sem permissão');
     await executarMotorSlots();
     return { ok: true };
@@ -1112,8 +1162,19 @@ export const escalarSlotsSLA = scheduler.onSchedule(
         .get();
 
       const botToken = await getBotTokenLocal();
-      const telegramCfgSnap = await db.collection('telegram_config').doc('global').get();
-      const diretoriaChatId = telegramCfgSnap.data()?.diretoria?.[0]?.chatId ?? '';
+      // telegram_config — Supabase-first com fallback Firestore
+      let diretoriaChatId = '';
+      try {
+        const sbTgCfg = await supabaseGetOne<any>('telegram_config', 'select=*&id=eq.global');
+        if (sbTgCfg?.diretoria) {
+          const dir = Array.isArray(sbTgCfg.diretoria) ? sbTgCfg.diretoria : [];
+          diretoriaChatId = dir[0]?.chatId ?? '';
+        }
+      } catch { /* ignore */ }
+      if (!diretoriaChatId) {
+        const telegramCfgSnap = await db.collection('telegram_config').doc('global').get();
+        diretoriaChatId = telegramCfgSnap.data()?.diretoria?.[0]?.chatId ?? '';
+      }
       const batch = db.batch();
       let escalados = 0;
 
@@ -1172,15 +1233,21 @@ export const notificarTurnoFn = firestore.onDocumentCreated(
       const botToken = await getBotTokenLocal();
       if (!botToken) return;
 
-      // Notifica todos os gestores da cidade
-      const gestoresSnap = await db.collection('usuarios')
-        .where('cidade', '==', cidade)
-        .where('role', 'in', ['admin', 'gestor', 'gestor_log', 'supergestor'])
-        .get();
-
-      const chatIds = gestoresSnap.docs
-        .map(d => d.data().telegramChatId)
-        .filter(Boolean);
+      // Notifica todos os gestores da cidade — Supabase-first
+      const sbGestores = await supabaseGet<{ id: string; telegram_chat_id?: string }>(
+        'usuarios',
+        `select=id,telegram_chat_id&cidade=eq.${encodeURIComponent(cidade)}&role=in.(admin,gestor,gestor_log,supergestor)`
+      );
+      let chatIds: string[] = [];
+      if (sbGestores && sbGestores.length > 0) {
+        chatIds = sbGestores.map(u => u.telegram_chat_id).filter(Boolean) as string[];
+      } else {
+        const gestoresSnap = await db.collection('usuarios')
+          .where('cidade', '==', cidade)
+          .where('role', 'in', ['admin', 'gestor', 'gestor_log', 'supergestor'])
+          .get();
+        chatIds = gestoresSnap.docs.map(d => d.data().telegramChatId).filter(Boolean);
+      }
 
       await Promise.allSettled(chatIds.map(chatId =>
         sendTelegramLocal(botToken, chatId, msg)

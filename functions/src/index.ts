@@ -200,6 +200,7 @@ export * from './mirror-onda-b-menores'; // espelhar Solicitacao/TurnoLogistica 
 export * from './mirror-tarefas';        // espelharTarefaSupabase, espelharTarefaLogisticaSupabase (Onda H)
 export * from './mirror-solicitacoes';   // espelharSolicitacaoSupabase — user access requests (Onda H)
 export * from './mirror-gojet-config';  // espelharGojetConfigSupabase — gojet_config dual-write (Onda H)
+export * from './mirror-lgpd';          // espelharConsentimentoLgpdSupabase — consentimentos_lgpd dual-write
 export * from './buscar-pois-osm';    // buscarPOIsOSMFn — Overpass/OSM server-side (gratuito; resolve CORS/429)
 export * from './slots-telegram';     // resumoSlotsTelegram, confirmarSlotsCascata, enviarResumoManual
 

@@ -6,6 +6,7 @@
 
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { db, auth } from './firebase';
+import { supabase } from './supabase';
 
 export const APP_VERSAO = '1.0.0'; // manter alinhado com frontend/package.json
 
@@ -41,7 +42,9 @@ export interface BugUserCtx {
 export async function enviarBugReport(input: BugReportInput, user?: BugUserCtx): Promise<void> {
   const uid = user?.uid || auth.currentUser?.uid;
   if (!uid) throw new Error('Faça login para enviar um report.');
-  await addDoc(collection(db, 'bug_reports'), {
+  const ctx = coletarContexto();
+  const criadoEmTs = Date.now();
+  const docRef = await addDoc(collection(db, 'bug_reports'), {
     uid,
     nome:         user?.nome ?? auth.currentUser?.displayName ?? '',
     email:        user?.email ?? auth.currentUser?.email ?? '',
@@ -52,10 +55,25 @@ export async function enviarBugReport(input: BugReportInput, user?: BugUserCtx):
     fotoUrl:      input.fotoUrl ?? null,
     erro:         input.erro ?? null,
     status:       'aberto',
-    contexto:     coletarContexto(),
+    contexto:     ctx,
     criadoEm:     serverTimestamp(),
-    criadoEmTs:   Date.now(),
+    criadoEmTs:   criadoEmTs,
   });
+  // dual-write Supabase
+  supabase.from('bug_reports').upsert({
+    id: docRef.id, uid,
+    nome: user?.nome ?? auth.currentUser?.displayName ?? '',
+    email: user?.email ?? auth.currentUser?.email ?? '',
+    role: user?.role ?? '',
+    tipo_cadastro: user?.tipoCadastro ?? '',
+    tipo: input.tipo,
+    descricao: (input.descricao || '').slice(0, 4000),
+    foto_url: input.fotoUrl ?? null,
+    erro: input.erro ?? null,
+    status: 'aberto',
+    contexto: ctx,
+    criado_em_ts: criadoEmTs,
+  }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[bugReport] upsert bug_reports:', error.message); });
 }
 
 // ─── Captura automática de erros não-tratados ────────────────────────────────

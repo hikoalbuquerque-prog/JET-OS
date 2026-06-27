@@ -12,7 +12,7 @@ import {
   collection, doc, getDocs, setDoc, deleteDoc, onSnapshot,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { gojetProviderSupabase, onGojetConfigChange } from '../lib/gojet-config-supabase';
+import { gojetProviderSupabase, onGojetConfigChange, salvarGojetConfigSupabase, removerGojetConfigSupabase } from '../lib/gojet-config-supabase';
 
 const T = {
   cidadesGoJet:       { pt: '🗺 Cidades GoJet',                                    en: '🗺 GoJet Cities',                                          es: '🗺 Ciudades GoJet',                                       ru: '🗺 Города GoJet' },
@@ -107,11 +107,10 @@ export default function GoJetCidadesPanel() {
     setSalvando(true);
     setErro('');
     try {
-      await setDoc(doc(db, 'gojet_config', form.nome.trim()), {
-        cityId: form.cityId.trim(),
-        nome:   form.nome.trim(),
-        ativo:  form.ativo,
-      });
+      const nome = form.nome.trim();
+      const cityId = form.cityId.trim();
+      await setDoc(doc(db, 'gojet_config', nome), { cityId, nome, ativo: form.ativo });
+      salvarGojetConfigSupabase(nome, cityId, form.ativo).catch(() => {});
       setNova(false);
       setEditando(null);
       setForm({ nome: '', cityId: '', ativo: true });
@@ -125,10 +124,12 @@ export default function GoJetCidadesPanel() {
   const remover = async (id: string) => {
     if (!confirm(`${pick(T.confirmRemover)} ${id}?`)) return;
     await deleteDoc(doc(db, 'gojet_config', id));
+    removerGojetConfigSupabase(id).catch(() => {});
   };
 
   const toggleAtivo = async (c: GoJetCidade) => {
     await setDoc(doc(db, 'gojet_config', c.id), { ...c, ativo: !c.ativo });
+    salvarGojetConfigSupabase(c.id, c.cityId, !c.ativo).catch(() => {});
   };
 
   const iniciarEditar = (c: GoJetCidade) => {

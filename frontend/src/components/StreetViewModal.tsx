@@ -5,6 +5,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
+const T = {
+  captureHint:  { pt: 'Abre em nova janela...', en: 'Opens in new window...', es: 'Abre en nueva ventana...', ru: 'Открыть в новом окне...' },
+  useImageHint: { pt: 'Cole ou arraste a imagem', en: 'Paste or drag the image', es: 'Pega o arrastra la imagen', ru: 'Вставьте или перетащите изображение' },
+  openMaps:     { pt: 'Abrir no Google Maps', en: 'Open in Google Maps', es: 'Abrir en Google Maps', ru: 'Открыть в Google Maps' },
+};
+
 interface Props {
   lat: number;
   lng: number;
@@ -16,7 +22,9 @@ interface Props {
 const GMAPS_KEY = (import.meta as any).env?.VITE_GMAPS_KEY || '';
 
 export function StreetViewModal({ lat, lng, nome, onClose, onCapturarFoto }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
+  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
   const [modo, setModo] = useState<'sv'|'mapa'>('sv');
   const [carregado, setCarregado] = useState(false);
   const [showCapHint, setShowCapHint] = useState(false);
@@ -111,7 +119,7 @@ export function StreetViewModal({ lat, lng, nome, onClose, onCapturarFoto }: Pro
                   padding: '6px 12px', borderRadius: 6, border: 'none',
                   background: 'rgba(245,200,66,.15)', color: '#f5c842',
                   cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                }} title={t('streetviewModal.captureHint')}>
+                }} title={pick(T.captureHint)}>
                   📸 {t('streetviewModal.captureFrame')}
                 </button>
                 <button onClick={onCapturarFoto} style={{
@@ -119,7 +127,7 @@ export function StreetViewModal({ lat, lng, nome, onClose, onCapturarFoto }: Pro
                   padding: '6px 12px', borderRadius: 6, border: 'none',
                   background: 'rgba(16,185,129,.15)', color: '#10b981',
                   cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                }} title={t('streetviewModal.useImageHint')}>
+                }} title={pick(T.useImageHint)}>
                   📁 {t('streetviewModal.useImage')}
                 </button>
                 {showCapHint && (
@@ -150,7 +158,7 @@ export function StreetViewModal({ lat, lng, nome, onClose, onCapturarFoto }: Pro
                 padding: '6px 10px', borderRadius: 6, border: '1px solid #1c2535',
                 background: 'rgba(255,255,255,.04)', color: 'rgba(255,255,255,.5)',
                 cursor: 'pointer', fontSize: 11,
-              }} title={t('streetviewModal.openMaps')}>
+              }} title={pick(T.openMaps)}>
               ↗
             </button>
             <button onClick={onClose} style={{

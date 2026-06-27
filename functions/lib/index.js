@@ -122,13 +122,13 @@ exports.healthCheck = (0, https_1.onRequest)((req, res) => {
 // (código real em src/croquis/index.ts)
 // ══════════════════════════════════════════════════════════════════
 const croquis_1 = require("./croquis");
-exports.gerarCroquiFn = (0, https_1.onCall)({ timeoutSeconds: 300, memory: '512MiB', region: 'southamerica-east1', cors: true }, async (request) => {
+exports.gerarCroquiFn = (0, https_1.onCall)({ timeoutSeconds: 300, memory: '512MiB', region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new Error('Não autenticado');
     const { estacaoId } = request.data;
     return (0, croquis_1.gerarCroqui)(estacaoId, request.auth.uid, request.auth.token.email || '');
 });
-exports.gerarCroquisLoteFn = (0, https_1.onCall)({ timeoutSeconds: 540, memory: '512MiB', region: 'southamerica-east1', cors: true }, async (request) => {
+exports.gerarCroquisLoteFn = (0, https_1.onCall)({ timeoutSeconds: 540, memory: '512MiB', region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new Error('Não autenticado');
     const { cidade, pais = 'BR', loteSize = 10 } = request.data;
@@ -139,7 +139,7 @@ exports.gerarCroquisLoteFn = (0, https_1.onCall)({ timeoutSeconds: 540, memory: 
 // (código real em src/streetview/index.ts)
 // ══════════════════════════════════════════════════════════════════
 const streetview_1 = require("./streetview");
-exports.gerarStreetViewFn = (0, https_1.onCall)({ timeoutSeconds: 120, memory: '256MiB', region: 'southamerica-east1', cors: true }, async (request) => {
+exports.gerarStreetViewFn = (0, https_1.onCall)({ timeoutSeconds: 120, memory: '256MiB', region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new Error('Não autenticado');
     const { lat, lng, codigo } = request.data;
@@ -157,7 +157,7 @@ exports.gerarStreetViewFn = (0, https_1.onCall)({ timeoutSeconds: 120, memory: '
 const relatorio_1 = require("./relatorio");
 // Diário — 7h, terça a domingo (reporta o dia anterior)
 // Segunda-feira envia o semanal no lugar
-exports.relatorioGuardDiarioFn = (0, scheduler_1.onSchedule)({ schedule: '0 7 * * 2-7', timeZone: 'America/Sao_Paulo', memory: '256MiB', timeoutSeconds: 120 }, async () => {
+exports.relatorioGuardDiarioFn = (0, scheduler_1.onSchedule)({ schedule: '0 7 * * 2-7', timeZone: 'America/Sao_Paulo', memory: '256MiB', timeoutSeconds: 120, maxInstances: 10 }, async () => {
     // Reporta o dia anterior
     const ontem = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
     ontem.setDate(ontem.getDate() - 1);
@@ -167,7 +167,7 @@ exports.relatorioGuardDiarioFn = (0, scheduler_1.onSchedule)({ schedule: '0 7 * 
     console.log('[guard-diario] Enviado para', dataStr, '—', relatorio.totalOcorrencias, 'ocorrências');
 });
 // Manual — callable para o botão "Enviar relatório agora" no DashboardManager
-exports.relatorioGuardManualFn = (0, https_1.onCall)({ timeoutSeconds: 180, memory: '256MiB', region: 'southamerica-east1', cors: true }, async (request) => {
+exports.relatorioGuardManualFn = (0, https_1.onCall)({ timeoutSeconds: 180, memory: '256MiB', region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new Error('Não autenticado');
     const { dataStr, tipo, periodo, lang } = (request.data || {});
@@ -187,7 +187,7 @@ exports.relatorioGuardManualFn = (0, https_1.onCall)({ timeoutSeconds: 180, memo
 // (código real em src/auth/index.ts)
 // ══════════════════════════════════════════════════════════════════
 const index_1 = require("./auth/index");
-exports.aprovarSolicitacaoFn = (0, https_1.onCall)({ timeoutSeconds: 60, memory: '256MiB', region: 'southamerica-east1', cors: true }, async (request) => {
+exports.aprovarSolicitacaoFn = (0, https_1.onCall)({ timeoutSeconds: 60, memory: '256MiB', region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new Error('Não autenticado');
     const { solicitacaoId, roleOverride } = request.data;
@@ -202,19 +202,23 @@ __exportStar(require("./auth"), exports); // getUsuario, criarSlotAuth, listarSl
 __exportStar(require("./automacao"), exports); // limpezaSnapshots, notificarOcorrencia, notificarTarefa, etc.
 __exportStar(require("./automacao-gojet-scraper"), exports); // scraperGoJet (paginação completa, multi-cidade), scraperGoJetManual
 __exportStar(require("./gps-alertas"), exports); // verificarAtrasos, verificarChegadaPonto
-__exportStar(require("./gps-ingest"), exports); // ingestGps — upload nativo de GPS (app fechado)
+// gps-ingest REMOVIDO — GPS nativo agora usa Edge Function Supabase (ingest-gps)
 __exportStar(require("./automacao-tarefas"), exports); // gerarTarefasGoJetFn, gerarTarefasAgendado, etc.
 __exportStar(require("./relatorios"), exports); // enviarRelatorioManual, relatorioGuardSemanal, relatorioPerdasDiario, relatorioPerdasSemanal
 __exportStar(require("./notificacoes-prestador"), exports); // notificarGestorNovaSolicitacao
 __exportStar(require("./mirror-ocorrencias"), exports); // espelharOcorrenciaSupabase — dual-write Guard -> Supabase (DEBRIEF §16)
 __exportStar(require("./mirror-estacoes"), exports); // espelharEstacaoSupabase — dual-write estações -> Supabase (Fase 2 Onda A)
 __exportStar(require("./mirror-onda-b-menores"), exports); // espelhar Solicitacao/TurnoLogistica -> Supabase (Fase 2 Onda B menores)
+__exportStar(require("./mirror-tarefas"), exports); // espelharTarefaSupabase, espelharTarefaLogisticaSupabase (Onda H)
+__exportStar(require("./mirror-solicitacoes"), exports); // espelharSolicitacaoSupabase — user access requests (Onda H)
+__exportStar(require("./mirror-gojet-config"), exports); // espelharGojetConfigSupabase — gojet_config dual-write (Onda H)
+__exportStar(require("./mirror-lgpd"), exports); // espelharConsentimentoLgpdSupabase — consentimentos_lgpd dual-write
 __exportStar(require("./buscar-pois-osm"), exports); // buscarPOIsOSMFn — Overpass/OSM server-side (gratuito; resolve CORS/429)
 __exportStar(require("./slots-telegram"), exports); // resumoSlotsTelegram, confirmarSlotsCascata, enviarResumoManual
 // ══════════════════════════════════════════════════════════════════
 // REVOGAR ACESSO — desativa usuário no Auth + Firestore
 // ══════════════════════════════════════════════════════════════════
-exports.revogarAcesso = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.revogarAcesso = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     const callerUid = request.auth?.uid;
     if (!callerUid)
         throw new Error('Não autenticado');

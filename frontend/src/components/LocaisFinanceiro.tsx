@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import { uploadComRetry } from '../lib/uploadUtils';
 import { comprimirImagem } from '../lib/imageUtils';
+import { supabase } from '../lib/supabase';
 
 // ── i18n (padrão TermosUsoGate: objeto { pt, en, es, ru }, sem json) ─────────
 type Lang = 'pt' | 'en' | 'es' | 'ru';
@@ -334,9 +335,24 @@ export function LocalOperacionalModal({
       if (foto)        raw.foto        = foto;
       if (editando) {
         await updateDoc(doc(db, 'locais_operacionais', editando.id), raw);
+        // dual-write Supabase
+        supabase.from('locais_operacionais').upsert({
+          id: editando.id, tipo, nome: nome.trim(), endereco, lat: latLng.lat, lng: latLng.lng,
+          cidade, pais, ativo, capacidade: capacidade ? Number(capacidade) : null,
+          responsavel: responsavel || null, telefone: telefone || null, horario: horario || null,
+          obs: obs || null, foto: foto || null, atualizado_em: new Date().toISOString(),
+        }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[LocaisFin] upsert locais_operacionais:', error.message); });
         showToast(pick(T.localAtualizado), 'success');
       } else {
-        await addDoc(collection(db, 'locais_operacionais'), { ...raw, criadoEm: serverTimestamp() });
+        const docRef = await addDoc(collection(db, 'locais_operacionais'), { ...raw, criadoEm: serverTimestamp() });
+        // dual-write Supabase
+        supabase.from('locais_operacionais').upsert({
+          id: docRef.id, tipo, nome: nome.trim(), endereco, lat: latLng.lat, lng: latLng.lng,
+          cidade, pais, ativo, capacidade: capacidade ? Number(capacidade) : null,
+          responsavel: responsavel || null, telefone: telefone || null, horario: horario || null,
+          obs: obs || null, foto: foto || null, criado_em: new Date().toISOString(),
+          atualizado_em: new Date().toISOString(),
+        }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[LocaisFin] insert locais_operacionais:', error.message); });
         showToast(pick(T.localAdicionado), 'success');
       }
       onFechar();
@@ -347,6 +363,8 @@ export function LocalOperacionalModal({
   const excluir = async () => {
     if (!editando || !confirm(`${pick(T.excluirConfirmA)}${editando.nome}${pick(T.excluirConfirmB)}`)) return;
     await deleteDoc(doc(db, 'locais_operacionais', editando.id));
+    // dual-write Supabase
+    supabase.from('locais_operacionais').delete().eq('id', editando.id).then(({ error }) => { if (error) console.error('[LocaisFin] delete locais_operacionais:', error.message); });
     showToast(pick(T.localRemovido), 'success');
     onFechar();
   };
@@ -888,8 +906,25 @@ function ModalPagamento({ localId, mesAtual, editando, onFechar }:{
         tarifaKwh:       tarifa ?Number(tarifa) :undefined,
         criadoEm: editando?.criadoEm||new Date().toISOString(),
       };
-      if (editando) await updateDoc(doc(collection(db,'pagamentos_locais'),editando.id), dados as any);
-      else          await addDoc(collection(db,'pagamentos_locais'), dados);
+      const supaRow = {
+        local_id: localId, tipo, descricao: descricao || TIPO_PAG_META[tipo].label,
+        valor: vCalc !== null ? vCalc : Number(valor),
+        competencia: comp, data_vencimento: venc,
+        data_pagamento: pago || null, status, observacao: obs, comprovante_url: comprovanteUrl,
+        leitura_anterior: leitAnt ? Number(leitAnt) : null,
+        leitura_atual: leitAt ? Number(leitAt) : null,
+        tarifa_kwh: tarifa ? Number(tarifa) : null,
+        criado_em: editando?.criadoEm || new Date().toISOString(),
+      };
+      if (editando) {
+        await updateDoc(doc(collection(db,'pagamentos_locais'),editando.id), dados as any);
+        // dual-write Supabase
+        supabase.from('pagamentos_locais').upsert({ id: editando.id, ...supaRow }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[LocaisFin] upsert pagamentos_locais:', error.message); });
+      } else {
+        const docRef = await addDoc(collection(db,'pagamentos_locais'), dados);
+        // dual-write Supabase
+        supabase.from('pagamentos_locais').upsert({ id: docRef.id, ...supaRow }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[LocaisFin] insert pagamentos_locais:', error.message); });
+      }
       onFechar();
     } catch(e:any) { alert(pick(T.erro)+e.message); }
     setBusy(false);
@@ -1038,11 +1073,19 @@ function ModalContrato({ localId, onFechar }:{ localId:string; onFechar:()=>void
     try {
       let docUrl = '';
       if (docFile) docUrl = await uploadArquivo(docFile, `contratos/${localId}/${Date.now()}_contrato.${docFile.name.split('.').pop()}`);
-      await addDoc(collection(db,'contratos_locais'),{
+      const docRef = await addDoc(collection(db,'contratos_locais'),{
         localId, tipo:'ALUGUEL', valor:Number(valor), diaVencimento:Number(dia),
         dataInicio, dataFim:dataFim||undefined, proprietario, contatoProprietario:contato,
         indexador, status:'ATIVO', observacao:obs, docUrl, criadoEm:new Date().toISOString(),
       });
+      // dual-write Supabase
+      supabase.from('contratos_locais').upsert({
+        id: docRef.id, local_id: localId, tipo: 'ALUGUEL', valor: Number(valor),
+        dia_vencimento: Number(dia), data_inicio: dataInicio, data_fim: dataFim || null,
+        proprietario: proprietario || null, contato_proprietario: contato || null,
+        indexador, status: 'ATIVO', observacao: obs || null, doc_url: docUrl || null,
+        criado_em: new Date().toISOString(),
+      }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[LocaisFin] insert contratos_locais:', error.message); });
       onFechar();
     } catch(e:any) { alert(pick(T.erro)+e.message); }
     setBusy(false);

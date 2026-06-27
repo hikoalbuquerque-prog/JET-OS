@@ -785,7 +785,113 @@
             "dica": "To exercise your rights or contact the data protection officer (DPO), reach out to Jet management."
           }
         ]
+      },
+      "analytics": {
+        "titulo": "Ride Analytics",
+        "passos": [
+          {
+            "titulo": "Import data",
+            "desc": "Click on \"📊 Analytics\" and drag the Excel file exported from the system."
+          },
+          {
+            "titulo": "Heat map",
+            "desc": "The map shows start and end routes of each ride with intensity by volume."
+          },
+          {
+            "titulo": "Filters",
+            "desc": "Use the toolbar buttons to switch between Heatmap, Hexbins, Arcs and Points."
+          },
+          {
+            "titulo": "3D Mode",
+            "desc": "Click \"🏔 3D\" to tilt the map. Hold Ctrl + drag to rotate.",
+            "dica": "Combine the Hexbin 3D mode with Zones to identify high-demand neighborhoods."
+          }
+        ]
+      },
+      "dashboard": {
+        "titulo": "Dashboard and reports",
+        "passos": [
+          {
+            "titulo": "Station report",
+            "desc": "In \"📋 Dash\" → Reports, select a station and click \"Generate PDF\"."
+          },
+          {
+            "titulo": "Export Guard",
+            "desc": "In Dash → Guard, use the filters and click \"Export Excel\"."
+          },
+          {
+            "titulo": "Manage users",
+            "desc": "Click the 👥 icon in the header. Approve requests by setting the role. Security Manager: role gestor_seg."
+          },
+          {
+            "titulo": "Telegram notifications",
+            "desc": "In Dash → Guard → Config (admin only), configure which incident types trigger alerts.",
+            "dica": "The bot needs the token configured in Cloud Functions."
+          }
+        ]
+      },
+      "tarefas-logistica": {
+        "titulo": "📦 Tasks Module",
+        "passos": [
+          {
+            "titulo": "Open the module",
+            "desc": "Click the 📦 Tasks button on the side FABs. Available for logistics, field, manager and admin."
+          },
+          {
+            "titulo": "Worker Home",
+            "desc": "The 🏠 Home tab shows your status (working/idle), shift time and active tasks. Tap \"▶ Start work + Photo\" to begin."
+          },
+          {
+            "titulo": "Create task — GoJet",
+            "desc": "In the ➕ Create tab, select \"🛴 GoJet Point\" to see the live list sorted by deficit. Empty ones appear at the top with a ZERO badge.",
+            "dica": "Enable the \"🔴 Critical only\" filter to see only points below 50% of the target."
+          },
+          {
+            "titulo": "Create task — JET OS Station",
+            "desc": "Click any station on the map and tap \"📦 + Create task\" in the popup. Name and coordinates are filled automatically."
+          },
+          {
+            "titulo": "Create task — GoJet on map",
+            "desc": "With the GoJet overlay active, click a P point and tap \"+ Create task\". The point is preselected with the calculated deficit."
+          },
+          {
+            "titulo": "Automatic generation",
+            "desc": "Tasks are generated automatically every hour for GoJet points below 50% of the target. They appear with an AUTO badge on the kanban."
+          },
+          {
+            "titulo": "Fullscreen Kanban",
+            "desc": "In the 📊 Kanban tab, click ⊞ to expand fullscreen. On desktop, columns are side by side."
+          },
+          {
+            "titulo": "Change destination",
+            "desc": "In a task's detail, click 🎯 — an orange banner appears on the map. Click any GoJet P to set the new destination.",
+            "dica": "Only available for manager/admin."
+          },
+          {
+            "titulo": "Dashboard",
+            "desc": "The 📈 Stats tab shows: completion rate, average duration, agent ranking with gold/silver/bronze, top most-served points."
+          },
+          {
+            "titulo": "CSV History",
+            "desc": "The 📂 History tab has filters by status, type, agent and search. Click ⬇ CSV to export with BOM (opens directly in Excel)."
+          },
+          {
+            "titulo": "Notifications",
+            "desc": "When assigning a task, the agent receives native push (Android FCM) and Telegram simultaneously."
+          }
+        ]
       }
+    },
+    "roleLabels": {
+      "admin": "Admin",
+      "gestor": "Manager",
+      "supergestor": "Super Manager",
+      "gestor_log": "Log. Manager",
+      "gestor_seg": "Sec. Manager",
+      "campo": "Field",
+      "guard": "Guard",
+      "viewer": "Viewer",
+      "logistica": "Logistics"
     }
   },
   "fab": {
@@ -1047,7 +1153,14 @@
     "maps": "Maps",
     "view": "View",
     "occurrence": "occurrence",
-    "occurrences": "occurrences"
+    "occurrences": "occurrences",
+    "addStationHere": "Add station here",
+    "delete": "Delete",
+    "sv": "SV",
+    "viewDoc": "View",
+    "tpu": "TPU",
+    "authorization": "Authorization",
+    "notRegistered": "not registered"
   },
   "legend": {
     "pub": "Public",
@@ -1072,24 +1185,5 @@
     "guard": "Guard",
     "candidates": "Candidate Pts",
     "logout": "Logout"
-  },
-  "popup": {
-    "addStationHere": "Add station here",
-    "edit": "Edit",
-    "delete": "Delete",
-    "streetView": "Street View",
-    "photo": "Photo",
-    "maps": "Maps",
-    "croqui": "Sketch",
-    "sv": "SV",
-    "del": "Del",
-    "addPhoto": "Add photo",
-    "viewDoc": "View",
-    "addDocs": "Add documents",
-    "updateDocs": "Update documents",
-    "publicDocs": "Public Documents",
-    "tpu": "TPU",
-    "authorization": "Authorization",
-    "notRegistered": "not registered"
   }
 }

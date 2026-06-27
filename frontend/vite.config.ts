@@ -134,6 +134,23 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-firebase': [
+            'firebase/app',
+            'firebase/auth',
+            'firebase/firestore',
+            'firebase/storage',
+            'firebase/messaging',
+          ],
+          'vendor-supabase': ['@supabase/supabase-js'],
+          'vendor-map': ['maplibre-gl'],
+          'vendor-deckgl': ['deck.gl', '@deck.gl/mapbox', '@deck.gl/aggregation-layers'],
+        },
+      },
+    },
   },
   test: {
     environment: 'node',

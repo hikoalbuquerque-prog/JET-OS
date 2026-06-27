@@ -440,6 +440,68 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
   );
 }
 
+// ── APK DOWNLOAD BANNER ─────────────────────────────────────────
+const APK_META_URL = 'https://ducdbrupxpzqcblfreqn.supabase.co/storage/v1/object/public/apk/version.json';
+const APK_URL = 'https://ducdbrupxpzqcblfreqn.supabase.co/storage/v1/object/public/apk/jet-os-latest.apk';
+
+function ApkBanner() {
+  const [show, setShow] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
+  const [latestVersion, setLatestVersion] = useState('');
+  const lang = (i18n.language?.slice(0,2) || 'pt') as 'pt'|'en'|'es'|'ru';
+  const pick = (o: {pt:string;en:string;es:string;ru:string}) => o[lang] ?? o.pt;
+
+  useEffect(() => {
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const isCapacitor = !!(window as any).Capacitor;
+    if (!isAndroid || isCapacitor) return;
+
+    fetch(APK_META_URL).then(r => r.ok ? r.json() : null).then(meta => {
+      if (!meta?.version) { setShow(true); return; }
+      setLatestVersion(meta.version);
+      const dismissedVersion = localStorage.getItem('jet_apk_banner_dismissed_v');
+      if (dismissedVersion === meta.version) return;
+      setShow(true);
+      if (dismissedVersion) setUpdateAvailable(true);
+    }).catch(() => setShow(true));
+  }, []);
+
+  if (!show) return null;
+
+  return (
+    <div style={{
+      background: 'rgba(99,102,241,.12)', border: '1px solid rgba(99,102,241,.3)',
+      borderRadius: 12, padding: '12px 14px', marginBottom: 16,
+      display: 'flex', alignItems: 'center', gap: 10, position: 'relative',
+    }}>
+      <span style={{ fontSize: 28, lineHeight: 1 }}>📱</span>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#a5b4fc', marginBottom: 2 }}>
+          {updateAvailable
+            ? pick({ pt:'Nova versão disponível!', en:'New version available!', es:'Nueva versión disponible!', ru:'Доступна новая версия!' })
+            : pick({ pt:'Instale o app para GPS em background', en:'Install the app for background GPS', es:'Instala la app para GPS en segundo plano', ru:'Установите приложение для GPS в фоне' })}
+        </div>
+        <div style={{ fontSize: 10, color: 'rgba(255,255,255,.4)', marginBottom: 8 }}>
+          {updateAvailable
+            ? pick({ pt:`Versão ${latestVersion} — toque para atualizar`, en:`Version ${latestVersion} — tap to update`, es:`Versión ${latestVersion} — toca para actualizar`, ru:`Версия ${latestVersion} — нажмите для обновления` })
+            : pick({ pt:'Melhor experiência + rastreamento contínuo', en:'Better experience + continuous tracking', es:'Mejor experiencia + rastreo continuo', ru:'Лучший опыт + непрерывное отслеживание' })}
+        </div>
+        <a href={APK_URL} download style={{
+          display: 'inline-block', padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+          background: 'linear-gradient(135deg,#6366f1,#818cf8)', color: '#fff', textDecoration: 'none',
+        }}>
+          {pick({ pt:'Baixar APK', en:'Download APK', es:'Descargar APK', ru:'Скачать APK' })}
+        </a>
+      </div>
+      <button onClick={() => { setShow(false); if (latestVersion) localStorage.setItem('jet_apk_banner_dismissed_v', latestVersion); }}
+        style={{ position: 'absolute', top: 6, right: 8, background: 'none', border: 'none',
+          color: 'rgba(255,255,255,.3)', fontSize: 16, cursor: 'pointer', padding: 2, lineHeight: 1 }}>
+        ✕
+      </button>
+    </div>
+  );
+}
+
 // ── LOGIN ────────────────────────────────────────────────────────
 export function TelaLogin({ onLogin }: { onLogin: (e: string, s: string) => Promise<string | null> }) {
   const [email,       setEmail]       = useState('');
@@ -505,6 +567,8 @@ export function TelaLogin({ onLogin }: { onLogin: (e: string, s: string) => Prom
           </div>
           <h1 style={{ color: '#fff', fontSize: 22, fontWeight: 700 }}>Jet OS</h1>
         </div>
+
+        <ApkBanner />
 
         {resetMode ? (
           // Modo recuperar senha
@@ -609,6 +673,18 @@ export function TelaLogin({ onLogin }: { onLogin: (e: string, s: string) => Prom
             </div>
           </form>
         )}
+
+        {/* APK download link — always visible */}
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+          <a href={APK_URL} download style={{
+            color: 'rgba(255,255,255,.25)', fontSize: 11, textDecoration: 'none',
+          }}>
+            {(() => {
+              const l = (i18n.language?.slice(0,2) || 'pt') as 'pt'|'en'|'es'|'ru';
+              return ({ pt:'📲 Baixar app Android', en:'📲 Download Android app', es:'📲 Descargar app Android', ru:'📲 Скачать Android приложение' })[l] ?? '📲 Baixar app Android';
+            })()}
+          </a>
+        </div>
       </div>
     </div>
   );
@@ -1614,7 +1690,15 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
   const TURNOS_G  = [['shiftMorning','Manhã (06–14h)'],['shiftAfternoon','Tarde (14–22h)'],['shiftNight','Noite (22–06h)']];
 
   const isGestorModal = ['gestor','admin'].includes(usuario.role);
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = (i18n.language?.slice(0,2) || 'pt') as 'pt'|'en'|'es'|'ru';
+  const pick = (o: Record<string,string>) => o[lang] ?? o.pt;
+
+  const TG = {
+    phDescAtivo: { pt:'Descrição do ativo...', en:'Asset description...', es:'Descripción del activo...', ru:'Описание актива...' },
+    phNumBO:     { pt:'Número do BO', en:'Police report number', es:'Número del parte', ru:'Номер протокола' },
+    phOpcional:  { pt:'Opcional', en:'Optional', es:'Opcional', ru:'Необязательно' },
+  };
 
   const [tipo,        setTipo]        = useState(ocorrencia.tipo || 'Outro');
   const [status,      setStatus]      = useState(ocorrencia.status || 'Aberto');
@@ -1855,7 +1939,7 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
               background:'rgba(239,68,68,.06)', border:'1px solid rgba(239,68,68,.15)' }}>
               <label style={{ ...lbl, color:'#f87171' }}>Procurando</label>
               <input value={procurando} onChange={e=>setProcurando(e.target.value)}
-                placeholder="Descrição do ativo..." style={{ ...inp, borderColor:'rgba(239,68,68,.2)' }}/>
+                placeholder={pick(TG.phDescAtivo)} style={{ ...inp, borderColor:'rgba(239,68,68,.2)' }}/>
             </div>
           )}
 
@@ -1920,7 +2004,7 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
             </div>
             <div>
               <label style={lbl}>ID da estação</label>
-              <input value={estacaoId} onChange={e=>setEstacaoId(e.target.value)} placeholder="Opcional" style={inp}/>
+              <input value={estacaoId} onChange={e=>setEstacaoId(e.target.value)} placeholder={pick(TG.phOpcional)} style={inp}/>
             </div>
           </div>
 
@@ -2033,7 +2117,7 @@ export function GuardEditModal({ ocorrencia, usuario, onFechar, onSalvo }: {
             background:'rgba(234,179,8,.05)', border:'1px solid rgba(234,179,8,.15)' }}>
             <label style={{ ...lbl, color:'#fbbf24' }}>Boletim de Ocorrência</label>
             <input value={boNum} onChange={e=>setBoNum(e.target.value)}
-              placeholder="Número do BO" style={{ ...inp, marginBottom:8, borderColor:'rgba(234,179,8,.2)' }}/>
+              placeholder={pick(TG.phNumBO)} style={{ ...inp, marginBottom:8, borderColor:'rgba(234,179,8,.2)' }}/>
             <div style={{ display:'flex', gap:6 }}>
               <button onClick={async (e)=>{
                   if (isAndroidNative()) {

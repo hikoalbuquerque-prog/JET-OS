@@ -67,7 +67,7 @@ async function comprimir(file: File, maxW = 1280, q = 0.82): Promise<File> {
 }
 
 function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => void }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [kpis, setKpis] = useState({ ativas: 0, ocAbertas: 0, procurando: 0, roubos: 0 });
   const [notifList, setNotifList] = useState<Array<{id:string;msg:string;tipo:string;ts:number}>>([]);
   const [showNotif, setShowNotif] = useState(false);
@@ -1808,7 +1808,8 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
       const html = '<div style="background:' + m.cor + ';border:3px solid #fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.7)">' + m.icon + '</div>';
       const icon = L.divIcon({ className:'', html, iconSize:[26,26], iconAnchor:[13,13] });
       const marker = L.marker([c.lat, c.lng], { icon }).addTo(map);
-      marker.bindTooltip('<b>' + c.nome + '</b><br/>' + m.icon + ' ' + m.label + (c.dataPrevista ? '<br/>📅 ' + c.dataPrevista : '') + (c.responsavel ? '<br/>👤 ' + c.responsavel : ''), { permanent: false });
+      const lbl = m.label[(i18n.language||'pt').slice(0,2) as 'pt'|'en'|'es'|'ru'] ?? m.label.pt;
+      marker.bindTooltip('<b>' + c.nome + '</b><br/>' + m.icon + ' ' + lbl + (c.dataPrevista ? '<br/>📅 ' + c.dataPrevista : '') + (c.responsavel ? '<br/>👤 ' + c.responsavel : ''), { permanent: false });
       marker.on('click', () => setCidadeExpModal({ editando: c }));
       cidadesExpMarkersRef.current.push(marker);
     });

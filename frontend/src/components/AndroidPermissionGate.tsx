@@ -8,6 +8,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { registerPlugin } from '@capacitor/core';
 
+const T = {
+  location:       { pt: 'Localização', en: 'Location', es: 'Ubicación', ru: 'Местоположение' },
+  locationAlways: { pt: 'Localização o tempo todo', en: 'Location all the time', es: 'Ubicación todo el tiempo', ru: 'Местоположение всегда' },
+  notifications:  { pt: 'Notificações', en: 'Notifications', es: 'Notificaciones', ru: 'Уведомления' },
+  camera:         { pt: 'Câmera', en: 'Camera', es: 'Cámara', ru: 'Камера' },
+  background:     { pt: 'Executar em segundo plano', en: 'Run in background', es: 'Ejecutar en segundo plano', ru: 'Работать в фоновом режиме' },
+};
+
 type PermStatus = 'checking' | 'granted' | 'denied' | 'prompt' | 'limited';
 
 interface PermState {
@@ -238,7 +246,9 @@ function PermRow({
 }
 
 export default function AndroidPermissionGate({ role, onReady }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
+  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
   const needsLocation = FIELD_ROLES.includes(role);
   const [perms, setPerms]             = useState<PermState | null>(null);
   const [loadingLoc, setLoadingLoc]   = useState(false);
@@ -339,7 +349,7 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
         {needsLocation && (
           <PermRow
             icon="📍"
-            title={t('permissions.location')}
+            title={pick(T.location)}
             desc={t('permissions.locationDesc')}
             status={perms.locForeground}
             onRequest={handleLocation}
@@ -351,7 +361,7 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
         {needsLocation && perms.locForeground === 'granted' && perms.locBackground !== 'granted' && (
           <PermRow
             icon="🛰️"
-            title={t('permissions.locationAlways')}
+            title={pick(T.locationAlways)}
             desc={t('permissions.locationAlwaysDesc')}
             status={perms.locBackground}
             onRequest={handleBackgroundLocation}
@@ -362,7 +372,7 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
         {/* Permissão de notificações */}
         <PermRow
           icon="🔔"
-          title={t('permissions.notifications')}
+          title={pick(T.notifications)}
           desc={t('permissions.notificationsDesc')}
           status={perms.notifications}
           onRequest={handleNotifications}
@@ -373,7 +383,7 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
         {needsLocation && (
           <PermRow
             icon="📷"
-            title={t('permissions.camera')}
+            title={pick(T.camera)}
             desc={t('permissions.cameraDesc')}
             status={perms.camera}
             onRequest={handleCamera}
@@ -384,7 +394,7 @@ export default function AndroidPermissionGate({ role, onReady }: Props) {
         {/* Isenção de otimização de bateria */}
         <PermRow
           icon="🔋"
-          title={t('permissions.background')}
+          title={pick(T.background)}
           desc={t('permissions.backgroundDesc')}
           status={perms.battery}
           onRequest={handleBattery}

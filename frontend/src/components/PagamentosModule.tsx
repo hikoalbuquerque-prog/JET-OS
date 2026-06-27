@@ -15,6 +15,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { uploadComRetry } from '../lib/uploadUtils';
 
 // ---------------------------------------------------------------------------
@@ -643,6 +644,13 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
         status: 'nf_enviada',
         atualizadoEm: serverTimestamp(),
       });
+      // dual-write Supabase
+      supabase.from('pagamentos_semana').update({
+        nf_url: nfUrl,
+        nf_enviada_em: new Date().toISOString(),
+        status: 'nf_enviada',
+        atualizado_em: new Date().toISOString(),
+      }).eq('id', docId).then(({ error }) => { if (error) console.error('[PagModule] update pagamentos_semana:', error.message); });
     } else {
       const inicioTs = Timestamp.fromDate(info.inicio);
       const fimTs = Timestamp.fromDate(info.fim);
@@ -668,6 +676,30 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
         criadoEm: serverTimestamp(),
         atualizadoEm: serverTimestamp(),
       });
+      // dual-write Supabase
+      supabase.from('pagamentos_semana').upsert({
+        id: docId,
+        uid: usuario.uid,
+        nome: usuario.nome,
+        email: usuario.email,
+        cidade,
+        cargo,
+        semana_inicio: info.inicio.toISOString(),
+        semana_fim: info.fim.toISOString(),
+        ano: info.ano,
+        semana_iso: info.semana,
+        tarefas_count: count,
+        valor_unitario: valorUni,
+        valor_total: count * valorUni,
+        status: 'nf_enviada',
+        nf_url: nfUrl,
+        nf_enviada_em: new Date().toISOString(),
+        nf_validada_por: null,
+        motivo_rejeicao: null,
+        pago_em: null,
+        criado_em: new Date().toISOString(),
+        atualizado_em: new Date().toISOString(),
+      }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[PagModule] upsert pagamentos_semana:', error.message); });
     }
   };
 

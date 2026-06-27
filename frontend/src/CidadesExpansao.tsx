@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { db } from './lib/firebase';
 import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp } from 'firebase/firestore';
+import { supabase } from './lib/supabase';
 
 const T = {
   statusEmAnalise:    { pt: 'Em análise',     en: 'Under review',      es: 'En análisis',      ru: 'На рассмотрении' },
@@ -87,12 +88,12 @@ export interface CidadeExpansao {
   atualizadoEm?: any;
 }
 
-export const STATUS_META: Record<StatusExpansao, { label: string; cor: string; icon: string }> = {
-  em_analise:      { label: 'Em análise',      cor: '#60a5fa', icon: '🔍' },
-  aprovada:        { label: 'Aprovada',         cor: '#2ecc71', icon: '✅' },
-  em_implantacao:  { label: 'Em implantação',   cor: '#f5c842', icon: '🚧' },
-  ativa:           { label: 'Ativa',            cor: '#34d399', icon: '🟢' },
-  descartada:      { label: 'Descartada',       cor: '#6b7280', icon: '❌' },
+export const STATUS_META: Record<StatusExpansao, { label: { pt: string; en: string; es: string; ru: string }; cor: string; icon: string }> = {
+  em_analise:      { label: { pt: 'Em análise',    en: 'Under review',   es: 'En análisis',      ru: 'На рассмотрении' }, cor: '#60a5fa', icon: '🔍' },
+  aprovada:        { label: { pt: 'Aprovada',      en: 'Approved',       es: 'Aprobada',         ru: 'Одобрен' },         cor: '#2ecc71', icon: '✅' },
+  em_implantacao:  { label: { pt: 'Em implantação',en: 'In deployment',  es: 'En implantación',  ru: 'Внедрение' },       cor: '#f5c842', icon: '🚧' },
+  ativa:           { label: { pt: 'Ativa',         en: 'Active',         es: 'Activa',           ru: 'Активный' },        cor: '#34d399', icon: '🟢' },
+  descartada:      { label: { pt: 'Descartada',    en: 'Discarded',      es: 'Descartada',       ru: 'Отклонён' },        cor: '#6b7280', icon: '❌' },
 };
 
 export function useCidadesExpansao() {
@@ -118,13 +119,7 @@ export function CidadeExpansaoModal({
   const { i18n } = useTranslation();
   const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
   const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
-  const STATUS_LABEL: Record<StatusExpansao, { pt: string; en: string; es: string; ru: string }> = {
-    em_analise:     T.statusEmAnalise,
-    aprovada:       T.statusAprovada,
-    em_implantacao: T.statusEmImplantacao,
-    ativa:          T.statusAtiva,
-    descartada:     T.statusDescartada,
-  };
+  const pickLabel = (s: StatusExpansao) => pick(STATUS_META[s].label);
   const [nome,            setNome]            = useState(editando?.nome || '');
   const [pais,            setPais]            = useState(editando?.pais || 'BR');
   const [lat,             setLat]             = useState(editando?.lat || latLng?.lat || 0);
@@ -247,11 +242,24 @@ export function CidadeExpansaoModal({
       if (responsavel)     raw.responsavel     = responsavel;
       if (obs)             raw.obs             = obs;
 
+      const supaRow = {
+        nome: nome.trim(), pais, lat, lng, status,
+        populacao: populacao ? Number(populacao) : null,
+        mercado_est: mercadoEst ? Number(mercadoEst) : null,
+        investimento_est: investimentoEst ? Number(investimentoEst) : null,
+        data_prevista: dataPrevista || null,
+        responsavel: responsavel || null, obs: obs || null,
+        atualizado_em: new Date().toISOString(),
+      };
       if (editando) {
         await updateDoc(doc(db, 'cidades_expansao', editando.id), raw);
+        // dual-write Supabase
+        supabase.from('cidades_expansao').upsert({ id: editando.id, ...supaRow }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[CidadesExp] upsert cidades_expansao:', error.message); });
         showToast(pick(T.cityUpdated), 'success');
       } else {
-        await addDoc(collection(db, 'cidades_expansao'), { ...raw, criadoEm: serverTimestamp() });
+        const docRef = await addDoc(collection(db, 'cidades_expansao'), { ...raw, criadoEm: serverTimestamp() });
+        // dual-write Supabase
+        supabase.from('cidades_expansao').upsert({ id: docRef.id, ...supaRow, criado_em: new Date().toISOString() }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[CidadesExp] insert cidades_expansao:', error.message); });
         showToast(pick(T.cityAdded), 'success');
       }
       onFechar();
@@ -262,6 +270,8 @@ export function CidadeExpansaoModal({
   const excluir = async () => {
     if (!editando || !confirm(pick(T.confirmDelete).replace('{n}', editando.nome))) return;
     await deleteDoc(doc(db, 'cidades_expansao', editando.id));
+    // dual-write Supabase
+    supabase.from('cidades_expansao').delete().eq('id', editando.id).then(({ error }) => { if (error) console.error('[CidadesExp] delete cidades_expansao:', error.message); });
     showToast(pick(T.cityRemoved), 'success');
     onFechar();
   };
@@ -302,7 +312,7 @@ export function CidadeExpansaoModal({
                     background: status===s ? m.cor+'22' : 'rgba(255,255,255,.04)',
                     color: status===s ? m.cor : 'rgba(255,255,255,.3)',
                     outline: status===s ? `1px solid ${m.cor}66` : '1px solid rgba(255,255,255,.08)',
-                  }}>{m.icon} {pick(STATUS_LABEL[s])}</button>
+                  }}>{m.icon} {pickLabel(s)}</button>
                 );
               })}
             </div>

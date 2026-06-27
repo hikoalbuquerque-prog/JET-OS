@@ -77,35 +77,54 @@ function StatCard({ label, valor, sub, cor }: { label: string; valor: string|num
 }
 
 // ── EXPORTAÇÃO ────────────────────────────────────────────────────
-interface CampoExport { key: string; label: string; grupo: string; default: boolean; }
+interface CampoExport { key: string; label: TL; grupo: string; default: boolean; }
 
 const CAMPOS_EXPORT: CampoExport[] = [
-  { key: 'codigo',       label: 'Código',           grupo: 'Identificação',  default: true  },
-  { key: 'cidade',       label: 'Cidade',            grupo: 'Identificação',  default: true  },
-  { key: 'bairro',       label: 'Bairro',            grupo: 'Identificação',  default: true  },
-  { key: 'tipo',         label: 'Tipo',              grupo: 'Classificação',  default: true  },
-  { key: 'status',       label: 'Status',            grupo: 'Classificação',  default: true  },
-  { key: 'pais',         label: 'País',              grupo: 'Classificação',  default: false },
-  { key: 'lat',          label: 'Latitude',          grupo: 'Localização',    default: true  },
-  { key: 'lng',          label: 'Longitude',         grupo: 'Localização',    default: true  },
-  { key: 'endereco',     label: 'Endereço',          grupo: 'Localização',    default: true  },
-  { key: 'larguraFaixa', label: 'Largura Faixa (m)', grupo: 'Dados técnicos', default: true  },
-  { key: 'operador',     label: 'Operador',          grupo: 'Dados técnicos', default: false },
-  { key: 'consultor',    label: 'Consultor campo',   grupo: 'Dados técnicos', default: true  },
-  { key: 'privado.nomeLocal',        label: 'Nome do local',     grupo: 'Privado', default: true  },
-  { key: 'privado.nomeAutorizante',  label: 'Autorizante',       grupo: 'Privado', default: true  },
-  { key: 'privado.cargoAutorizante', label: 'Cargo',             grupo: 'Privado', default: false },
-  { key: 'privado.telefone',         label: 'Telefone parceiro', grupo: 'Privado', default: true  },
-  { key: 'privado.email',            label: 'E-mail parceiro',   grupo: 'Privado', default: false },
-  { key: 'ia_aprovado',  label: 'IA Aprovado',       grupo: 'IA',             default: true  },
-  { key: 'ia_score',     label: 'IA Score',          grupo: 'IA',             default: true  },
-  { key: 'ia_confianca', label: 'IA Confiança',      grupo: 'IA',             default: false },
-  { key: 'ia_largura',   label: 'IA Largura Est.',   grupo: 'IA',             default: true  },
-  { key: 'croquiStatus', label: 'Status Croqui',     grupo: 'Imagens',        default: false },
-  { key: 'streetView',   label: 'URL Street View',   grupo: 'Imagens',        default: false },
-  { key: 'foto',         label: 'URL Foto',          grupo: 'Imagens',        default: false },
-  { key: 'criadoEm',     label: 'Data Criação',      grupo: 'Datas',          default: false },
+  { key: 'codigo',       label: { pt:'Código',           en:'Code',              es:'Código',           ru:'Код' },              grupo: 'Identificação',  default: true  },
+  { key: 'cidade',       label: { pt:'Cidade',           en:'City',              es:'Ciudad',           ru:'Город' },            grupo: 'Identificação',  default: true  },
+  { key: 'bairro',       label: { pt:'Bairro',           en:'Neighborhood',      es:'Barrio',           ru:'Район' },            grupo: 'Identificação',  default: true  },
+  { key: 'tipo',         label: { pt:'Tipo',             en:'Type',              es:'Tipo',             ru:'Тип' },              grupo: 'Classificação',  default: true  },
+  { key: 'status',       label: { pt:'Status',           en:'Status',            es:'Estado',           ru:'Статус' },           grupo: 'Classificação',  default: true  },
+  { key: 'pais',         label: { pt:'País',             en:'Country',           es:'País',             ru:'Страна' },           grupo: 'Classificação',  default: false },
+  { key: 'lat',          label: { pt:'Latitude',         en:'Latitude',          es:'Latitud',          ru:'Широта' },           grupo: 'Localização',    default: true  },
+  { key: 'lng',          label: { pt:'Longitude',        en:'Longitude',         es:'Longitud',         ru:'Долгота' },          grupo: 'Localização',    default: true  },
+  { key: 'endereco',     label: { pt:'Endereço',         en:'Address',           es:'Dirección',        ru:'Адрес' },            grupo: 'Localização',    default: true  },
+  { key: 'larguraFaixa', label: { pt:'Largura Faixa (m)',en:'Lane Width (m)',    es:'Ancho Faja (m)',   ru:'Ширина полосы (м)' },grupo: 'Dados técnicos', default: true  },
+  { key: 'operador',     label: { pt:'Operador',         en:'Operator',          es:'Operador',         ru:'Оператор' },         grupo: 'Dados técnicos', default: false },
+  { key: 'consultor',    label: { pt:'Consultor campo',  en:'Field Consultant',  es:'Consultor campo',  ru:'Полевой консультант' },grupo: 'Dados técnicos', default: true  },
+  { key: 'privado.nomeLocal',        label: { pt:'Nome do local',     en:'Location Name',    es:'Nombre del local',  ru:'Название места' },    grupo: 'Privado', default: true  },
+  { key: 'privado.nomeAutorizante',  label: { pt:'Autorizante',       en:'Authorizer',       es:'Autorizante',       ru:'Ответственный' },     grupo: 'Privado', default: true  },
+  { key: 'privado.cargoAutorizante', label: { pt:'Cargo',             en:'Position',         es:'Cargo',             ru:'Должность' },         grupo: 'Privado', default: false },
+  { key: 'privado.telefone',         label: { pt:'Telefone parceiro', en:'Partner Phone',    es:'Teléfono socio',    ru:'Телефон партнёра' },   grupo: 'Privado', default: true  },
+  { key: 'privado.email',            label: { pt:'E-mail parceiro',   en:'Partner Email',    es:'E-mail socio',      ru:'Email партнёра' },     grupo: 'Privado', default: false },
+  { key: 'ia_aprovado',  label: { pt:'IA Aprovado',      en:'AI Approved',       es:'IA Aprobado',      ru:'ИИ Одобрен' },       grupo: 'IA',             default: true  },
+  { key: 'ia_score',     label: { pt:'IA Score',         en:'AI Score',          es:'IA Score',         ru:'ИИ Оценка' },        grupo: 'IA',             default: true  },
+  { key: 'ia_confianca', label: { pt:'IA Confiança',     en:'AI Confidence',     es:'IA Confianza',     ru:'ИИ Уверенность' },   grupo: 'IA',             default: false },
+  { key: 'ia_largura',   label: { pt:'IA Largura Est.',  en:'AI Est. Width',     es:'IA Ancho Est.',    ru:'ИИ Ширина Оц.' },   grupo: 'IA',             default: true  },
+  { key: 'croquiStatus', label: { pt:'Status Croqui',    en:'Sketch Status',     es:'Estado Croquis',   ru:'Статус Эскиза' },    grupo: 'Imagens',        default: false },
+  { key: 'streetView',   label: { pt:'URL Street View',  en:'URL Street View',   es:'URL Street View',  ru:'URL Street View' },  grupo: 'Imagens',        default: false },
+  { key: 'foto',         label: { pt:'URL Foto',         en:'Photo URL',         es:'URL Foto',         ru:'URL Фото' },         grupo: 'Imagens',        default: false },
+  { key: 'criadoEm',     label: { pt:'Data Criação',     en:'Creation Date',     es:'Fecha Creación',   ru:'Дата Создания' },    grupo: 'Datas',          default: false },
 ];
+
+const CAMPOS_EXPORT_GRUPO_LABELS: Record<string, TL> = {
+  'Identificação':  { pt:'Identificação',  en:'Identification',  es:'Identificación',  ru:'Идентификация' },
+  'Classificação':  { pt:'Classificação',  en:'Classification',  es:'Clasificación',   ru:'Классификация' },
+  'Localização':    { pt:'Localização',    en:'Location',        es:'Ubicación',       ru:'Местоположение' },
+  'Dados técnicos': { pt:'Dados técnicos', en:'Technical data',  es:'Datos técnicos',  ru:'Технические данные' },
+  'Privado':        { pt:'Privado',        en:'Private',         es:'Privado',         ru:'Частное' },
+  'IA':             { pt:'IA',             en:'AI',              es:'IA',              ru:'ИИ' },
+  'Imagens':        { pt:'Imagens',        en:'Images',          es:'Imágenes',        ru:'Изображения' },
+  'Datas':          { pt:'Datas',          en:'Dates',           es:'Fechas',          ru:'Даты' },
+};
+
+function pickExportLabel(campo: CampoExport, lang: Lang): string {
+  return campo.label[lang] ?? campo.label.pt;
+}
+function pickExportGrupo(grupo: string, lang: Lang): string {
+  const tl = CAMPOS_EXPORT_GRUPO_LABELS[grupo];
+  return tl ? (tl[lang] ?? tl.pt) : grupo;
+}
 
 function getValorCampo(e: Estacao, key: string): string {
   const v: Record<string, unknown> = {
@@ -128,10 +147,10 @@ function getValorCampo(e: Estacao, key: string): string {
   return String(v[key] ?? '');
 }
 
-function baixarCSV(estacoes: Estacao[], cidade: string, camposSel?: string[]) {
+function baixarCSV(estacoes: Estacao[], cidade: string, camposSel?: string[], lang: Lang = 'pt') {
   const campos = camposSel || CAMPOS_EXPORT.filter(c => c.default).map(c => c.key);
   const linhas = [
-    campos.map(k => CAMPOS_EXPORT.find(c => c.key === k)?.label || k).join(','),
+    campos.map(k => { const f = CAMPOS_EXPORT.find(c => c.key === k); return f ? pickExportLabel(f, lang) : k; }).join(','),
     ...estacoes.map(e =>
       campos.map(k => `"${getValorCampo(e, k).replace(/"/g, '""')}"`).join(',')
     )
@@ -589,7 +608,7 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
   const [filtroStatus, setFiltroStatus] = useState<string>('TODOS');
   const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
   const [gerando,      setGerando]      = useState(false);
-  const [idiomaRelat,  setIdiomaRelat]  = useState<'pt-BR'|'es'|'en'>('pt-BR');
+  const [idiomaRelat,  setIdiomaRelat]  = useState<'pt-BR'|'es'|'en'|'ru'>('pt-BR');
   const [modoRelat,    setModoRelat]    = useState<'normal'|'compacto'>('normal');
   const [campos,       setCampos]       = useState<string[]>(
     CAMPOS_RELATORIO.filter(c => c.default).map(c => c.key)
@@ -741,6 +760,40 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
       croquiLabel: 'View Sketch',
       nomeLocal:   'Location',
     },
+    'ru': {
+      titulo:      'Отчёт о Станциях',
+      cidade:      'Город',
+      data:        'Дата',
+      prep:        'Подготовлено',
+      empresa:     'JET Scooters',
+      tabelaTit:   'Зарегистрированные Станции',
+      codigo:      'Код',
+      endereco:    'Адрес',
+      bairro:      'Район',
+      status:      'Статус',
+      tipo:        'Тип',
+      largura:     'Ширина (м)',
+      consultor:   'Консультант',
+      dataReg:     'Дата Регистрации',
+      local:       'Название Места',
+      autorizante: 'Ответственный',
+      total:       'Всего точек',
+      rodape:      'Документ автоматически сгенерирован системой JET OS',
+      modoNormal:  'Обычный',
+      modoCompact: 'Компактный',
+      selIdioma:   'Язык отчёта:',
+      selModo:     'Режим:',
+      btnGerar:    'Создать PDF',
+      btnGerando:  'Создание PDF...',
+      btnSel:      'Выберите станции для создания',
+      estacao:     'станция',
+      estacoes:    'станции',
+      dadosEst:    'Данные заведения',
+      svLabel:     'Открыть Street View',
+      fotoLabel:   'Смотреть Фото',
+      croquiLabel: 'Смотреть Эскиз',
+      nomeLocal:   'Место',
+    },
   };
   const tr = i18nRelat[idiomaRelat] || i18nRelat['pt-BR'];
 
@@ -887,7 +940,7 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
 
     const cards = estRelatorio.map((e, i) => {
       const priv      = (e as any).privado || {};
-      const nomeLocal = priv.nomeLocal || (e as any).endereco || e.codigo || ('Estação #' + (i+1));
+      const nomeLocal = priv.nomeLocal || (e as any).endereco || e.codigo || (tr.estacao + ' #' + (i+1));
       // Street View — procura em todos os campos possíveis
       const svUrl = (e as any).imagens?.streetView
         || (e as any).street_view_url
@@ -943,11 +996,11 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
               + '</a>';
           } else if (isLink && v) {
             cell = '<a href="' + v + '" target="_blank" '
-              + 'style="color:#1d4ed8;font-size:10px">Ver ↗</a>';
+              + 'style="color:#1d4ed8;font-size:10px">↗</a>';
           } else {
             cell = '<span style="font-size:11px">' + v + '</span>';
           }
-          return '<tr style="border-bottom:1px solid #f3f4f6"><td style="color:#9ca3af;font-size:9px;padding:4px 8px 4px 0;width:40%;white-space:nowrap">' + c.label.toUpperCase() + '</td><td style="padding:4px 0;font-size:11px">' + cell + '</td></tr>';
+          return '<tr style="border-bottom:1px solid #f3f4f6"><td style="color:#9ca3af;font-size:9px;padding:4px 8px 4px 0;width:40%;white-space:nowrap">' + labelCampo(c.key, c.label).toUpperCase() + '</td><td style="padding:4px 0;font-size:11px">' + cell + '</td></tr>';
         }).join('');
 
       // Foto principal (primeira foto disponível)
@@ -967,7 +1020,7 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
         '<div style="background:' + (e.tipo === 'PRIVADA' ? '#1e3a5f' : '#1a3a2e') + ';padding:12px 16px;display:flex;justify-content:space-between;align-items:center">' +
           '<div style="color:#fff;font-size:14px;font-weight:700">#' + String(i+1).padStart(2,'0') + ' ' + nomeLocal + '</div>' +
           '<span style="background:' + (statusBg[e.status] || '#f3f4f6') + ';color:' + (statusCor[e.status] || '#374151') + ';padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700">' +
-            (e.status === 'APROVADO' ? '✓ APROVADO' : e.status) +
+            (e.status === 'APROVADO' ? '✓ ' + e.status : e.status) +
           '</span>' +
         '</div>' +
         // Corpo em 2 colunas
@@ -1242,7 +1295,7 @@ function RelatorioManager({ estacoes, cidade, pais, total }: {
             {tr.selIdioma}
           </div>
           <div style={{ display:'flex', gap:5 }}>
-            {([['pt-BR','🇧🇷 PT-BR'],['es','🇲🇽 ES'],['en','🇺🇸 EN']] as const).map(([k,l]) => (
+            {([['pt-BR','🇧🇷 PT-BR'],['es','🇲🇽 ES'],['en','🇺🇸 EN'],['ru','🇷🇺 RU']] as const).map(([k,l]) => (
               <button key={k} onClick={() => setIdiomaRelat(k)}
                 style={{ flex:1, padding:'5px 4px', borderRadius:7, cursor:'pointer', fontSize:10,
                   background: idiomaRelat===k ? 'rgba(59,130,246,.2)' : 'rgba(255,255,255,.04)',
@@ -2048,7 +2101,7 @@ function baixarTemplate() {
 function AbaExportar({ estacoes, cidade, pais, total }: {
   estacoes: Estacao[]; cidade: string; pais: string; total: number;
 }) {
-  const { pick } = useLang();
+  const { lang, pick } = useLang();
   const T = {
     estacoesCampos:{ pt:'campos selecionados', en:'selected fields', es:'campos seleccionados', ru:'выбрано полей' },
     estacoes:    { pt:'estações ·', en:'stations ·', es:'estaciones ·', ru:'станций ·' },
@@ -2096,8 +2149,8 @@ function AbaExportar({ estacoes, cidade, pais, total }: {
     foto:          { pt:'URL Foto', en:'Photo URL', es:'URL Foto', ru:'URL Фото' },
     criadoEm:      { pt:'Data Criação', en:'Creation Date', es:'Fecha de Creación', ru:'Дата создания' },
   };
-  const labelGrupo = (g: string) => grupoLabels[g] ? pick(grupoLabels[g]) : g;
-  const labelCampo = (k: string, fb: string) => campoLabels[k] ? pick(campoLabels[k]) : fb;
+  const labelGrupo = (g: string) => grupoLabels[g] ? pick(grupoLabels[g]) : pickExportGrupo(g, lang);
+  const labelCampo = (k: string, fb: TL) => campoLabels[k] ? pick(campoLabels[k]) : pick(fb);
   const defaultCampos = CAMPOS_EXPORT.filter(c => c.default).map(c => c.key);
   const [camposSel, setCamposSel] = useState<string[]>(defaultCampos);
 
@@ -2167,7 +2220,7 @@ function AbaExportar({ estacoes, cidade, pais, total }: {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <button onClick={() => baixarCSV(estacoes, cidade || pais, camposSel)}
+        <button onClick={() => baixarCSV(estacoes, cidade || pais, camposSel, lang)}
           disabled={!total || !camposSel.length} style={{
           padding: '13px 16px', borderRadius: 10,
           cursor: total && camposSel.length ? 'pointer' : 'not-allowed',
@@ -2212,7 +2265,7 @@ function AbaDados({ estacoes, cidade, pais, total, isGestor,
   importando: boolean; importResult: any; importLog: string[];
   fileRef: React.RefObject<HTMLInputElement>; handleImportar: ()=>void;
 }) {
-  const { pick } = useLang();
+  const { lang, pick } = useLang();
   const T = {
     estTotal:    { pt:'📍 Estações —', en:'📍 Stations —', es:'📍 Estaciones —', ru:'📍 Станции —' },
     totalWord:   { pt:'total', en:'total', es:'total', ru:'всего' },
@@ -2253,6 +2306,20 @@ function AbaDados({ estacoes, cidade, pais, total, isGestor,
     linhasLidas: { pt:'linhas lidas', en:'rows read', es:'filas leídas', ru:'строк прочитано' },
     formatoNS:   { pt:'Formato não suportado. Use .kmz, .kml, .geojson ou .csv', en:'Unsupported format. Use .kmz, .kml, .geojson or .csv', es:'Formato no soportado. Use .kmz, .kml, .geojson o .csv', ru:'Неподдерживаемый формат. Используйте .kmz, .kml, .geojson или .csv' },
     erroLog:     { pt:'❌ Erro:', en:'❌ Error:', es:'❌ Error:', ru:'❌ Ошибка:' },
+    // PDF export
+    pdfRelatorio:{ pt:'Relatório', en:'Report', es:'Informe', ru:'Отчёт' },
+    pdfGerado:   { pt:'Gerado em', en:'Generated on', es:'Generado el', ru:'Создано' },
+    pdfEstacoes: { pt:'estações', en:'stations', es:'estaciones', ru:'станций' },
+    pdfOrdem:    { pt:'Ordem', en:'Order', es:'Orden', ru:'Порядок' },
+    pdfEstTit:   { pt:'Estações', en:'Stations', es:'Estaciones', ru:'Станции' },
+    pdfZonasAtivas:{ pt:'ativas de', en:'active of', es:'activas de', ru:'активных из' },
+    pdfNome:     { pt:'Nome', en:'Name', es:'Nombre', ru:'Название' },
+    pdfGrupo:    { pt:'Grupo', en:'Group', es:'Grupo', ru:'Группа' },
+    pdfFase:     { pt:'Fase', en:'Phase', es:'Fase', ru:'Фаза' },
+    pdfVertices: { pt:'Vértices', en:'Vertices', es:'Vértices', ru:'Вершины' },
+    pdfStatus:   { pt:'Status', en:'Status', es:'Estado', ru:'Статус' },
+    pdfAtiva:    { pt:'Ativa', en:'Active', es:'Activa', ru:'Активна' },
+    pdfInativa:  { pt:'Inativa', en:'Inactive', es:'Inactiva', ru:'Неактивна' },
   };
   const ordLabels: Record<'bairro'|'codigo'|'status', TL> = { bairro: T.ordBairro, codigo: T.ordCodigo, status: T.ordStatus };
   const grupoLabels: Record<string, TL> = {
@@ -2338,7 +2405,7 @@ function AbaDados({ estacoes, cidade, pais, total, isGestor,
 
   const exportCSV = () => {
     const sorted = sortEstacoes(estacoes);
-    const header = camposSel.map(k => CAMPOS_EXPORT.find(c=>c.key===k)?.label || k).join(',');
+    const header = camposSel.map(k => { const f = CAMPOS_EXPORT.find(c=>c.key===k); return f ? labelCampo(f.key, f.label) : k; }).join(',');
     const rows = sorted.map(e => camposSel.map(k => `"${getValor(e,k).replace(/"/g,'""')}"`).join(','));
     const blob = new Blob(['﻿' + [header, ...rows].join('\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
@@ -2362,10 +2429,11 @@ function AbaDados({ estacoes, cidade, pais, total, isGestor,
     const { getDocs, collection, query, where } = await import('firebase/firestore');
     const snap = await getDocs(query(collection(db, 'poligonos'), where('cidade', 'in', [cidade])));
     const zonas = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
-    const headers = camposSel.map(k => CAMPOS_EXPORT.find(c=>c.key===k)?.label||k);
+    const headers = camposSel.map(k => { const f = CAMPOS_EXPORT.find(c=>c.key===k); return f ? labelCampo(f.key, f.label) : k; });
+    const statusIdx = camposSel.indexOf('status');
     const rows = sorted.map(e => camposSel.map(k => getValor(e,k)));
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Relatório ${cidade}</title>
+<title>${pick(T.pdfRelatorio)} ${cidade}</title>
 <style>
   body{font-family:Arial,sans-serif;font-size:11px;padding:16px;color:#222}
   h1{color:#1a6fd4;font-size:16px;margin:0 0 4px}
@@ -2379,15 +2447,15 @@ function AbaDados({ estacoes, cidade, pais, total, isGestor,
   .CANCELADO,.REPROVADO{background:#fee2e2;color:#991b1b}
   @media print{button{display:none}}
 </style></head><body>
-<h1>Relatório — ${cidade}</h1>
-<p style="font-size:10px;color:#888">Gerado em ${new Date().toLocaleString('pt-BR')} · ${sorted.length} estações · Ordem: ${ordenarPor}</p>
-<h2>Estações</h2>
+<h1>${pick(T.pdfRelatorio)} — ${cidade}</h1>
+<p style="font-size:10px;color:#888">${pick(T.pdfGerado)} ${new Date().toLocaleString(lang === 'ru' ? 'ru-RU' : lang === 'en' ? 'en-US' : lang === 'es' ? 'es-MX' : 'pt-BR')} · ${sorted.length} ${pick(T.pdfEstacoes)} · ${pick(T.pdfOrdem)}: ${pick(ordLabels[ordenarPor])}</p>
+<h2>${pick(T.pdfEstTit)}</h2>
 <table><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr>
-${rows.map(r=>`<tr>${r.map((v,i)=>headers[i]==='Status'?`<td><span class="badge ${v}">${v}</span></td>`:`<td>${v}</td>`).join('')}</tr>`).join('')}
+${rows.map(r=>`<tr>${r.map((v,i)=>i===statusIdx?`<td><span class="badge ${v}">${v}</span></td>`:`<td>${v}</td>`).join('')}</tr>`).join('')}
 </table>
-${zonas.length>0?`<h2>Zonas (${zonas.filter(z=>z.ativo!==false).length} ativas de ${zonas.length})</h2>
-<table><tr><th>Nome</th><th>Grupo</th><th>Fase</th><th>Vértices</th><th>Status</th></tr>
-${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||''}</td><td>${z.poligono?.length||0}</td><td>${z.ativo!==false?'Ativa':'Inativa'}</td></tr>`).join('')}
+${zonas.length>0?`<h2>${pick(T.zonas)} (${zonas.filter(z=>z.ativo!==false).length} ${pick(T.pdfZonasAtivas)} ${zonas.length})</h2>
+<table><tr><th>${pick(T.pdfNome)}</th><th>${pick(T.pdfGrupo)}</th><th>${pick(T.pdfFase)}</th><th>${pick(T.pdfVertices)}</th><th>${pick(T.pdfStatus)}</th></tr>
+${zonas.map(z=>`<tr><td>${z.nome||''}</td><td>${z.grupo||''}</td><td>${z.fase||''}</td><td>${z.poligono?.length||0}</td><td>${z.ativo!==false?pick(T.pdfAtiva):pick(T.pdfInativa)}</td></tr>`).join('')}
 </table>`:''}
 </body></html>`;
     const w = window.open('','_blank','width=1000,height=700');
@@ -5115,7 +5183,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
                     <span style={{ fontSize:14 }}>{m.icon}</span>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontSize:12, fontWeight:600, color:'#dce8ff', whiteSpace:'nowrap' as any, overflow:'hidden', textOverflow:'ellipsis' }}>{c.nome}</div>
-                      <div style={{ fontSize:9, color:'rgba(255,255,255,.3)' }}>{m.label}{c.dataPrevista ? ' · 📅 ' + c.dataPrevista : ''}</div>
+                      <div style={{ fontSize:9, color:'rgba(255,255,255,.3)' }}>{pick(m.label)}{c.dataPrevista ? ' · 📅 ' + c.dataPrevista : ''}</div>
                     </div>
                     {c.mercadoEst && <div style={{ fontSize:10, color:m.cor, fontWeight:700, fontFamily:"'IBM Plex Mono',monospace" }}>{c.mercadoEst.toLocaleString()}{pick(T.mes)}</div>}
                   </div>

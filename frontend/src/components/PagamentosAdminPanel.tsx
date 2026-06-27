@@ -14,6 +14,7 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
 // ---------------------------------------------------------------------------
@@ -435,6 +436,12 @@ function AbaNFsPendentes({
         nf_validada_por: usuario.nome,
         nf_validada_em: serverTimestamp(),
       });
+      // dual-write Supabase
+      supabase.from('pagamentos_semana').update({
+        status: 'nf_aprovada',
+        nf_validada_por: usuario.nome,
+        nf_validada_em: new Date().toISOString(),
+      }).eq('id', p.id).then(({ error }) => { if (error) console.error('[PagAdmin] update pagamentos_semana aprovar:', error.message); });
       chamarNotificarStatusNF({
         uid: p.uid,
         status: 'nf_aprovada',
@@ -458,6 +465,13 @@ function AbaNFsPendentes({
         nf_validada_por: usuario.nome,
         nf_validada_em: serverTimestamp(),
       });
+      // dual-write Supabase
+      supabase.from('pagamentos_semana').update({
+        status: 'rejeitada',
+        motivo_rejeicao: motivo,
+        nf_validada_por: usuario.nome,
+        nf_validada_em: new Date().toISOString(),
+      }).eq('id', p.id).then(({ error }) => { if (error) console.error('[PagAdmin] update pagamentos_semana rejeitar:', error.message); });
       chamarNotificarStatusNF({
         uid: p.uid,
         status: 'rejeitada',
@@ -602,6 +616,11 @@ function AbaPagamentos({ usuario }: { usuario: Props['usuario'] }) {
         status: 'pago',
         pago_em: serverTimestamp(),
       });
+      // dual-write Supabase
+      supabase.from('pagamentos_semana').update({
+        status: 'pago',
+        pago_em: new Date().toISOString(),
+      }).eq('id', p.id).then(({ error }) => { if (error) console.error('[PagAdmin] update pagamentos_semana pago:', error.message); });
       chamarNotificarStatusNF({
         uid: p.uid,
         status: 'pago',
@@ -790,6 +809,10 @@ function AbaConfiguracao({ usuario }: { usuario: Props['usuario'] }) {
         { valor_por_tarefa: valor, moeda: 'BRL', ativo: true },
         { merge: true }
       );
+      // dual-write Supabase
+      supabase.from('pagamentos_config').upsert({
+        id: cidade, valor_por_tarefa: valor, moeda: 'BRL', ativo: true,
+      }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[PagAdmin] upsert pagamentos_config:', error.message); });
       setEditando((e) => { const n = { ...e }; delete n[cidade]; return n; });
       await carregar();
     } finally {
@@ -807,6 +830,10 @@ function AbaConfiguracao({ usuario }: { usuario: Props['usuario'] }) {
         { valor_por_tarefa: parseFloat(valor), moeda: 'BRL', ativo: true },
         { merge: true }
       );
+      // dual-write Supabase
+      supabase.from('pagamentos_config').upsert({
+        id: nome.trim(), valor_por_tarefa: parseFloat(valor), moeda: 'BRL', ativo: true,
+      }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[PagAdmin] upsert pagamentos_config nova:', error.message); });
       setNovasCidades((arr) => arr.filter((_, i) => i !== idx));
       await carregar();
     } finally {

@@ -14,6 +14,7 @@ import {
   onSnapshot, serverTimestamp, Timestamp, doc, updateDoc,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { uploadComRetry } from '../lib/uploadUtils';
 import { comprimirImagem, capturarFotoNativa } from '../lib/imageUtils';
 import { isAndroidNative } from '../lib/gps-native';
@@ -165,14 +166,29 @@ export default function TurnoRegistro({ uid, nome, cidade, role, visivel, onFech
           fotoSaidaUrl: fotoUrl,
           latSaida: gps?.lat, lngSaida: gps?.lng,
         });
+        // dual-write Supabase
+        supabase.from('turnos').update({
+          aberto: false,
+          saida_em: new Date().toISOString(),
+          foto_saida_url: fotoUrl,
+          lat_saida: gps?.lat, lng_saida: gps?.lng,
+        }).eq('id', turnoAberto.id).then(({ error }) => { if (error) console.error('[TurnoRegistro] update turnos:', error.message); });
         setMsg('✓ Saída registrada');
       } else {
-        await addDoc(collection(db, 'turnos'), {
+        const docRef = await addDoc(collection(db, 'turnos'), {
           uid, nome, acao, funcao, turno,
           fotoUrl,
           lat: gps?.lat, lng: gps?.lng, accuracy: gps?.accuracy,
           cidade, registradoEm: serverTimestamp(), aberto: true,
         } satisfies Omit<TurnoRecord, 'id'>);
+        // dual-write Supabase
+        supabase.from('turnos').upsert({
+          id: docRef.id,
+          uid, nome, acao, funcao, turno,
+          foto_url: fotoUrl,
+          lat: gps?.lat, lng: gps?.lng, accuracy: gps?.accuracy,
+          cidade, registrado_em: new Date().toISOString(), aberto: true,
+        }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[TurnoRegistro] upsert turnos:', error.message); });
         setMsg('✓ Entrada registrada');
       }
       setFotoBase64(null); setFotoBlob(null);

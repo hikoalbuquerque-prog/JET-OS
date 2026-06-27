@@ -492,7 +492,8 @@
           },
           {
             "titulo": "Filtros puntos",
-            "desc": "Todos · 🔴 Vacíos · 🟠 < meta · 🔵 En meta · 🟢 Exceso · 🔗 M1 (manual) / M2 (semi-auto) / M3 (automático)"
+            "desc": "Todos · 🔴 Vacíos · 🟠 < meta · 🔵 En meta · 🟢 Exceso · 🔗 Vinculados (M1/M2/M3 = distancia a la estación JET OS más cercana).",
+            "dica": "El filtro 🔗 muestra puntos GoJet con una estación JET OS a menos de 150 m — útil para operaciones conjuntas."
           },
           {
             "titulo": "Filtros patinetes",
@@ -784,7 +785,113 @@
             "dica": "Para ejercer tus derechos o hablar con el encargado (DPO), contacta a la gestión de Jet."
           }
         ]
+      },
+      "analytics": {
+        "titulo": "Analytics de viajes",
+        "passos": [
+          {
+            "titulo": "Importar datos",
+            "desc": "Haz clic en \"📊 Analytics\" y arrastra el archivo Excel exportado del sistema."
+          },
+          {
+            "titulo": "Mapa de calor",
+            "desc": "El mapa muestra las rutas de inicio y fin de cada viaje con intensidad por volumen."
+          },
+          {
+            "titulo": "Filtros",
+            "desc": "Usa los botones de la barra de herramientas para alternar entre Heatmap, Hexbins, Arcos y Puntos."
+          },
+          {
+            "titulo": "Modo 3D",
+            "desc": "Haz clic en \"🏔 3D\" para inclinar el mapa. Mantén Ctrl + arrastra para rotar.",
+            "dica": "Combina el modo Hexbin 3D con las Zonas para identificar barrios de alta demanda."
+          }
+        ]
+      },
+      "dashboard": {
+        "titulo": "Dashboard y reportes",
+        "passos": [
+          {
+            "titulo": "Reporte de estación",
+            "desc": "En \"📋 Dash\" → Reportes, selecciona una estación y haz clic en \"Generar PDF\"."
+          },
+          {
+            "titulo": "Exportar Guard",
+            "desc": "En Dash → Guard, usa los filtros y haz clic en \"Exportar Excel\"."
+          },
+          {
+            "titulo": "Gestionar usuarios",
+            "desc": "Haz clic en el ícono 👥 en el header. Aprueba solicitudes definiendo el rol. Gestor Seguridad: rol gestor_seg."
+          },
+          {
+            "titulo": "Notificaciones Telegram",
+            "desc": "En Dash → Guard → Config (solo admin), configura qué tipos de incidencias activan alertas.",
+            "dica": "El bot necesita el token configurado en las Cloud Functions."
+          }
+        ]
+      },
+      "tarefas-logistica": {
+        "titulo": "📦 Módulo de Tareas",
+        "passos": [
+          {
+            "titulo": "Abrir el módulo",
+            "desc": "Haz clic en el botón 📦 Tareas en los FABs laterales. Disponible para logística, campo, gestor y admin."
+          },
+          {
+            "titulo": "Worker Home",
+            "desc": "La pestaña 🏠 Inicio muestra tu estado (trabajando/parado), tiempo de turno y tareas activas. Toca \"▶ Iniciar trabajo + Foto\" para empezar."
+          },
+          {
+            "titulo": "Crear tarea — GoJet",
+            "desc": "En la pestaña ➕ Crear, selecciona \"🛴 Punto GoJet\" para ver la lista en vivo ordenada por déficit. Los vacíos aparecen arriba con badge VACÍO.",
+            "dica": "Activa el filtro \"🔴 Solo críticos\" para ver solo puntos por debajo del 50% del objetivo."
+          },
+          {
+            "titulo": "Crear tarea — Estación JET OS",
+            "desc": "Haz clic en cualquier estación del mapa y toca \"📦 + Crear tarea\" en el popup. El nombre y las coordenadas se completan automáticamente."
+          },
+          {
+            "titulo": "Crear tarea — GoJet en el mapa",
+            "desc": "Con el overlay GoJet activo, haz clic en un punto P y toca \"+ Crear tarea\". El punto se preselecciona con el déficit calculado."
+          },
+          {
+            "titulo": "Generación automática",
+            "desc": "Las tareas se generan automáticamente cada hora para puntos GoJet por debajo del 50% del objetivo. Aparecen con badge AUTO en el kanban."
+          },
+          {
+            "titulo": "Kanban pantalla completa",
+            "desc": "En la pestaña 📊 Kanban, haz clic en ⊞ para expandir a pantalla completa. En escritorio, las columnas quedan lado a lado."
+          },
+          {
+            "titulo": "Cambiar destino",
+            "desc": "En el detalle de una tarea, haz clic en 🎯 — un banner naranja aparece en el mapa. Haz clic en cualquier P GoJet para definir el nuevo destino.",
+            "dica": "Solo disponible para gestor/admin."
+          },
+          {
+            "titulo": "Dashboard",
+            "desc": "La pestaña 📈 Stats muestra: tasa de conclusión, duración media, ranking de agentes con oro/plata/bronce, top puntos más atendidos."
+          },
+          {
+            "titulo": "Histórico CSV",
+            "desc": "La pestaña 📂 Histórico tiene filtros por estado, tipo, agente y búsqueda. Haz clic en ⬇ CSV para exportar con BOM (abre directo en Excel)."
+          },
+          {
+            "titulo": "Notificaciones",
+            "desc": "Al asignar una tarea, el agente recibe push nativo (Android FCM) y Telegram simultáneamente."
+          }
+        ]
       }
+    },
+    "roleLabels": {
+      "admin": "Admin",
+      "gestor": "Gestor",
+      "supergestor": "SuperGestor",
+      "gestor_log": "Gest. Log.",
+      "gestor_seg": "Gest. Seg.",
+      "campo": "Campo",
+      "guard": "Guard",
+      "viewer": "Viewer",
+      "logistica": "Logística"
     }
   },
   "fab": {
@@ -1046,7 +1153,14 @@
     "maps": "Maps",
     "view": "Ver",
     "occurrence": "ocurrencia",
-    "occurrences": "ocurrencias"
+    "occurrences": "ocurrencias",
+    "addStationHere": "Agregar estación aquí",
+    "delete": "Eliminar",
+    "sv": "SV",
+    "viewDoc": "Ver",
+    "tpu": "TPU",
+    "authorization": "Autorización",
+    "notRegistered": "no registrado"
   },
   "legend": {
     "pub": "Pública",
@@ -1071,24 +1185,5 @@
     "guard": "Guard",
     "candidates": "Pts. Candidatos",
     "logout": "Cerrar sesión"
-  },
-  "popup": {
-    "addStationHere": "Agregar estación aquí",
-    "edit": "Editar",
-    "delete": "Eliminar",
-    "streetView": "Street View",
-    "photo": "Foto",
-    "maps": "Maps",
-    "croqui": "Croquis",
-    "sv": "SV",
-    "del": "Del",
-    "addPhoto": "Agregar foto",
-    "viewDoc": "Ver",
-    "addDocs": "Agregar documentos",
-    "updateDocs": "Actualizar documentos",
-    "publicDocs": "Documentos Públicos",
-    "tpu": "TPU",
-    "authorization": "Autorización",
-    "notRegistered": "no registrado"
   }
 }

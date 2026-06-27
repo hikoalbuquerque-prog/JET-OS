@@ -1,6 +1,7 @@
-// src/components/POIPanel.tsx — Overpass API (OSM) gratuita, sem Cloud Function
+// src/components/POIPanel.tsx — busca POIs via Edge Function buscar-pois-osm
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { fnBuscarPOIs } from '../lib/firebase';
 
 // ── I18N (padrão objeto T, sem json) ─────────────────────────────
 type Lang = 'pt' | 'en' | 'es' | 'ru';
@@ -174,178 +175,13 @@ export const POI_META: Record<string, { icon: string; label: string; color: stri
   toilets:            { icon: '🚻', label: 'Banheiro',      color: '#94a3b8' },
 };
 
-// ── OVERPASS QUERY ────────────────────────────────────────────────
-const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
-const FALLBACK_URL = 'https://overpass.kumi.systems/api/interpreter';
-
-// Query unificada — busca TODOS os POIs de uma vez
-function buildQuery(lat: number, lng: number, raio: number): string {
-  const r = raio;
-  const c = `${lat},${lng}`;
-  return `[out:json][timeout:25];
-(
-  node["railway"="subway_entrance"](around:${r},${c});
-  node["railway"="station"](around:${r},${c});
-  node["highway"="bus_stop"](around:${r},${c});
-  node["amenity"="bus_station"](around:${r},${c});
-  node["amenity"="taxi"](around:${r},${c});
-  node["amenity"="ferry_terminal"](around:${r},${c});
-  node["amenity"="bicycle_rental"](around:${r},${c});
-  node["amenity"="parking"](around:${r},${c});
-  node["shop"="mall"](around:${r},${c});
-  way["shop"="mall"](around:${r},${c});
-  node["amenity"="marketplace"](around:${r},${c});
-  node["shop"="supermarket"](around:${r},${c});
-  node["shop"="convenience"](around:${r},${c});
-  node["shop"="bakery"](around:${r},${c});
-  node["amenity"="pharmacy"](around:${r},${c});
-  node["amenity"="bank"](around:${r},${c});
-  node["amenity"="atm"](around:${r},${c});
-  node["amenity"="fuel"](around:${r},${c});
-  node["amenity"="restaurant"](around:${r},${c});
-  node["amenity"="cafe"](around:${r},${c});
-  node["amenity"="fast_food"](around:${r},${c});
-  node["amenity"="bar"](around:${r},${c});
-  node["amenity"="food_court"](around:${r},${c});
-  node["amenity"="ice_cream"](around:${r},${c});
-  node["amenity"="university"](around:${r},${c});
-  way["amenity"="university"](around:${r},${c});
-  node["amenity"="school"](around:${r},${c});
-  node["amenity"="college"](around:${r},${c});
-  node["amenity"="library"](around:${r},${c});
-  node["amenity"="kindergarten"](around:${r},${c});
-  node["amenity"="hospital"](around:${r},${c});
-  way["amenity"="hospital"](around:${r},${c});
-  node["amenity"="clinic"](around:${r},${c});
-  node["amenity"="doctors"](around:${r},${c});
-  node["amenity"="dentist"](around:${r},${c});
-  node["amenity"="veterinary"](around:${r},${c});
-  node["leisure"="park"](around:${r},${c});
-  way["leisure"="park"](around:${r},${c});
-  node["leisure"="playground"](around:${r},${c});
-  node["leisure"="fitness_centre"](around:${r},${c});
-  node["leisure"="sports_centre"](around:${r},${c});
-  node["leisure"="swimming_pool"](around:${r},${c});
-  node["leisure"="stadium"](around:${r},${c});
-  node["amenity"="cinema"](around:${r},${c});
-  node["amenity"="theatre"](around:${r},${c});
-  node["amenity"="nightclub"](around:${r},${c});
-  node["amenity"="townhall"](around:${r},${c});
-  node["amenity"="police"](around:${r},${c});
-  node["amenity"="fire_station"](around:${r},${c});
-  node["amenity"="post_office"](around:${r},${c});
-  node["amenity"="courthouse"](around:${r},${c});
-  node["amenity"="embassy"](around:${r},${c});
-  node["amenity"="social_facility"](around:${r},${c});
-  node["amenity"="place_of_worship"](around:${r},${c});
-  node["tourism"="museum"](around:${r},${c});
-  node["tourism"="gallery"](around:${r},${c});
-  node["tourism"="hotel"](around:${r},${c});
-  node["tourism"="hostel"](around:${r},${c});
-  node["tourism"="attraction"](around:${r},${c});
-  node["tourism"="viewpoint"](around:${r},${c});
-  node["amenity"="charging_station"](around:${r},${c});
-  node["amenity"="drinking_water"](around:${r},${c});
-  node["amenity"="toilets"](around:${r},${c});
-);
-out center qt 200;`;
-}
-
+// ── HAVERSINE (usado pelo POIActionsPopup) ───────────────────────
 function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
   return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
-}
-
-function detectTipo(tags: Record<string, string>): string {
-  const checks: [string, string, string][] = [
-    ['railway',  'subway_entrance', 'subway_entrance'],
-    ['railway',  'station',         'station'],
-    ['highway',  'bus_stop',        'bus_stop'],
-    ['amenity',  'bus_station',     'bus_station'],
-    ['amenity',  'taxi',            'taxi'],
-    ['amenity',  'ferry_terminal',  'ferry_terminal'],
-    ['amenity',  'bicycle_rental',  'bicycle_rental'],
-    ['amenity',  'parking',         'parking'],
-    ['shop',     'mall',            'mall'],
-    ['amenity',  'marketplace',     'marketplace'],
-    ['shop',     'supermarket',     'supermarket'],
-    ['shop',     'convenience',     'convenience'],
-    ['shop',     'bakery',          'bakery'],
-    ['amenity',  'pharmacy',        'pharmacy'],
-    ['amenity',  'bank',            'bank'],
-    ['amenity',  'atm',             'atm'],
-    ['amenity',  'fuel',            'fuel'],
-    ['amenity',  'restaurant',      'restaurant'],
-    ['amenity',  'cafe',            'cafe'],
-    ['amenity',  'fast_food',       'fast_food'],
-    ['amenity',  'bar',             'bar'],
-    ['amenity',  'food_court',      'food_court'],
-    ['amenity',  'ice_cream',       'ice_cream'],
-    ['amenity',  'university',      'university'],
-    ['amenity',  'school',          'school'],
-    ['amenity',  'college',         'college'],
-    ['amenity',  'library',         'library'],
-    ['amenity',  'kindergarten',    'kindergarten'],
-    ['amenity',  'hospital',        'hospital'],
-    ['amenity',  'clinic',          'clinic'],
-    ['amenity',  'doctors',         'doctors'],
-    ['amenity',  'dentist',         'dentist'],
-    ['amenity',  'veterinary',      'veterinary'],
-    ['leisure',  'park',            'park'],
-    ['leisure',  'playground',      'playground'],
-    ['leisure',  'fitness_centre',  'fitness_centre'],
-    ['leisure',  'sports_centre',   'sports_centre'],
-    ['leisure',  'swimming_pool',   'swimming_pool'],
-    ['leisure',  'stadium',         'stadium'],
-    ['amenity',  'cinema',          'cinema'],
-    ['amenity',  'theatre',         'theatre'],
-    ['amenity',  'nightclub',       'nightclub'],
-    ['amenity',  'townhall',        'townhall'],
-    ['amenity',  'police',          'police'],
-    ['amenity',  'fire_station',    'fire_station'],
-    ['amenity',  'post_office',     'post_office'],
-    ['amenity',  'courthouse',      'courthouse'],
-    ['amenity',  'embassy',         'embassy'],
-    ['amenity',  'social_facility', 'social_facility'],
-    ['amenity',  'place_of_worship','place_of_worship'],
-    ['tourism',  'museum',          'museum'],
-    ['tourism',  'gallery',         'art_gallery'],
-    ['tourism',  'hotel',           'hotel'],
-    ['tourism',  'hostel',          'hostel'],
-    ['tourism',  'attraction',      'tourism'],
-    ['tourism',  'viewpoint',       'viewpoint'],
-    ['amenity',  'charging_station','charging_station'],
-    ['amenity',  'drinking_water',  'drinking_water'],
-    ['amenity',  'toilets',         'toilets'],
-  ];
-  for (const [key, val, tipo] of checks) {
-    if (tags[key] === val) return tipo;
-  }
-  return 'outros';
-}
-
-async function fetchOverpass(query: string): Promise<any[]> {
-  const body = 'data=' + encodeURIComponent(query);
-  try {
-    const r = await fetch(OVERPASS_URL, {
-      method: 'POST', body,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-    });
-    if (!r.ok) throw new Error('status ' + r.status);
-    const json = await r.json();
-    return json.elements || [];
-  } catch {
-    // Fallback
-    const r = await fetch(FALLBACK_URL, {
-      method: 'POST', body,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-    });
-    const json = await r.json();
-    return json.elements || [];
-  }
 }
 
 // ── HOOK PRINCIPAL ───────────────────────────────────────────────
@@ -362,30 +198,21 @@ export function usePOIs(lat: number, lng: number, raio = 1000) {
     if (cacheRef.current[key]) { setPOIs(cacheRef.current[key]); return; }
     setLoading(true); setError(null);
     try {
-      const elements = await fetchOverpass(buildQuery(lat, lng, raio));
-      const result: POI[] = [];
-      const seen = new Set<string>();
-      for (const el of elements) {
-        const elLat = el.lat ?? el.center?.lat;
-        const elLng = el.lon ?? el.center?.lon;
-        if (!elLat || !elLng) continue;
-        const tags = el.tags || {};
-        const nome = tags.name || tags['name:pt'] || tags['name:en'] || '';
-        if (!nome) continue;
-        const tipo = detectTipo(tags);
-        if (tipo === 'outros') continue;
-        const uid = `${el.type}-${el.id}`;
-        if (seen.has(uid)) continue;
-        seen.add(uid);
-        const addr = [tags['addr:street'], tags['addr:housenumber']].filter(Boolean).join(', ')
-          || tags['addr:full'] || '';
-        result.push({
-          id: uid, nome, tipo, lat: elLat, lng: elLng,
-          endereco: addr, distancia: haversine(lat, lng, elLat, elLng),
-          tags,
-        });
-      }
-      result.sort((a, b) => a.distancia - b.distancia);
+      const callable = fnBuscarPOIs();
+      const { data } = await callable({ data: { lat, lng, raio } });
+      const result: POI[] = (data.pois || []).map((p: any) => ({
+        id: p.id,
+        nome: p.nome,
+        tipo: p.tipo,
+        lat: p.lat,
+        lng: p.lng,
+        endereco: (p.tags?.['addr:street'] && p.tags?.['addr:housenumber'])
+          ? `${p.tags['addr:street']}, ${p.tags['addr:housenumber']}`
+          : p.tags?.['addr:full'] || '',
+        distancia: p.distancia ?? haversine(lat, lng, p.lat, p.lng),
+        tags: p.tags || {},
+      })).filter((p: POI) => POI_META[p.tipo]);
+      result.sort((a: POI, b: POI) => a.distancia - b.distancia);
       cacheRef.current[key] = result;
       setPOIs(result);
     } catch (e: any) {

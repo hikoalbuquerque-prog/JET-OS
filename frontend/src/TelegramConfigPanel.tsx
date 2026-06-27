@@ -21,6 +21,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { db } from './lib/firebase';
+import { supabase } from './lib/supabase';
 
 // ─── i18n (padrão TermosUsoGate: objeto T { pt, en, es, ru } + pick, sem json) ──
 
@@ -619,6 +620,7 @@ export default function TelegramConfigPanel({ onFechar, inline }: Props) {
         ...global,
         atualizadoEm: serverTimestamp(),
       });
+      supabase.from('telegram_config').upsert({ id: 'global', config: global, atualizado_em: new Date().toISOString() }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[telegram_config] upsert global:', error.message); });
       setSalvoErro(false);
       setSalvoMsg(pick(T.salvo));
       setTimeout(() => setSalvoMsg(''), 2000);
@@ -636,6 +638,7 @@ export default function TelegramConfigPanel({ onFechar, inline }: Props) {
     try {
       const novas = { ...cidadesConfig, [cidadeKey]: config };
       await setDoc(doc(db, 'telegram_config', 'cidades'), novas);
+      supabase.from('telegram_config').upsert({ id: 'cidades', config: novas, atualizado_em: new Date().toISOString() }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[telegram_config] upsert cidades:', error.message); });
       setCidadesConfig(novas);
       setSalvoErro(false);
       setSalvoMsg(pick(T.salvo));

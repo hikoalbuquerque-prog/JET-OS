@@ -773,7 +773,113 @@
             "dica": "Para exercer seus direitos ou falar com o encarregado (DPO), procure a gestão da Jet."
           }
         ]
+      },
+      "analytics": {
+        "titulo": "Analytics de corridas",
+        "passos": [
+          {
+            "titulo": "Importar dados",
+            "desc": "Clique em \"📊 Analytics\" e arraste o arquivo Excel exportado do sistema."
+          },
+          {
+            "titulo": "Mapa de calor",
+            "desc": "O mapa mostra as rotas de início e fim de cada corrida com intensidade por volume."
+          },
+          {
+            "titulo": "Filtros",
+            "desc": "Use os botões na toolbar para alternar entre Heatmap, Hexbins, Arcos e Pontos."
+          },
+          {
+            "titulo": "Modo 3D",
+            "desc": "Clique em \"🏔 3D\" para inclinar o mapa. Segure Ctrl + arraste para rotacionar.",
+            "dica": "Combine o modo Hexbin 3D com as Zonas para identificar bairros de alta demanda."
+          }
+        ]
+      },
+      "dashboard": {
+        "titulo": "Dashboard e relatórios",
+        "passos": [
+          {
+            "titulo": "Relatório de estação",
+            "desc": "Em \"📋 Dash\" → Relatórios, selecione uma estação e clique em \"Gerar PDF\"."
+          },
+          {
+            "titulo": "Exportar Guard",
+            "desc": "Em Dash → Guard, use os filtros e clique em \"Exportar Excel\"."
+          },
+          {
+            "titulo": "Gerenciar usuários",
+            "desc": "Clique no ícone 👥 no header. Aprove solicitações definindo o role. Gestor Segurança: role gestor_seg."
+          },
+          {
+            "titulo": "Notificações Telegram",
+            "desc": "Em Dash → Guard → Config (só admin), configure quais tipos de ocorrências disparam alerta.",
+            "dica": "O bot precisa do token configurado nas Cloud Functions."
+          }
+        ]
+      },
+      "tarefas-logistica": {
+        "titulo": "📦 Módulo de Tarefas",
+        "passos": [
+          {
+            "titulo": "Abrir o módulo",
+            "desc": "Clique no botão 📦 Tarefas nos FABs laterais. Disponível para logística, campo, gestor e admin."
+          },
+          {
+            "titulo": "Worker Home",
+            "desc": "A aba 🏠 Início mostra seu status (trabalhando/parado), tempo de turno e tarefas ativas. Toque em \"▶ Iniciar trabalho + Foto\" para começar."
+          },
+          {
+            "titulo": "Criar tarefa — GoJet",
+            "desc": "Na aba ➕ Criar, selecione \"🛴 Ponto GoJet\" para ver a lista de pontos ao vivo ordenados por déficit. Zerados aparecem no topo com badge ZERADO.",
+            "dica": "Ative o filtro \"🔴 Só críticos\" para ver apenas pontos abaixo de 50% do target."
+          },
+          {
+            "titulo": "Criar tarefa — Estação JET OS",
+            "desc": "Clique em qualquer estação do mapa e toque em \"📦 + Criar tarefa\" no popup. O nome e coordenadas são preenchidos automaticamente."
+          },
+          {
+            "titulo": "Criar tarefa — GoJet no mapa",
+            "desc": "Com o overlay GoJet ativo, clique num ponto P e toque em \"+ Criar tarefa\". O ponto é pré-selecionado com déficit calculado."
+          },
+          {
+            "titulo": "Geração automática",
+            "desc": "Tarefas são geradas automaticamente a cada hora para pontos GoJet abaixo de 50% do target. Aparecem com badge AUTO no kanban."
+          },
+          {
+            "titulo": "Kanban fullscreen",
+            "desc": "Na aba 📊 Kanban, clique em ⊞ para expandir em tela cheia. No desktop, as colunas ficam lado a lado."
+          },
+          {
+            "titulo": "Mudar destino",
+            "desc": "No detalhe de uma tarefa, clique 🎯 — um banner laranja aparece no mapa. Clique em qualquer P GoJet para definir o novo destino.",
+            "dica": "Só disponível para gestor/admin."
+          },
+          {
+            "titulo": "Dashboard",
+            "desc": "A aba 📈 Stats mostra: taxa de conclusão, duração média, ranking de agentes com ouro/prata/bronze, top pontos mais atendidos."
+          },
+          {
+            "titulo": "Histórico CSV",
+            "desc": "A aba 📂 Histórico tem filtros por status, tipo, agente e busca. Clique em ⬇ CSV para exportar com BOM (abre direto no Excel BR)."
+          },
+          {
+            "titulo": "Notificações",
+            "desc": "Ao atribuir uma tarefa, o agente recebe push nativo (Android FCM) e Telegram simultaneamente."
+          }
+        ]
       }
+    },
+    "roleLabels": {
+      "admin": "Admin",
+      "gestor": "Gestor",
+      "supergestor": "SuperGestor",
+      "gestor_log": "Gest. Log.",
+      "gestor_seg": "Gest. Seg.",
+      "campo": "Campo",
+      "guard": "Guard",
+      "viewer": "Viewer",
+      "logistica": "Logística"
     }
   },
   "fab": {
@@ -1035,7 +1141,14 @@
     "maps": "Maps",
     "view": "Visualizar",
     "occurrence": "ocorrência",
-    "occurrences": "ocorrências"
+    "occurrences": "ocorrências",
+    "addStationHere": "Add estação aqui",
+    "delete": "Excluir",
+    "sv": "SV",
+    "viewDoc": "Visualizar",
+    "tpu": "TPU",
+    "authorization": "Autorização",
+    "notRegistered": "não cadastrado"
   },
   "legend": {
     "pub": "Pública",
@@ -1060,24 +1173,5 @@
     "guard": "Guard",
     "candidates": "Pt. Candidatos",
     "logout": "Sair"
-  },
-  "popup": {
-    "addStationHere": "Add estação aqui",
-    "edit": "Editar",
-    "delete": "Excluir",
-    "streetView": "Street View",
-    "photo": "Foto",
-    "maps": "Maps",
-    "croqui": "Croqui",
-    "sv": "SV",
-    "del": "Del",
-    "addPhoto": "Adicionar foto",
-    "viewDoc": "Visualizar",
-    "addDocs": "Adicionar documentos",
-    "updateDocs": "Atualizar documentos",
-    "publicDocs": "Documentos Públicos",
-    "tpu": "TPU",
-    "authorization": "Autorização",
-    "notRegistered": "não cadastrado"
   }
 }

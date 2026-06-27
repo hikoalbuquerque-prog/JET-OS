@@ -4,6 +4,7 @@
 
 import * as admin from 'firebase-admin';
 import { getAppSetting } from './config-supabase';
+import { supabaseGet } from './lib/supabase-rest';
 
 // ── TIPOS ──────────────────────────────────────────────────────────────────
 const REPORT_TR: Record<string, Record<string, string>> = {
@@ -366,13 +367,35 @@ export async function gerarRelatorioGuard(dataStr?: string): Promise<RelatorioGu
   dataRef.setHours(0, 0, 0, 0);
   const dataFim = new Date(dataRef); dataFim.setHours(23, 59, 59, 999);
 
-  const snap = await db.collection('ocorrencias')
-    .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(dataRef))
-    .where('criadoEm', '<=', admin.firestore.Timestamp.fromDate(dataFim))
-    .orderBy('criadoEm', 'desc')
-    .get();
-
-  const docs = snap.docs.map(d => d.data());
+  // Supabase-first, Firestore fallback
+  let docs: any[] = [];
+  try {
+    const sbRows = await supabaseGet<any>('ocorrencias',
+      `select=*&criado_em=gte.${dataRef.toISOString()}&criado_em=lte.${dataFim.toISOString()}&order=criado_em.desc`
+    );
+    if (sbRows && sbRows.length > 0) {
+      docs = sbRows.map(r => ({
+        ...r,
+        criadoEm: r.criado_em ? new Date(r.criado_em) : null,
+        cidade_inicial: r.cidade ?? r.cidade_inicial,
+      }));
+    } else {
+      const snap = await db.collection('ocorrencias')
+        .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(dataRef))
+        .where('criadoEm', '<=', admin.firestore.Timestamp.fromDate(dataFim))
+        .orderBy('criadoEm', 'desc')
+        .get();
+      docs = snap.docs.map(d => d.data());
+    }
+  } catch (e) {
+    console.warn('[relatorio] Supabase ocorrencias falhou, usando Firestore:', e);
+    const snap = await db.collection('ocorrencias')
+      .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(dataRef))
+      .where('criadoEm', '<=', admin.firestore.Timestamp.fromDate(dataFim))
+      .orderBy('criadoEm', 'desc')
+      .get();
+    docs = snap.docs.map(d => d.data());
+  }
   const porTipo: Record<string,number> = {};
   const porStatus: Record<string,number> = {};
   const porCidade: Record<string,number> = {};
@@ -1691,25 +1714,37 @@ export async function enviarRelatorioTelegram(r: RelatorioGuard, lang: string = 
   const iniMes  = new Date(agora.getFullYear(), agora.getMonth(), 1);
   const iniAno  = new Date(agora.getFullYear(), 0, 1);
 
-  const [snap24, snap7d, snapMes, snapAcum] = await Promise.all([
-    db.collection('ocorrencias')
-      .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(ini24))
-      .orderBy('criadoEm','desc').get(),
-    db.collection('ocorrencias')
-      .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(ini7d))
-      .orderBy('criadoEm','desc').get(),
-    db.collection('ocorrencias')
-      .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(iniMes))
-      .orderBy('criadoEm','desc').get(),
-    db.collection('ocorrencias')
-      .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(iniAno))
-      .orderBy('criadoEm','desc').get(),
-  ]);
+  const mapSbRows = (rows: any[]): OcorrenciaRaw[] =>
+    rows.map(r => ({
+      ...r,
+      id: r.id ?? r.uid,
+      criadoEm: r.criado_em ? new Date(r.criado_em) : null,
+      cidade_inicial: r.cidade ?? r.cidade_inicial,
+    } as OcorrenciaRaw));
 
-  const ocs24h  = snap24.docs.map(d=>({id:d.id,...d.data()} as OcorrenciaRaw));
-  const ocs7d   = snap7d.docs.map(d=>({id:d.id,...d.data()} as OcorrenciaRaw));
-  const ocsMes  = snapMes.docs.map(d=>({id:d.id,...d.data()} as OcorrenciaRaw));
-  const ocsAcum = snapAcum.docs.map(d=>({id:d.id,...d.data()} as OcorrenciaRaw));
+  // Helper: Supabase-first query for ocorrencias >= date
+  async function queryOcorrencias(desde: Date): Promise<OcorrenciaRaw[]> {
+    try {
+      const sbRows = await supabaseGet<any>('ocorrencias',
+        `select=*&criado_em=gte.${desde.toISOString()}&order=criado_em.desc`
+      );
+      if (sbRows && sbRows.length > 0) return mapSbRows(sbRows);
+    } catch (e) {
+      console.warn('[relatorio-tg] Supabase ocorrencias falhou, usando Firestore:', e);
+    }
+    // Fallback Firestore
+    const snap = await db.collection('ocorrencias')
+      .where('criadoEm', '>=', admin.firestore.Timestamp.fromDate(desde))
+      .orderBy('criadoEm','desc').get();
+    return snap.docs.map(d=>({id:d.id,...d.data()} as OcorrenciaRaw));
+  }
+
+  const [ocs24h, ocs7d, ocsMes, ocsAcum] = await Promise.all([
+    queryOcorrencias(ini24),
+    queryOcorrencias(ini7d),
+    queryOcorrencias(iniMes),
+    queryOcorrencias(iniAno),
+  ]);
 
   const mensagem = formatarMensagem(lang, r, ocs24h, ocs7d);
   const html     = await gerarPdfHtml(r, ocs24h, ocs7d, ocsMes, ocsAcum, lang);

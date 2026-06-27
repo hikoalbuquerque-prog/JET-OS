@@ -9,7 +9,8 @@ import {
   getDoc, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { gojetProviderSupabase, onGojetConfigChange } from '../lib/gojet-config-supabase';
+import { supabase } from '../lib/supabase';
+import { gojetProviderSupabase, onGojetConfigChange, salvarGojetConfigSupabase, removerGojetConfigSupabase } from '../lib/gojet-config-supabase';
 import { MonitorConfigPanel } from './MonitorConfigPanel';
 import TelegramConfigPanel from '../TelegramConfigPanel';
 
@@ -175,9 +176,10 @@ function AbaGoJet() {
     if (!form.nome.trim() || !form.cityId.trim()) { setMsg(pick(T.fillNameCityId)); return; }
     setSalvando(true);
     try {
-      await setDoc(doc(db, 'gojet_config', form.nome.trim()), {
-        cityId: form.cityId.trim(), nome: form.nome.trim(), ativo: form.ativo,
-      });
+      const nome = form.nome.trim();
+      const cityId = form.cityId.trim();
+      await setDoc(doc(db, 'gojet_config', nome), { cityId, nome, ativo: form.ativo });
+      salvarGojetConfigSupabase(nome, cityId, form.ativo).catch(() => {});
       setMsg(pick(T.saved));
       setEditando(null); setNova(false);
       setForm({ nome: '', cityId: '', ativo: true });
@@ -187,11 +189,13 @@ function AbaGoJet() {
 
   const toggleAtivo = async (c: GoJetCidade) => {
     await setDoc(doc(db, 'gojet_config', c.id), { ...c, ativo: !c.ativo });
+    salvarGojetConfigSupabase(c.id, c.cityId, !c.ativo).catch(() => {});
   };
 
   const remover = async (id: string) => {
     if (!confirm(`${pick(T.remove)} ${id}?`)) return;
     await deleteDoc(doc(db, 'gojet_config', id));
+    removerGojetConfigSupabase(id).catch(() => {});
   };
 
   if (loading) return <div style={{ color: 'rgba(255,255,255,.4)', padding: 20 }}>{pick(T.loading)}</div>;
@@ -358,6 +362,7 @@ function AbaPagamentos() {
     setSalvando(true);
     try {
       await setDoc(doc(db, 'pagamentos_config', editando), { ...form, atualizadoEm: serverTimestamp() });
+      supabase.from('pagamentos_config').upsert({ id: editando, valor_por_tarefa: form.valor_por_tarefa, moeda: form.moeda, ativo: form.ativo, atualizado_em: new Date().toISOString() }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[pagamentos_config] upsert:', error.message); });
       setConfigs(prev => ({ ...prev, [editando]: form }));
       setMsg(pick(T.saved));
       setEditando(null);

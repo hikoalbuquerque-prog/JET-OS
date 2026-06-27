@@ -68,9 +68,17 @@ exports.telegramWebhook = (0, https_1.onRequest)((req, res) => {
             const chatId = String(msg.chat.id);
             const text = msg.text.trim();
             const firstName = msg.from?.first_name ?? 'usuário';
-            // Busca token do bot
-            const cfgSnap = await db.collection('telegram_config').doc('global').get();
-            const botToken = cfgSnap.data()?.botToken ?? '';
+            // Busca token do bot — Supabase-first (Onda G)
+            let botToken = '';
+            try {
+                const { getTelegramBotTokenSupa } = await Promise.resolve().then(() => __importStar(require('./telegram-supabase')));
+                botToken = await getTelegramBotTokenSupa();
+            }
+            catch { /* fallback */ }
+            if (!botToken) {
+                const cfgSnap = await db.collection('telegram_config').doc('global').get();
+                botToken = cfgSnap.data()?.botToken ?? '';
+            }
             if (!botToken) {
                 res.json({ ok: true });
                 return;
@@ -176,7 +184,7 @@ exports.telegramWebhook = (0, https_1.onRequest)((req, res) => {
     })();
 });
 // ─── FUNCTION: validarVinculoTelegram (onCall — chamado pelo app) ─────────────
-exports.validarVinculoTelegram = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.validarVinculoTelegram = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError('unauthenticated', 'Autenticação necessária');
     }
@@ -219,9 +227,17 @@ exports.validarVinculoTelegram = (0, https_1.onCall)({ region: 'southamerica-eas
         }),
         vinculoRef.update({ usado: true }),
     ]);
-    // Notifica no próprio Telegram que vinculou
-    const cfgSnap = await db.collection('telegram_config').doc('global').get();
-    const botToken = cfgSnap.data()?.botToken ?? '';
+    // Notifica no próprio Telegram que vinculou — Supabase-first (Onda G)
+    let botToken = '';
+    try {
+        const { getTelegramBotTokenSupa } = await Promise.resolve().then(() => __importStar(require('./telegram-supabase')));
+        botToken = await getTelegramBotTokenSupa();
+    }
+    catch { /* fallback */ }
+    if (!botToken) {
+        const cfgSnap = await db.collection('telegram_config').doc('global').get();
+        botToken = cfgSnap.data()?.botToken ?? '';
+    }
     const userSnap = await db.collection('usuarios').doc(uid).get();
     const userName = userSnap.data()?.nome ?? 'usuário';
     if (botToken) {
@@ -243,7 +259,7 @@ exports.validarVinculoTelegram = (0, https_1.onCall)({ region: 'southamerica-eas
 // O app (autenticado) gera um token ligado ao uid e devolve o deep-link
 // t.me/<bot>?start=<token>. O usuário toca → Telegram manda /start <token> →
 // telegramWebhook vincula direto (sem digitar código, sem voltar ao app).
-exports.iniciarVinculoTelegram = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.iniciarVinculoTelegram = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Autenticação necessária');
     const uid = request.auth.uid;
@@ -256,13 +272,23 @@ exports.iniciarVinculoTelegram = (0, https_1.onCall)({ region: 'southamerica-eas
         criadoEm: admin.firestore.FieldValue.serverTimestamp(),
         usado: false,
     });
-    const cfgSnap = await db.collection('telegram_config').doc('global').get();
-    const botUsername = String(cfgSnap.data()?.botUsername ?? '').replace(/^@/, '');
+    // Supabase-first para botUsername (Onda G)
+    let botUsername = '';
+    try {
+        const { getTelegramConfigSupa } = await Promise.resolve().then(() => __importStar(require('./telegram-supabase')));
+        const supaCfg = await getTelegramConfigSupa('global');
+        botUsername = String(supaCfg?.bot_username || '').replace(/^@/, '');
+    }
+    catch { /* fallback */ }
+    if (!botUsername) {
+        const cfgSnap = await db.collection('telegram_config').doc('global').get();
+        botUsername = String(cfgSnap.data()?.botUsername ?? '').replace(/^@/, '');
+    }
     const deepLink = botUsername ? `https://t.me/${botUsername}?start=${token}` : '';
     return { token, deepLink, botUsername };
 });
 // ─── FUNCTION: notificarAprovacaoPrestador (onCall — chamado pelo app) ────────
-exports.notificarAprovacaoPrestador = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.notificarAprovacaoPrestador = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError('unauthenticated', 'Autenticação necessária');
     }
@@ -282,7 +308,7 @@ exports.notificarAprovacaoPrestador = (0, https_1.onCall)({ region: 'southameric
     return { enviado: true };
 });
 // ─── FUNCTION: notificarStatusNF (onCall — chamado pelo app) ────────────────
-exports.notificarStatusNF = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.notificarStatusNF = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth) {
         throw new https_1.HttpsError('unauthenticated', 'Autenticação necessária');
     }
@@ -316,7 +342,7 @@ exports.notificarStatusNF = (0, https_1.onCall)({ region: 'southamerica-east1', 
     return { enviado: true };
 });
 // ─── FUNCTION: notificarTarefaAtribuida (onCall — chamado pelo app ao atribuir) ─
-exports.notificarTarefaAtribuida = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.notificarTarefaAtribuida = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Autenticação necessária');
     const { assigneeUid, titulo, kind, parkingNome, cidade } = request.data;

@@ -10,6 +10,7 @@ import {
   updateDoc, doc, onSnapshot, serverTimestamp, Timestamp, getDoc,
 } from 'firebase/firestore';
 import { db, fnNotificarTarefa, fnGerarSlotsManual, fnScraperGoJetManual } from './lib/firebase';
+import { supabase } from './lib/supabase';
 import { guardProviderSupabase, carregarOcorrenciasSupabase, guardWriteSupabase, criarOcorrenciaSupabase, atualizarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
 import { gpsProviderSupabase, fetchWorkerPos } from './lib/gps-supabase';
 import { usuariosReadSupabase, fetchUsuarios } from './lib/usuarios-supabase';
@@ -1456,6 +1457,7 @@ function FormCriarSlot({ cidade, pais, adminUid, zonas, workers, onSalvo, onCanc
         n8nDistribuido: false,
       };
       const slotRef = await addDoc(collection(db, 'slots'), { ...slotData, criadoEm: serverTimestamp(), atualizadoEm: serverTimestamp() });
+      supabase.from('slots').upsert({ id: slotRef.id, titulo: slotData.titulo, tipo_slot: tipoSlot, tipo_geracao: 'manual', prioridade, cidade, pais, turno_inicio: turnoInicio, turno_fim: turnoFim, status: slotData.status, criado_por: slotData.criadoPor, aceito_por: slotData.aceitoPor ?? null, aceito_por_nome: slotData.aceitoPorNome ?? null, tarefas_total: slotData.tarefasTotal, tarefas_concluidas: 0, sla_aceite_min: slaMin, criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[slots] upsert:', error.message); });
 
       const tarefaIds: string[] = [];
       for (let i = 0; i < tarefas.length; i++) {
@@ -1481,9 +1483,11 @@ function FormCriarSlot({ cidade, pais, adminUid, zonas, workers, onSalvo, onCanc
         };
         const tRef = await addDoc(collection(db, 'tarefas'), tarefaData);
         tarefaIds.push(tRef.id);
+        supabase.from('tarefas').upsert({ id: tRef.id, tipo: tarefaData.tipo, tipo_slot: tipoSlot, status: 'pendente', prioridade: tarefaData.prioridade, titulo: tarefaData.titulo, cargo: tarefaData.cargo, cidade, pais, slot_id: slotRef.id, assignee_uid: tarefaData.assigneeUid, assignee_nome: tarefaData.assigneeNome, qtd_alvo: tarefaData.qtdAlvo, qtd_concluida: 0, rota_ordem: tarefaData.rotaOrdem, criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[tarefas] upsert:', error.message); });
       }
 
       await updateDoc(slotRef, { tarefasIds: tarefaIds, atualizadoEm: serverTimestamp() });
+      supabase.from('slots').update({ tarefas_ids: tarefaIds, atualizado_em: new Date().toISOString() }).eq('id', slotRef.id).then(({ error }) => { if (error) console.error('[slots] update tarefas_ids:', error.message); });
       onSalvo();
     } catch (e: any) { setErro(e.message ?? pick(T.erroCriarSlot)); }
     finally { setBusy(false); }
@@ -1687,6 +1691,7 @@ function SlotCard({ slot, isAdmin, operadorUid, equipe, onAceitar, onCheckIn, on
       if (fotoFile && slot.id) {
         fotoUrl = await uploadFoto(fotoFile, `slots/${slot.id}/checkin_${Date.now()}.jpg`);
         await updateDoc(doc(db, 'slots', slot.id!), { checkInFotoUrl: fotoUrl, atualizadoEm: serverTimestamp() });
+        supabase.from('slots').update({ check_in_foto_url: fotoUrl, atualizado_em: new Date().toISOString() }).eq('id', slot.id!).then(({ error }) => { if (error) console.error('[slots] update check-in foto:', error.message); });
       }
       onCheckIn(slot);
       setCheckInFoto(false); setFotoFile(null);
@@ -2671,6 +2676,7 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
       aceitoEm: serverTimestamp(), atualizadoEm: serverTimestamp(),
     });
     await updateDoc(doc(db, 'usuarios', usuario.uid), { slotAtualId: slot.id, ultimaAtividade: serverTimestamp() }).catch(() => {});
+    supabase.from('slots').update({ status: 'aceito', aceito_por: usuario.uid, aceito_por_nome: usuario.nome, aceito_em: new Date().toISOString(), atualizado_em: new Date().toISOString() }).eq('id', slot.id).then(({ error }) => { if (error) console.error('[slots] update aceitar:', error.message); });
   }, [usuario]);
 
   const checkIn = useCallback(async (slot: Slot) => {
@@ -2684,6 +2690,7 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
         checkInLat: pos?.lat ?? null, checkInLng: pos?.lng ?? null,
         checkInAccuracy: pos?.accuracy ?? null, atualizadoEm: serverTimestamp(),
       });
+      supabase.from('slots').update({ status: 'em_andamento', check_in_em: new Date().toISOString(), check_in_lat: pos?.lat ?? null, check_in_lng: pos?.lng ?? null, check_in_accuracy: pos?.accuracy ?? null, atualizado_em: new Date().toISOString() }).eq('id', slot.id).then(({ error }) => { if (error) console.error('[slots] update check-in:', error.message); });
     }
     setSlotAtivo(slot);
     await gpsBackground.iniciar({
@@ -2698,6 +2705,7 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
     setSlotAtivo(null); setGpsStats(null);
     if (slotsProviderSupabase()) { await checkOutSlotSupa(slot.id); return; }
     await updateDoc(doc(db, 'slots', slot.id), { status: 'concluido', checkOutEm: serverTimestamp(), atualizadoEm: serverTimestamp() });
+    supabase.from('slots').update({ status: 'concluido', check_out_em: new Date().toISOString(), atualizado_em: new Date().toISOString() }).eq('id', slot.id).then(({ error }) => { if (error) console.error('[slots] update check-out:', error.message); });
     await updateDoc(doc(db, 'usuarios', usuario.uid), { slotAtualId: null, ultimaAtividade: serverTimestamp() }).catch(() => {});
   }, [usuario.uid]);
 
@@ -2712,8 +2720,10 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
         atualizadoEm: serverTimestamp(),
       });
       await updateDoc(doc(db, 'usuarios', usuario.uid), { slotAtualId: null, ultimaAtividade: serverTimestamp() }).catch(() => {});
+      supabase.from('slots').update({ status: 'aberto', aceito_por: null, aceito_por_nome: null, aceito_em: null, motivo_cancelamento: 'desistência_prestador', cancelado_por: usuario.uid, atualizado_em: new Date().toISOString() }).eq('id', slot.id).then(({ error }) => { if (error) console.error('[slots] update cancel-worker:', error.message); });
     } else {
       await updateDoc(doc(db, 'slots', slot.id), { status: 'cancelado', canceladoPor: usuario.uid, atualizadoEm: serverTimestamp() });
+      supabase.from('slots').update({ status: 'cancelado', cancelado_por: usuario.uid, atualizado_em: new Date().toISOString() }).eq('id', slot.id).then(({ error }) => { if (error) console.error('[slots] update cancel-admin:', error.message); });
     }
   }, [usuario.uid, isAdmin]);
 
@@ -2727,6 +2737,7 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
         status: slot.status === 'aberto' ? 'aceito' : slot.status,
         aceitoEm: serverTimestamp(), atualizadoEm: serverTimestamp(),
       });
+      supabase.from('slots').update({ aceito_por: novoUid, aceito_por_nome: novoNome, status: slot.status === 'aberto' ? 'aceito' : slot.status, aceito_em: new Date().toISOString(), atualizado_em: new Date().toISOString() }).eq('id', slot.id).then(({ error }) => { if (error) console.error('[slots] update reatribuir:', error.message); });
     }
     // Notificar novo worker via push + Telegram
     try {
@@ -2742,6 +2753,7 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
 
   const atualizarTarefa = useCallback(async (id: string, status: string, extra?: Partial<Tarefa>) => {
     await updateDoc(doc(db, 'tarefas', id), { status, ...extra, atualizadoEm: serverTimestamp() });
+    supabase.from('tarefas').update({ status, ...Object.fromEntries(Object.entries(extra ?? {}).filter(([k]) => !['slotId','entregas','patineteSugeridas','estacao','estacaoOrigem'].includes(k)).map(([k, v]) => [k.replace(/([A-Z])/g, '_$1').toLowerCase(), v instanceof Timestamp ? v.toDate().toISOString() : v])), atualizado_em: new Date().toISOString() }).eq('id', id).then(({ error }) => { if (error) console.error('[tarefas] update:', error.message); });
     // Se concluída, atualiza contagem no slot
     if (status === 'concluida' && extra?.slotId) {
       const slotRef = doc(db, 'slots', extra.slotId as string);
@@ -2751,6 +2763,7 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
         const novasConcluidas = (d.tarefasConcluidas ?? 0) + 1;
         const total = d.tarefasTotal ?? 1;
         await updateDoc(slotRef, { tarefasConcluidas: novasConcluidas, atualizadoEm: serverTimestamp() }).catch(() => {});
+        supabase.from('slots').update({ tarefas_concluidas: novasConcluidas, atualizado_em: new Date().toISOString() }).eq('id', extra.slotId as string).then(({ error }) => { if (error) console.error('[slots] update tarefas_concluidas:', error.message); });
       }
     }
   }, []);

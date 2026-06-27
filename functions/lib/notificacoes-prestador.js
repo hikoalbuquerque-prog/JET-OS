@@ -9,7 +9,7 @@ exports.notificarGestorNovaSolicitacao = void 0;
 const firestore_1 = require("firebase-functions/v2/firestore");
 const supabase_admin_1 = require("./lib/supabase-admin");
 const ROLES_GESTORES = ['admin', 'gestor', 'supergestor', 'gestor_log'];
-exports.notificarGestorNovaSolicitacao = (0, firestore_1.onDocumentCreated)({ document: 'solicitacoes_prestadores/{docId}', region: 'southamerica-east1' }, async (event) => {
+exports.notificarGestorNovaSolicitacao = (0, firestore_1.onDocumentCreated)({ document: 'solicitacoes_prestadores/{docId}', region: 'southamerica-east1', maxInstances: 10 }, async (event) => {
     try {
         const data = event.data?.data();
         if (!data)

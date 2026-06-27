@@ -49,6 +49,8 @@ const admin = __importStar(require("firebase-admin"));
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const https_1 = require("firebase-functions/v2/https");
 const axios_1 = __importDefault(require("axios"));
+const supabase_rest_1 = require("./lib/supabase-rest");
+const config_supabase_1 = require("./config-supabase");
 // Se GOJET_PROXY_URL estiver definido, usa Vercel proxy (evita bloqueio Cloudflare no GCP)
 // Exemplo: https://gojet-proxy.vercel.app/api/gojet
 // Sem proxy: https://logistic.gojet.app/api/v0/urent
@@ -206,6 +208,23 @@ async function salvarSnapshot(dados) {
         savedAt: now,
     });
     console.log(`[gojet] Snapshot salvo: ${dados.parkings.length} parkings, ${dados.bikes.length} bikes`);
+    // Dual-write to Supabase gojet_snapshots
+    if ((0, supabase_rest_1.supabaseConfigured)()) {
+        try {
+            await (0, supabase_rest_1.supabaseUpsert)('gojet_snapshots', {
+                id: dados.cityId,
+                cidade: dados.cidade,
+                city_id: dados.cityId,
+                parkings: dados.parkings,
+                bikes_total: dados.bikes.length,
+                parkings_total: dados.parkings.length,
+                atualizado_em: new Date().toISOString(),
+            }, 'id');
+        }
+        catch (e) {
+            console.warn('[gojet] Supabase dual-write failed:', e.message);
+        }
+    }
 }
 // ── Classificação de bike (server-side, sem dependência do frontend) ──────────
 function classifyBikeServer(b) {
@@ -227,26 +246,51 @@ function distMetrosServer(lat1, lng1, lat2, lng2) {
 }
 // ── Gera tarefas de monitor automaticamente após cada snapshot ─────────────────
 async function gerarTarefasMonitorAuto(dados, db) {
-    // Lê configuração de monitores para a cidade
-    const cfgSnap = await db.collection('monitor_config').doc(dados.cidade).get();
-    if (!cfgSnap.exists)
-        return; // sem config = feature desativada para esta cidade
-    const monitorCfg = cfgSnap.data();
+    // Lê configuração de monitores para a cidade — Supabase-first
+    let monitorCfg = null;
+    try {
+        const sbCfg = await (0, config_supabase_1.getAppSetting)('monitor_config_' + dados.cidade);
+        if (sbCfg)
+            monitorCfg = typeof sbCfg === 'string' ? JSON.parse(sbCfg) : sbCfg;
+    }
+    catch (_) { /* fallback abaixo */ }
+    // Fallback Firestore
+    if (!monitorCfg) {
+        const cfgSnap = await db.collection('monitor_config').doc(dados.cidade).get();
+        if (!cfgSnap.exists)
+            return; // sem config = feature desativada para esta cidade
+        monitorCfg = cfgSnap.data();
+    }
     const niveisAtivos = ['M1', 'M2', 'M3'].filter(m => monitorCfg[m]?.ativo);
     if (niveisAtivos.length === 0)
         return;
-    // Carrega estações M1/M2/M3
-    const estSnap = await db.collection('estacoes')
-        .where('tipoMonitor', 'in', ['M1', 'M2', 'M3'])
-        .get();
-    const estacoes = estSnap.docs
-        .map(d => ({
-        id: d.id,
-        tipoMonitor: d.data().tipoMonitor,
-        lat: (d.data().lat ?? d.data().latitude ?? 0),
-        lng: (d.data().lng ?? d.data().longitude ?? 0),
-    }))
-        .filter(e => e.lat && e.lng);
+    // Carrega estações M1/M2/M3 — Supabase-first
+    let estacoes = [];
+    const sbEst = await (0, supabase_rest_1.supabaseGet)('estacoes', 'select=id,tipo_monitor,lat,lng&tipo_monitor=in.(M1,M2,M3)');
+    if (sbEst && sbEst.length > 0) {
+        estacoes = sbEst
+            .map((e) => ({
+            id: e.id,
+            tipoMonitor: e.tipo_monitor,
+            lat: (e.lat ?? 0),
+            lng: (e.lng ?? 0),
+        }))
+            .filter((e) => e.lat && e.lng);
+    }
+    // Fallback Firestore
+    if (estacoes.length === 0) {
+        const estSnap = await db.collection('estacoes')
+            .where('tipoMonitor', 'in', ['M1', 'M2', 'M3'])
+            .get();
+        estacoes = estSnap.docs
+            .map(d => ({
+            id: d.id,
+            tipoMonitor: d.data().tipoMonitor,
+            lat: (d.data().lat ?? d.data().latitude ?? 0),
+            lng: (d.data().lng ?? d.data().longitude ?? 0),
+        }))
+            .filter(e => e.lat && e.lng);
+    }
     if (estacoes.length === 0)
         return;
     // Calcula disponíveis por parking
@@ -335,18 +379,26 @@ exports.scraperGoJet = (0, scheduler_1.onSchedule)({
     region: 'southamerica-east1',
     timeoutSeconds: 540, // 9min — paginação pode ser lenta
     memory: '512MiB',
+    maxInstances: 10,
 }, async () => {
     const db = admin.firestore();
-    // Lê todas as cidades configuradas em gojet_config
-    const configSnap = await db.collection('gojet_config').get();
-    if (configSnap.empty) {
-        console.warn('[gojet] Nenhuma cidade configurada em gojet_config');
-        return;
+    // Lê cidades configuradas — Supabase-first
+    let cidades = [];
+    const sbCfg = await (0, supabase_rest_1.supabaseGet)('gojet_config', 'select=cidade,city_id&ativo=eq.true');
+    if (sbCfg && sbCfg.length > 0) {
+        cidades = sbCfg.map((r) => ({ cidade: r.cidade, cityId: r.city_id })).filter((c) => c.cityId);
     }
-    // Coleta todas as cidades em paralelo (com limite de 5 simultâneas)
-    const cidades = configSnap.docs
-        .map(d => ({ cidade: d.id, cityId: d.data().cityId }))
-        .filter(c => c.cityId);
+    // Fallback Firestore
+    if (cidades.length === 0) {
+        const configSnap = await db.collection('gojet_config').get();
+        if (configSnap.empty) {
+            console.warn('[gojet] Nenhuma cidade configurada em gojet_config');
+            return;
+        }
+        cidades = configSnap.docs
+            .map(d => ({ cidade: d.id, cityId: d.data().cityId }))
+            .filter(c => c.cityId);
+    }
     console.log(`[gojet] ${cidades.length} cidades configuradas: ${cidades.map(c => c.cidade).join(', ')}`);
     // Processa em lotes de 3 para não sobrecarregar a API
     for (let i = 0; i < cidades.length; i += 3) {
@@ -367,7 +419,7 @@ exports.scraperGoJet = (0, scheduler_1.onSchedule)({
     console.log('[gojet] Scraper concluído');
 });
 // ── scraperGoJetManual — callable para botão "Atualizar agora" ───────────────
-exports.scraperGoJetManual = (0, https_1.onCall)({ region: 'southamerica-east1', timeoutSeconds: 300, memory: '512MiB' }, async (request) => {
+exports.scraperGoJetManual = (0, https_1.onCall)({ region: 'southamerica-east1', timeoutSeconds: 300, memory: '512MiB', maxInstances: 10 }, async (request) => {
     const { cityId, cidade } = (request.data || {});
     if (cityId && cidade) {
         // Cidade específica
@@ -375,21 +427,31 @@ exports.scraperGoJetManual = (0, https_1.onCall)({ region: 'southamerica-east1',
         await salvarSnapshot(dados);
         return { ok: true, parkings: dados.parkings.length, bikes: dados.bikes.length };
     }
-    // Todas as cidades
+    // Todas as cidades — Supabase-first
     const db = admin.firestore();
-    const configSnap = await db.collection('gojet_config').get();
+    let cidadesManual = [];
+    const sbCfgM = await (0, supabase_rest_1.supabaseGet)('gojet_config', 'select=cidade,city_id&ativo=eq.true');
+    if (sbCfgM && sbCfgM.length > 0) {
+        cidadesManual = sbCfgM.map((r) => ({ cidade: r.cidade, cityId: r.city_id })).filter((c) => c.cityId);
+    }
+    // Fallback Firestore
+    if (cidadesManual.length === 0) {
+        const configSnap = await db.collection('gojet_config').get();
+        cidadesManual = configSnap.docs
+            .map(d => ({ cidade: d.id, cityId: d.data().cityId }))
+            .filter(c => c.cityId);
+    }
     const resultados = {};
-    for (const d of configSnap.docs) {
-        const cId = d.data().cityId;
+    for (const { cidade: cNome, cityId: cId } of cidadesManual) {
         if (!cId)
             continue;
         try {
-            const dados = await coletarCidade(cId, d.id);
+            const dados = await coletarCidade(cId, cNome);
             await salvarSnapshot(dados);
-            resultados[d.id] = { parkings: dados.parkings.length, bikes: dados.bikes.length };
+            resultados[cNome] = { parkings: dados.parkings.length, bikes: dados.bikes.length };
         }
         catch (e) {
-            resultados[d.id] = { erro: e.message };
+            resultados[cNome] = { erro: e.message };
         }
     }
     return { ok: true, resultados };

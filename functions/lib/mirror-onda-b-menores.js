@@ -83,7 +83,7 @@ async function sbDelete(tbl, fid, tag) {
     }
 }
 // ── Mirror SOLICITAÇÕES DE PRESTADORES ───────────────────────────────────────
-exports.espelharSolicitacaoPrestadorSupabase = (0, firestore_1.onDocumentWritten)({ document: 'solicitacoes_prestadores/{id}', region: 'southamerica-east1' }, async (event) => {
+exports.espelharSolicitacaoPrestadorSupabase = (0, firestore_1.onDocumentWritten)({ document: 'solicitacoes_prestadores/{id}', region: 'southamerica-east1', maxInstances: 10 }, async (event) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE)
         return;
     const id = event.params.id;
@@ -109,7 +109,7 @@ exports.espelharSolicitacaoPrestadorSupabase = (0, firestore_1.onDocumentWritten
     }, 'mirror-solic');
 });
 // ── Mirror TURNOS LOGÍSTICA (foto de início/fim de turno) ────────────────────
-exports.espelharTurnoLogisticaSupabase = (0, firestore_1.onDocumentWritten)({ document: 'turnos_logistica/{id}', region: 'southamerica-east1' }, async (event) => {
+exports.espelharTurnoLogisticaSupabase = (0, firestore_1.onDocumentWritten)({ document: 'turnos_logistica/{id}', region: 'southamerica-east1', maxInstances: 10 }, async (event) => {
     if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE)
         return;
     const id = event.params.id;

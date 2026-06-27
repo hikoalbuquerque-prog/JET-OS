@@ -189,6 +189,17 @@ async function jaConsentiu(uid: string): Promise<boolean> {
   }
 }
 
+// localStorage override: localStorage.setItem('jet_lgpd_provider', 'supabase')
+// Build-time env: VITE_LGPD_PROVIDER=supabase
+const lgpdProviderSupabase = (): boolean => {
+  try {
+    const v = localStorage.getItem('jet_lgpd_provider');
+    if (v === 'supabase') return true;
+    if (v === 'firebase') return false;
+  } catch { /* sem localStorage */ }
+  return (import.meta.env.VITE_LGPD_PROVIDER as string) !== 'firebase';
+};
+
 async function registrarAceite(p: Props): Promise<void> {
   const { error } = await supabase.from('aceites_termos').upsert({
     id:                  `${p.uid}_lgpd_v${LGPD_VERSAO}`,
@@ -204,6 +215,29 @@ async function registrarAceite(p: Props): Promise<void> {
     idioma:              navigator.language,
   });
   if (error) throw error;
+
+  // Dual-write: gravar tambem na tabela consentimentos_lgpd (behind flag)
+  if (lgpdProviderSupabase()) {
+    try {
+      const versaoInt = parseInt(LGPD_VERSAO, 10) || 1;
+      await supabase.from('consentimentos_lgpd').upsert(
+        {
+          uid:         p.uid,
+          email:       p.email || null,
+          nome:        p.nome || null,
+          role:        p.role || null,
+          versao:      versaoInt,
+          aceito_em:   new Date().toISOString(),
+          dispositivo: navigator.userAgent.slice(0, 300),
+          idioma:      navigator.language,
+        },
+        { onConflict: 'uid,versao' },
+      );
+    } catch (e) {
+      // Nao bloqueia o fluxo — aceites_termos e o registro principal
+      console.warn('[LGPD] dual-write consentimentos_lgpd falhou:', e);
+    }
+  }
 }
 
 const S = {

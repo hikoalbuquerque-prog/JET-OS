@@ -39,7 +39,7 @@ const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const db = admin.firestore();
 // ── OPERAÇÕES ─────────────────────────────────────────────────────────────────
-exports.criarOperacao = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.criarOperacao = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Não autenticado');
     const { tipo, prioridade, estacaoId, quantidade, dataVencimento, notas } = request.data;
@@ -56,7 +56,7 @@ exports.criarOperacao = (0, https_1.onCall)({ region: 'southamerica-east1', cors
     });
     return { id: docRef.id, message: 'Operação criada com sucesso' };
 });
-exports.listarOperacoes = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.listarOperacoes = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Não autenticado');
     const snap = await db.collection('operacoes')
@@ -65,14 +65,14 @@ exports.listarOperacoes = (0, https_1.onCall)({ region: 'southamerica-east1', co
         .get();
     return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 });
-exports.atualizarOperacao = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.atualizarOperacao = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Não autenticado');
     const { operacaoId, patch } = request.data;
     await db.collection('operacoes').doc(operacaoId).update(patch);
     return { message: 'Operação atualizada com sucesso' };
 });
-exports.deletarOperacao = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.deletarOperacao = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Não autenticado');
     const { operacaoId } = request.data;
@@ -80,7 +80,7 @@ exports.deletarOperacao = (0, https_1.onCall)({ region: 'southamerica-east1', co
     return { message: 'Operação deletada com sucesso' };
 });
 // ── ROTAS ─────────────────────────────────────────────────────────────────────
-exports.gerarRota = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.gerarRota = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Não autenticado');
     const { operacaoIds } = request.data;
@@ -110,7 +110,7 @@ exports.gerarRota = (0, https_1.onCall)({ region: 'southamerica-east1', cors: tr
     });
     return { id: rotaRef.id, distanciaTotal, tempoEstimado, message: 'Rota gerada com sucesso' };
 });
-exports.listarRotas = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.listarRotas = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Não autenticado');
     const snap = await db.collection('rotas')
@@ -119,7 +119,7 @@ exports.listarRotas = (0, https_1.onCall)({ region: 'southamerica-east1', cors: 
         .get();
     return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 });
-exports.atualizarRota = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.atualizarRota = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Não autenticado');
     const { rotaId, patch } = request.data;
@@ -127,7 +127,7 @@ exports.atualizarRota = (0, https_1.onCall)({ region: 'southamerica-east1', cors
     return { message: 'Rota atualizada com sucesso' };
 });
 // ── SLOTS ─────────────────────────────────────────────────────────────────────
-exports.criarSlotAuth = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.criarSlotAuth = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Não autenticado');
     const { tipo, horario, repeticao } = request.data;
@@ -143,7 +143,7 @@ exports.criarSlotAuth = (0, https_1.onCall)({ region: 'southamerica-east1', cors
     });
     return { id: slotRef.id, message: 'Slot criado com sucesso' };
 });
-exports.listarSlotsAuth = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.listarSlotsAuth = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Não autenticado');
     const snap = await db.collection('slots')
@@ -152,7 +152,7 @@ exports.listarSlotsAuth = (0, https_1.onCall)({ region: 'southamerica-east1', co
     return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 });
 // ── MONITOR ───────────────────────────────────────────────────────────────────
-exports.obterEstatisticasMonitorAuth = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.obterEstatisticasMonitorAuth = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Não autenticado');
     const [totalSnap, conclSnap] = await Promise.all([
@@ -172,7 +172,7 @@ exports.obterEstatisticasMonitorAuth = (0, https_1.onCall)({ region: 'southameri
     };
 });
 // ── USUÁRIO ───────────────────────────────────────────────────────────────────
-exports.getUsuario = (0, https_1.onCall)({ region: 'southamerica-east1', cors: true }, async (request) => {
+exports.getUsuario = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     if (!request.auth)
         throw new https_1.HttpsError('unauthenticated', 'Não autenticado');
     const userDoc = await db.collection('usuarios').doc(request.auth.uid).get();

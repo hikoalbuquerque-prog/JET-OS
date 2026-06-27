@@ -6,6 +6,7 @@ import {
   type QuerySnapshot, type DocumentData,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { supabase } from './supabase';
 import { guardWriteSupabase, criarOcorrenciaSupabase } from './ocorrencias-supabase';
 
 // ─────────────────────────────────────────────────────────────────
@@ -293,11 +294,13 @@ export async function criarTarefa(dados: Omit<Tarefa, 'id' | 'criadoEm' | 'atual
   const ref = await addDoc(collection(db, 'tarefas'), {
     ...dados, criadoEm: serverTimestamp(), atualizadoEm: serverTimestamp(),
   });
+  supabase.from('tarefas').upsert({ id: ref.id, tipo: dados.tipo, tipo_slot: dados.tipoSlot ?? null, status: dados.status, prioridade: dados.prioridade, titulo: dados.titulo, cargo: dados.cargo, cidade: dados.cidade, pais: dados.pais, slot_id: dados.slotId ?? null, assignee_uid: dados.assigneeUid ?? null, assignee_nome: dados.assigneeNome ?? null, qtd_alvo: dados.qtdAlvo ?? null, qtd_concluida: dados.qtdConcluida ?? 0, rota_ordem: dados.rotaOrdem ?? null, criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[tarefas] upsert:', error.message); });
   return ref.id;
 }
 
 export async function atualizarTarefa(id: string, dados: Partial<Tarefa>): Promise<void> {
   await updateDoc(doc(db, 'tarefas', id), { ...dados, atualizadoEm: serverTimestamp() });
+  supabase.from('tarefas').update({ ...Object.fromEntries(Object.entries(dados).map(([k, v]) => [k.replace(/([A-Z])/g, '_$1').toLowerCase(), v])), atualizado_em: new Date().toISOString() }).eq('id', id).then(({ error }) => { if (error) console.error('[tarefas] update:', error.message); });
 }
 
 export async function buscarTarefasDoSlot(slotId: string): Promise<Tarefa[]> {
@@ -334,8 +337,10 @@ export async function salvarConfigZona(cfg: Omit<ConfigZonaAuto, 'id' | 'atualiz
   const data = { ...cfg, atualizadoEm: serverTimestamp() };
   if (snap.empty) {
     await addDoc(collection(db, 'config_auto_slots'), data);
+    supabase.from('config_auto_slots').upsert({ zona_id: cfg.zonaId, zona_nome: cfg.zonaNome, cidade: cfg.cidade, pais: cfg.pais, ativo: cfg.ativo, scout_ativo: cfg.scoutAtivo, bikes_minimo: cfg.bikesMinimo, bikes_alvo: cfg.bikesAlvo, bikes_maximo: cfg.bikesMaximo, charger_ativo: cfg.chargerAtivo, bateria_threshold: cfg.bateriaThreshold, charger_minimo: cfg.chargerMinimo, horario_ativo_inicio: cfg.horarioAtivoInicio, horario_ativo_fim: cfg.horarioAtivoFim, intervalo_checagem_min: cfg.intervaloChecagemMin, sla_aceite_min: cfg.slaAceiteMin, auto_assign: cfg.autoAssign, sensibilidade_clima: cfg.sensibilidadeClima, notificar_gestor: cfg.notificarGestor, atualizado_em: new Date().toISOString() }, { onConflict: 'zona_id,cidade' }).then(({ error }) => { if (error) console.error('[config_auto_slots] upsert:', error.message); });
   } else {
     await updateDoc(doc(db, 'config_auto_slots', snap.docs[0].id), data);
+    supabase.from('config_auto_slots').update({ zona_nome: cfg.zonaNome, ativo: cfg.ativo, scout_ativo: cfg.scoutAtivo, bikes_minimo: cfg.bikesMinimo, bikes_alvo: cfg.bikesAlvo, bikes_maximo: cfg.bikesMaximo, charger_ativo: cfg.chargerAtivo, bateria_threshold: cfg.bateriaThreshold, charger_minimo: cfg.chargerMinimo, horario_ativo_inicio: cfg.horarioAtivoInicio, horario_ativo_fim: cfg.horarioAtivoFim, intervalo_checagem_min: cfg.intervaloChecagemMin, sla_aceite_min: cfg.slaAceiteMin, auto_assign: cfg.autoAssign, sensibilidade_clima: cfg.sensibilidadeClima, notificar_gestor: cfg.notificarGestor, atualizado_em: new Date().toISOString() }).eq('zona_id', cfg.zonaId).eq('cidade', cfg.cidade).then(({ error }) => { if (error) console.error('[config_auto_slots] update:', error.message); });
   }
 }
 

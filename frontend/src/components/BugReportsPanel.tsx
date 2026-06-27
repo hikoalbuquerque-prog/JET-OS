@@ -8,6 +8,7 @@ import {
   collection, query, orderBy, limit, onSnapshot, updateDoc, doc, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 
 const T = {
   titulo: { pt: '🐞 Reports de bug/erro', en: '🐞 Bug/error reports', es: '🐞 Reportes de bug/error', ru: '🐞 Отчёты об ошибках' },
@@ -67,6 +68,8 @@ export default function BugReportsPanel({ onFechar }: { onFechar: () => void }) 
 
   const resolver = async (id: string, novo: string) => {
     await updateDoc(doc(db, 'bug_reports', id), { status: novo, resolvidoEm: serverTimestamp() });
+    // dual-write Supabase
+    supabase.from('bug_reports').update({ status: novo, resolvido_em: new Date().toISOString() }).eq('id', id).then(({ error }) => { if (error) console.error('[BugReports] update bug_reports:', error.message); });
   };
 
   const visiveis = reports.filter(r => filtro === 'todos' ? true : (r.status || 'aberto') === filtro);

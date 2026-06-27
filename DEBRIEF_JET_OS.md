@@ -1,5 +1,5 @@
 # Jet OS Firebase — Master Debrief
-**Atualizado em:** 26/06/2026 (§19.12 Ondas D-H implementadas — migração Firestore→Supabase completa · §19.11 Audit 35 coleções · mirrors deployados · Auth flip C.9 + segurança · V2 Features P0-P5 — 18.1 · GPS NATIVO — 10.8 · LGPD — 11 · NFS-e — 13)  
+**Atualizado em:** 27/06/2026 (§19.18 Audit pré-shutdown Firestore · §19.17 i18n final + POI server-side + Functions deploy · §19.16 APK distribution · §19.15 i18n resíduos + Guia · §19.13 code-split + LGPD + config)  
 **Projeto:** jet-os-1 | Firebase Hosting + Firestore + Storage + Cloud Functions  
 **Stack:** React + Vite + TypeScript + Leaflet + deck.gl | Node.js 22 Cloud Functions
 
@@ -2454,20 +2454,22 @@ Durante a migração, a sessão Supabase JS não persiste (login feito antes do 
 12. ~~Firebase Storage→Supabase Storage~~ — ✅ código + migration 0061 + backfill 554 fotos (`96cf74f`)
 13. ~~Backfill config~~ — ✅ telegram copiado; controle_perdas e clima não existiam no Firestore
 
-#### 🟠 Pendentes (operacionais / validação em campo)
-1. **Deploy `verificarChegadaPonto`** — cota CPU Cloud Run; re-tentar em ~1h
-2. **Build APK release** (signed) — com GPS flip + Curitiba + auth flip
-3. **Delete `ingestGps` Firebase** — após confirmar GPS Supabase funciona em campo
-4. **Ocorrências Guard** — testar criação/edição no app após deploy
+14. ~~Deploy `verificarChegadaPonto`~~ — ✅ deletada e recriada com tipo correto
+15. ~~Build APK release~~ — ✅ 12MB em `frontend/android/app/build/outputs/apk/release/app-release.apk`
+16. ~~Delete `ingestGps` Firebase~~ — ✅ deletada (`90dfd02`); APK default já é Supabase
+17. ~~Ocorrências Guard~~ — ✅ testado e OK pelo usuário
+18. ~~Backfill fotos Storage~~ — ✅ 30 fotos migradas Firebase→Supabase Storage
+19. ~~Flag default Supabase~~ — ✅ todos os flags defaultam para Supabase (`24abe75`)
 
-#### 🔐 Segurança
-5. **Rotacionar service_role key** — exposta em scripts. Regenerar no dashboard Supabase e atualizar secrets.
-6. **Rotacionar keystore password** — se exposta em logs/scripts.
+#### 🔐 Segurança (manual)
+1. **Rotacionar service_role key** — exposta em scripts. Regenerar no dashboard Supabase e atualizar secrets.
+2. **Rotacionar keystore password** — exposta em `build.gradle`. Mover para `keystore.properties` (gitignored).
 
-#### 🟡 Cleanup (pós-validação)
-7. **Desabilitar Firebase Auth** — após confirmar tudo funciona com Supabase auth.
-8. **Desligar Cloud Functions Firebase** — após validação completa.
-9. **Desligar Firestore** — após validação completa + confirmação que todos os flags estão em Supabase.
+#### 🟡 Cleanup (pós-validação completa)
+3. **Desabilitar Firebase Auth** — após confirmar tudo funciona com Supabase auth em campo.
+4. **Desligar Cloud Functions Firebase** — após validação completa (mirrors podem ser removidos quando Firestore for desligado).
+5. **Desligar Firestore** — após confirmação que todos os flags estão em Supabase e nenhum dado residual é necessário.
+6. **Remover código Firebase do frontend** — limpar imports `firebase/firestore`, remover fallbacks Firestore dos componentes migrados, reduzir bundle size.
 
 ---
 
@@ -2833,3 +2835,166 @@ Todas as 5 ondas implementadas em commit `24e7cbb`. 36 arquivos, 4 migrations (0
 4. Testar cada flag individualmente em staging
 5. Flip flags em produção por onda
 5. **Onda H — Limpeza** (6+10 coleções): portar ou desativar `prestadores`, `pontos`, `solicitacoes`, `operacoes`, `rotas`, `eventos`; desligar coleções mortas.
+
+### 19.13 Sessão 27/06/2026 — Code-split + LGPD migration + Config seed + Deploys
+
+#### 📦 Code-split do bundle (vite.config.ts)
+- `manualChunks` adicionado: `vendor-react` (141kB), `vendor-firebase` (751kB), `vendor-supabase` (211kB), `vendor-map` (1054kB), `vendor-deckgl` (878kB).
+- **Resultado:** chunk index (main) caiu de **4.2MB → 2.3MB** (−46%). Total de 7 chunks cacheáveis independentemente. heic2any já era lazy (chunk separado por dynamic import).
+- Vendor libs são cacheadas no browser entre deploys — só o chunk `index` invalida quando o código do app muda.
+
+#### 🛡️ Consentimentos LGPD — migration + mirror + dual-write
+- **Migration 0062** (`consentimentos_lgpd.sql`): tabela recreada com `uid text` (Firebase UID), `versao int`, `UNIQUE(uid,versao)`, RLS (service_role full, auth insert, own-read via firebase_uid join).
+- **Mirror** `functions/src/mirror-lgpd.ts` (`espelharConsentimentoLgpdSupabase`): onDocumentWritten `consentimentos_lgpd/{id}`, upsert por `uid,versao`, tratamento de Firestore Timestamp.
+- **Frontend** `LgpdConsentGate.tsx`: dual-write fire-and-forget para `consentimentos_lgpd` (flag `jet_lgpd_provider`, default Supabase). Fluxo principal (`aceites_termos`) não é bloqueado por falha do dual-write.
+- **Nota:** `LgpdConsentGate` já escrevia diretamente no Supabase (`aceites_termos`) — esta migration é para preservar os registros históricos do Firestore via mirror e ter a tabela dedicada para compliance/auditoria.
+
+#### ⚙️ Config seed extras
+- **Migration 0063** (`seed_config_extras.sql`): `controle_perdas` (`{"regioes":{}, "filiais":[]}`) e `clima` (`{"openweather_api_key":""}`) inseridos em `app_settings` com `ON CONFLICT DO NOTHING`.
+- Estrutura `filiais[]` documentada no SQL conforme uso em `relatorio.ts` (filial, regiao, resp, patins, bikes, baterias, brpd, vand_*, nao_enc_*, status*).
+- Ambos estavam vazios no Firestore — o seed cria defaults para que as Cloud Functions não falhem ao ler.
+
+#### 🚀 Deploys
+- **Migrations 0062-0063** aplicadas no Supabase remoto ✅
+- **Hosting** redeployado com code-split ✅ (https://jet-os-1.web.app)
+- **Cloud Functions** — deploy parcial: maioria atualizada, ~8 falharam por cota CPU (Cloud Run sa-east1). Retry pendente. `ingestGps` ghost deletada novamente.
+- **Commits:** pendente (incluir code-split + LGPD + config seed).
+
+#### 🔎 Investigação JET-OS-V2 / GoJet
+- **Não existe um app V2 separado.** O "V2" refere-se à arquitetura Supabase dentro deste repo.
+- **Vercel** hospeda apenas o **GoJet proxy** (`gojet-proxy.vercel.app/api/gojet` → `logistic.gojet.app/api/v0/urent`).
+- **Features V2 (DEBRIEF §18):** todas P0-P5 já portadas (bike_history, Zone Analytics, Tasks/Shifts, Web Push, Operator ranking, PWA offline).
+- **"Zonas" do GoJet** são nomes geográficos de bairros (ex: "Zona Mirasierra") dos parkings importados — já exibidas no GoJetDashboard aba Zonas com KPIs.
+
+### 19.14 PENDÊNCIAS CONSOLIDADAS (27/06/2026)
+
+#### 🔴 Deploy pendente
+1. **Retry deploy Cloud Functions** — ~8 funções falharam por cota CPU (espelhar*, gerartarefas*, alertar*, exportar*, gerarslotsmanual, espelharConsentimentoLgpdSupabase). Aguardar cota liberar e redeployar.
+
+#### 🔐 Segurança (manual)
+2. **Rotacionar service_role key** — exposta em scripts/chat. Dashboard Supabase → regenerar → atualizar `functions/.env`, scripts, secrets Edge Functions.
+3. **Rotacionar keystore password** — mover de `build.gradle` para `keystore.properties` (gitignored).
+
+#### 🟠 Validação em produção
+4. **Validar auth flip em campo** — login/logout/reload com Supabase primário.
+5. **Rebuild APK** — com code-split + auth flip + LGPD dual-write. Testar GPS nativo (shim `user.uid`).
+
+#### 🟡 Cleanup Firebase (pós-validação)
+6. **Desabilitar Firebase Auth** — após confirmar Supabase auth estável em campo.
+7. **Desligar Cloud Functions Firebase** — mirrors desnecessários sem Firestore; cron jobs já no Supabase.
+8. **Desligar Firestore** — quando todos os flags ON e validados.
+9. **Remover código Firebase do frontend** — limpar imports, fallbacks, reduzir bundle.
+
+#### 🟢 Produto / melhorias
+10. **Relatórios Guard v2** — por cidade + turnos dos seguranças.
+11. **Chat in-app** — `CHAT_DESIGN.md` pronto, aguarda sign-off jurídico LGPD.
+12. **NFS-e module** — verificarProcuracoes, emissão automática.
+13. **i18n resíduos** — ~~26+ strings hardcoded~~ resolvido (ver 19.15); restam: templates PDF/CSV gerados (DashboardManager), `STATUS_META.label` (CidadesExpansao).
+14. **Front usar `buscarPOIsOSMFn`** — trocar Overpass client-side pela Cloud Function server-side.
+
+### 19.15 i18n resíduos + Guia atualizado (27/06/2026)
+
+#### Strings hardcoded → traduzidas (padrão `{pt,en,es,ru}` + `pick`)
+
+| Arquivo | Strings traduzidas |
+|---------|-------------------|
+| `AppShell.tsx` | 3 placeholders do GuardEditModal (descrição ativo, opcional, nº BO) |
+| `StreetViewModal.tsx` | 3 tooltips (nova janela, colar/arrastar, abrir Google Maps) |
+| `AndroidPermissionGate.tsx` | 5 títulos de permissão (localização, câmera, notificações, background, "o tempo todo") |
+| `SlotsDashboard.tsx` | 1 tooltip (atualizar) |
+| `TelaMapa.tsx` | Já estava i18n (8 FAB tooltips já usavam `t()`) |
+
+#### Keys faltantes nos JSONs de i18n
+
+| Idioma | Adicionadas |
+|--------|------------|
+| es.json | 1 key (`gojet-overlay.passos[5].dica`) |
+| ru.json | 7 keys (guard passos 2-3, slots-logistica passo 4, gojet-overlay dica) |
+
+#### GuiaPanel — atualização do guia
+- **5 tópicos novos** adicionados ao menu: Street View (🌐), Medir em lote (📏), Ferramentas do mapa (🛠), Gestor Logística (👔), GoJet Dashboard (📊)
+- **3 tópicos** movidos de `TOPICOS_FIXOS` hardcoded PT → JSONs i18n 4 idiomas: Analytics, Dashboard, Tarefas Logística
+- `TOPICOS_FIXOS` removido do código — todos os tópicos agora vêm dos JSONs com fallback vazio
+- **gps-ingest.ts deletado** — arquivo morto que fazia o deploy tentar recriar `ingestGps` ghost
+- `functions/lib/` recompilado sem a re-exportação fantasma
+
+### 19.16 APK Distribution via Supabase Storage (27/06/2026)
+
+#### Infraestrutura
+- **Bucket público `apk`** criado no Supabase Storage (migration 0064)
+- Limite 100 MB, mime types: `application/vnd.android.package-archive`, `application/octet-stream`
+- Policy `apk_public_read`: download anônimo
+- URL padrão: `https://ducdbrupxpzqcblfreqn.supabase.co/storage/v1/object/public/apk/jet-os-latest.apk`
+
+#### Banner inteligente (`ApkBanner` em `AppShell.tsx`)
+- Aparece **apenas em Android mobile web** (não no Capacitor/APK)
+- Lê `apk/version.json` do Storage para saber a versão mais recente
+- **Primeiro acesso:** convida a instalar o app (GPS background)
+- **Atualização disponível:** muda mensagem para "Nova versão disponível! Versão X.Y — toque para atualizar"
+- Dismiss salva a versão no localStorage (`jet_apk_banner_dismissed_v`); reaparece quando `version.json` muda
+- Footer link "Baixar app Android" sempre visível na tela de login
+
+#### Procedimento para publicar nova versão
+1. Gerar APK: `cd frontend/android && .\gradlew.bat assembleRelease`
+2. Upload do APK: dashboard Supabase → Storage → bucket `apk` → upload como `jet-os-latest.apk` (sobrescreve)
+3. Upload/atualizar `apk/version.json` com: `{"version": "2.1", "date": "2026-06-27", "notes": "..."}`
+4. O banner reaparece automaticamente para todos os usuários Android que tinham dismissado a versão anterior
+
+#### REGRA: manter sempre a última versão disponível
+- **Toda vez que gerar um novo APK**, fazer upload para o bucket `apk` e atualizar `version.json`
+- O arquivo deve sempre se chamar `jet-os-latest.apk` (URL fixa, sem versionamento no nome)
+- O `version.json` é o que controla quando o banner de atualização aparece
+
+### 19.17 Sessão 27/06/2026 — i18n final + POI server-side + Functions deploy + APK 2.1
+
+#### Cloud Functions deploy (resolvido)
+- 6 mirror functions davam erro "Changing from HTTPS to background triggered" — precisou deletar cada uma com `firebase functions:delete` antes de redeployar
+- Funções afetadas: espelharTarefaSupabase, espelharTarefaLogisticaSupabase, espelharSolicitacaoSupabase, espelharGojetConfigSupabase, espelharConsentimentoLgpdSupabase, espelharOcorrenciaSupabase
+- **Causa raiz:** essas functions foram originalmente criadas como HTTPS (antes da migração para `onDocumentWritten`); Firebase não permite mudar o tipo in-place
+
+#### i18n resíduos finais
+- **DashboardManager.tsx:** CAMPOS_EXPORT (25 campos × 4 idiomas), i18nRelat +ru (30 keys), PDF generation strings, seletor de idioma +ru
+- **CidadesExpansao.tsx:** STATUS_META labels traduzidas (5 status × 4 idiomas)
+- **TelaMapa.tsx:** ajuste para STATUS_META.label como objeto i18n
+
+#### POIPanel → Cloud Function
+- **POIPanel.tsx:** removido ~170 linhas de Overpass direto (buildQuery, detectTipo, fetchOverpass, URLs)
+- Agora usa `fnBuscarPOIs()` (Cloud Function `buscarPOIsOSMFn` via edge function)
+- CidadesExpansao, CandidatosManager, TelaMapa mantêm Overpass direto (queries especializadas)
+
+#### gojet_config dual-write
+- `gojet-config-supabase.ts`: +`salvarGojetConfigSupabase()`, `removerGojetConfigSupabase()` com filtro de colunas válidas
+- Dual-write em GoJetCidadesPanel, PainelConfiguracoes, GestorLogisticaPanel
+
+#### APK 2.1 publicado
+- Build: `cap sync android` + `gradlew assembleRelease` (11.5MB)
+- Upload: `apk/jet-os-latest.apk` + `version.json` no bucket Supabase Storage
+- Banner inteligente: lê `version.json`, reaparece quando versão muda
+
+### 19.18 Audit pré-shutdown Firestore (27/06/2026)
+
+#### Resultado: NÃO é seguro desligar Firestore ainda
+
+**22 coleções Firestore sem tabela Supabase equivalente:**
+gojet_snapshots, config, monitor_config, slot_config, config_auto_slots, config_logistica, guard_config, disponibilidades, feriados, slot_aceites, slot_alertas, slot_lembretes, log_slots_auto, monitor_alertas, operacoes, rotas, bug_reports, penalidades, meis, eficiencias_logistica, notificacoes_app, eventos
+
+**9 módulos frontend escrevem só Firestore (tabela Supabase existe mas sem dual-write):**
+tarefas (monitor), turnos, pagamentos_semana, pagamentos_locais, pagamentos_config, contratos_locais, cidades_expansao, bug_reports, telegram_config
+
+**6 Cloud Functions críticas que LEEM Firestore para lógica de negócio:**
+1. `gerarTarefasGoJetFn` — lê gojet_snapshots, monitor_config, estacoes, tarefas, slots, usuarios
+2. `scraperGoJet` — escreve gojet_snapshots (hub de dados)
+3. `verificarChegadaPonto` — trigger gps_logistica, lê tarefas, poligonos, monitor_alertas
+4. `confirmarSlotsCascata` — lê slots, slot_aceites, config_logistica, slot_alertas
+5. `relatorio` (Guard) — lê ocorrencias, config, telegram_config
+6. `gerarSlotsAgendado` — lê estacoes, slots, slot_config
+
+**Módulos prontos para desligar (dual-run funcional):**
+estacoes, poligonos, locais_operacionais, ocorrencias, gps, gojet_config, solicitacoes_prestadores, turnos_logistica, tarefas_logistica, usuarios, consentimentos_lgpd
+
+#### Roadmap para shutdown
+
+**Fase 1:** Criar ~12 tabelas faltantes + migrations
+**Fase 2:** Dual-write nos ~9 módulos frontend
+**Fase 3:** Migrar 6 Cloud Functions críticas → Supabase-first
+**Fase 4:** Migrar gojet_snapshots (scraper → Supabase, automação lê Supabase)

@@ -4,6 +4,10 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+
+const T = {
+  refresh: { pt: 'Atualizar', en: 'Refresh', es: 'Actualizar', ru: 'Обновить' },
+};
 import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
@@ -389,7 +393,9 @@ function DiaCard({ resumo, isToday }: { resumo: DiaResumo; isToday: boolean }) {
 // ─── Componente principal ────────────────────────────────────────────────────
 
 export default function SlotsDashboard({ cidade, pais, usuario, onEnviarTelegram }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
+  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
   const [hoje, setHoje] = useState<DiaResumo | null>(null);
   const [amanha, setAmanha] = useState<DiaResumo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -499,7 +505,7 @@ export default function SlotsDashboard({ cidade, pais, usuario, onEnviarTelegram
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {loading && <div style={S.spinner} />}
-          <button style={S.btn} onClick={fetchSlots} title={t('form.refresh')}>⟳</button>
+          <button style={S.btn} onClick={fetchSlots} title={pick(T.refresh)}>⟳</button>
           {onEnviarTelegram && (
             <button style={S.btn} onClick={handleEnviarTelegram} disabled={!hoje || !amanha}>
               📤 Telegram

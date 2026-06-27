@@ -8,6 +8,7 @@ import {
   collection, addDoc, query, where, getDocs, serverTimestamp, orderBy, limit,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { usuariosReadSupabase, fetchUsuarios } from '../lib/usuarios-supabase';
 import { colorForParking, PARKING_COLOR_HEX } from '../lib/parking-colors';
 import { classifyBike } from '../lib/bike-classify';
@@ -159,7 +160,7 @@ export default function AdminBikeActions({
       };
       let docRef;
       if (modo === 'trazer_bike' || modo === 'mover_bike') {
-        docRef = await addDoc(collection(db, 'tarefas'), {
+        const payload = {
           ...base,
           kind: 'PATINETE',
           titulo: `Levar ${bikeSel!.identifier ?? bikeSel!.id.slice(-6)} → ${parkingSel!.name}`,
@@ -169,10 +170,27 @@ export default function AdminBikeActions({
           parkingId: parkingSel!.id, parkingNome: parkingSel!.name,
           parkingLat: parkingSel!.latitude, parkingLng: parkingSel!.longitude,
           targetCount: (parkingSel!.target_bikes_count ?? 0) - (parkingSel!.availableCount ?? 0),
-        });
+        };
+        docRef = await addDoc(collection(db, 'tarefas'), payload);
+        // dual-write Supabase
+        supabase.from('tarefas').upsert({
+          id: docRef.id,
+          cidade, criado_por: gestorUid, status: 'pendente',
+          assignee_uid: workerSel || null,
+          assignee_nome: workers.find(w => w.uid === workerSel)?.nome ?? null,
+          prioridade: 3, gerado_por_gojet: true,
+          kind: 'PATINETE',
+          titulo: payload.titulo,
+          descricao: payload.descricao,
+          bike_identifier: bikeSel!.identifier ?? bikeSel!.id,
+          bike_lat: bikeSel!.location_lat, bike_lng: bikeSel!.location_lng,
+          parking_id: parkingSel!.id, parking_nome: parkingSel!.name,
+          parking_lat: parkingSel!.latitude, parking_lng: parkingSel!.longitude,
+          target_count: (parkingSel!.target_bikes_count ?? 0) - (parkingSel!.availableCount ?? 0),
+        }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[AdminBikeActions] upsert tarefas:', error.message); });
       } else {
         // ORGANIZACAO — cria tarefa para o ponto inteiro
-        docRef = await addDoc(collection(db, 'tarefas'), {
+        const payload = {
           ...base,
           kind: 'ORGANIZACAO',
           titulo: `Organizar ${parkingSel!.name}`,
@@ -180,7 +198,22 @@ export default function AdminBikeActions({
           parkingId: parkingSel!.id, parkingNome: parkingSel!.name,
           parkingLat: parkingSel!.latitude, parkingLng: parkingSel!.longitude,
           targetCount: (parkingSel!.target_bikes_count ?? 0) - (parkingSel!.availableCount ?? 0),
-        });
+        };
+        docRef = await addDoc(collection(db, 'tarefas'), payload);
+        // dual-write Supabase
+        supabase.from('tarefas').upsert({
+          id: docRef.id,
+          cidade, criado_por: gestorUid, status: 'pendente',
+          assignee_uid: workerSel || null,
+          assignee_nome: workers.find(w => w.uid === workerSel)?.nome ?? null,
+          prioridade: 3, gerado_por_gojet: true,
+          kind: 'ORGANIZACAO',
+          titulo: payload.titulo,
+          descricao: payload.descricao,
+          parking_id: parkingSel!.id, parking_nome: parkingSel!.name,
+          parking_lat: parkingSel!.latitude, parking_lng: parkingSel!.longitude,
+          target_count: (parkingSel!.target_bikes_count ?? 0) - (parkingSel!.availableCount ?? 0),
+        }, { onConflict: 'id' }).then(({ error }) => { if (error) console.error('[AdminBikeActions] upsert tarefas:', error.message); });
       }
       setMsg(pick(T.tarefa_criada));
       onCriado?.(docRef.id);
