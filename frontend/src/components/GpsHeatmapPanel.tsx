@@ -2,11 +2,7 @@
 // Heatmap de posições GPS dos prestadores por período
 
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  collection, query, where, getDocs, orderBy, limit, Timestamp,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { analyticsProviderSupabase, fetchGpsHeatmap } from '../lib/analytics-supabase';
+import { fetchGpsHeatmap } from '../lib/analytics-supabase';
 import L from 'leaflet';
 
 // Importa o plugin leaflet.heat (adiciona L.heatLayer)
@@ -90,38 +86,10 @@ export default function GpsHeatmapPanel({ cidade }: Props) {
     setCarregando(true);
     const desde = iniciosPeriodo(periodo);
 
-    // Migração #3: lê do Postgres (RPC) quando VITE_ANALYTICS_PROVIDER=supabase.
-    // A RPC retorna pontos binados (peso = contagem). cidade = cidade do operador.
-    if (analyticsProviderSupabase()) {
-      fetchGpsHeatmap({ desde: desde.toISOString(), cidade, limit: 5000 })
-        .then(pts => { setTotal(pts.reduce((s, p) => s + (p[2] || 1), 0)); setPontos(pts); })
-        .catch(err => { console.warn('[GpsHeatmap] RPC Supabase falhou:', err); setPontos([]); setTotal(0); })
-        .finally(() => setCarregando(false));
-      return;
-    }
-
-    const q = query(
-      collection(db, 'gps_logistica'),
-      where('cidade', '==', cidade),
-      where('criadoEm', '>=', Timestamp.fromDate(desde)),
-      orderBy('criadoEm', 'desc'),
-      limit(2000),
-    );
-
-    getDocs(q).then(snap => {
-      const pts: [number, number, number][] = [];
-      for (const d of snap.docs) {
-        const x = d.data();
-        if (Number.isFinite(x.lat) && Number.isFinite(x.lng)) {
-          pts.push([x.lat, x.lng, 1]);
-        }
-      }
-      setTotal(pts.length);
-      setPontos(pts);
-    }).catch(err => {
-      console.warn('[GpsHeatmap]', err);
-      setPontos([]);
-    }).finally(() => setCarregando(false));
+    fetchGpsHeatmap({ desde: desde.toISOString(), cidade, limit: 5000 })
+      .then(pts => { setTotal(pts.reduce((s, p) => s + (p[2] || 1), 0)); setPontos(pts); })
+      .catch(err => { console.warn('[GpsHeatmap] Supabase falhou:', err); setPontos([]); setTotal(0); })
+      .finally(() => setCarregando(false));
   }, [cidade, periodo]);
 
   // Atualiza heatmap no mapa

@@ -5,11 +5,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  collection, query, orderBy, onSnapshot,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { guardProviderSupabase, carregarOcorrenciasSupabase } from '../lib/ocorrencias-supabase';
+import { carregarOcorrenciasSupabase } from '../lib/ocorrencias-supabase';
 import { supabase } from '../lib/supabase';
 
 // i18n: padrão TermosUsoGate (sem json) — objeto de textos { pt, en, es, ru }
@@ -232,20 +228,12 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
       } catch { /* keep defaults */ }
     })();
 
-    // Escuta ocorrências — Fase 2 / Onda B: leitura do Supabase atrás de flag (read-only).
-    if (guardProviderSupabase()) {
-      let vivo = true;
-      carregarOcorrenciasSupabase({ limit: 5000 })
-        .then(rows => { if (vivo) { setOcorrencias(rows as OcorrenciaGuard[]); setLoading(false); } })
-        .catch(err => { console.error('[perdas-seg] leitura Supabase falhou:', err); if (vivo) setLoading(false); });
-      return () => { vivo = false; };
-    }
-    const q = query(collection(db, 'ocorrencias'), orderBy('criadoEm', 'desc'));
-    const unsub = onSnapshot(q, snap => {
-      setOcorrencias(snap.docs.map(d => ({ id: d.id, ...d.data() } as OcorrenciaGuard)));
-      setLoading(false);
-    }, () => setLoading(false));
-    return unsub;
+    // Leitura Supabase
+    let vivo = true;
+    carregarOcorrenciasSupabase({ limit: 5000 })
+      .then(rows => { if (vivo) { setOcorrencias(rows as OcorrenciaGuard[]); setLoading(false); } })
+      .catch(err => { console.error('[perdas-seg] leitura Supabase falhou:', err); if (vivo) setLoading(false); });
+    return () => { vivo = false; };
   }, [visivel]);
 
   // KPIs globais

@@ -3,11 +3,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  collection, query, where, orderBy, getDocs, limit, Timestamp,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { gpsProviderSupabase, fetchGpsRota } from '../lib/gps-supabase';
+import { fetchGpsRota } from '../lib/gps-supabase';
 import L from 'leaflet';
 
 const TR = {
@@ -86,32 +82,11 @@ export default function GpsRotaPanel({ uid, nome, onFechar }: Props) {
   const mapaRef = useRef<L.Map | null>(null);
   const rotaLayerRef = useRef<L.LayerGroup | null>(null);
 
-  // Busca pontos — Supabase (Onda D) ou Firestore (fallback)
+  // Busca pontos — Supabase
   useEffect(() => {
     setCarregando(true);
-
-    if (gpsProviderSupabase()) {
-      fetchGpsRota(uid, data).then(pts => {
-        setPontos(pts.map(p => ({ lat: p.lat, lng: p.lng, criadoEm: p.criadoEm, velocidade: p.velocidade ?? undefined })));
-      }).catch(err => {
-        console.warn('[GpsRotaPanel]', err);
-        setPontos([]);
-      }).finally(() => setCarregando(false));
-      return;
-    }
-
-    // Firestore fallback
-    const ini = new Date(data + 'T00:00:00');
-    const fim = new Date(data + 'T23:59:59');
-    const q = query(
-      collection(db, 'gps_logistica_hist', uid, 'pontos'),
-      where('criadoEm', '>=', Timestamp.fromDate(ini)),
-      where('criadoEm', '<=', Timestamp.fromDate(fim)),
-      orderBy('criadoEm', 'asc'),
-      limit(500),
-    );
-    getDocs(q).then(snap => {
-      setPontos(snap.docs.map(d => d.data() as Ponto));
+    fetchGpsRota(uid, data).then(pts => {
+      setPontos(pts.map(p => ({ lat: p.lat, lng: p.lng, criadoEm: p.criadoEm, velocidade: p.velocidade ?? undefined })));
     }).catch(err => {
       console.warn('[GpsRotaPanel]', err);
       setPontos([]);

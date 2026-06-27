@@ -3,12 +3,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  collection, query, where, onSnapshot, orderBy, limit,
-  Timestamp, getDocs,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { gpsProviderSupabase, fetchGpsAtual } from '../lib/gps-supabase';
+import { fetchGpsAtual } from '../lib/gps-supabase';
 import L from 'leaflet';
 import GpsRotaPanel from './GpsRotaPanel';
 
@@ -136,53 +131,27 @@ export default function LiveTrackingMap({ cidade, usuario }: Props) {
     return () => { m.remove(); mapaRef.current = null; };
   }, []);
 
-  // GPS data — Supabase polling (Onda D) ou Firestore onSnapshot (fallback)
+  // GPS data — Supabase polling
   useEffect(() => {
     if (!cidade) return;
 
-    if (gpsProviderSupabase()) {
-      // Supabase: polling a cada 10s
-      let alive = true;
-      const poll = () => {
-        fetchGpsAtual(60).then(pts => {
-          if (!alive) return;
-          const filtered = pts.filter(p => !p.cidade || p.cidade === cidade || p.cidade === '');
-          const byUid = new Map<string, Worker>();
-          for (const p of filtered) {
-            if (!byUid.has(p.uid) || (p.criadoEm?.seconds ?? 0) > (byUid.get(p.uid)!.criadoEm?.seconds ?? 0)) {
-              byUid.set(p.uid, { uid: p.uid, lat: p.lat, lng: p.lng, criadoEm: p.criadoEm, velocidade: p.velocidade ?? undefined, nome: p.nome, cidade: p.cidade });
-            }
+    let alive = true;
+    const poll = () => {
+      fetchGpsAtual(60).then(pts => {
+        if (!alive) return;
+        const filtered = pts.filter(p => !p.cidade || p.cidade === cidade || p.cidade === '');
+        const byUid = new Map<string, Worker>();
+        for (const p of filtered) {
+          if (!byUid.has(p.uid) || (p.criadoEm?.seconds ?? 0) > (byUid.get(p.uid)!.criadoEm?.seconds ?? 0)) {
+            byUid.set(p.uid, { uid: p.uid, lat: p.lat, lng: p.lng, criadoEm: p.criadoEm, velocidade: p.velocidade ?? undefined, nome: p.nome, cidade: p.cidade });
           }
-          setWorkers([...byUid.values()]);
-        });
-      };
-      poll();
-      const id = setInterval(poll, 10_000);
-      return () => { alive = false; clearInterval(id); };
-    }
-
-    // Firestore fallback
-    const desde = new Date(Date.now() - 60 * 60_000); // última hora
-    const q = query(
-      collection(db, 'gps_logistica'),
-      where('cidade', '==', cidade),
-      where('criadoEm', '>=', Timestamp.fromDate(desde)),
-      orderBy('criadoEm', 'desc'),
-      limit(300),
-    );
-
-    const unsub = onSnapshot(q, snap => {
-      const byUid = new Map<string, Worker>();
-      for (const d of snap.docs) {
-        const x = d.data() as Worker;
-        if (!byUid.has(x.uid) || (x.criadoEm?.seconds ?? 0) > (byUid.get(x.uid)!.criadoEm?.seconds ?? 0)) {
-          byUid.set(x.uid, { ...x });
         }
-      }
-      setWorkers([...byUid.values()]);
-    }, err => console.warn('[LiveTrackingMap]', err));
-
-    return unsub;
+        setWorkers([...byUid.values()]);
+      });
+    };
+    poll();
+    const id = setInterval(poll, 10_000);
+    return () => { alive = false; clearInterval(id); };
   }, [cidade]);
 
   // Atualiza marcadores no mapa

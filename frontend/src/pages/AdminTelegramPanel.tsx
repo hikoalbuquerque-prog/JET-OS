@@ -1,9 +1,8 @@
 // src/pages/AdminTelegramPanel.tsx
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { collection, getDocs, doc, updateDoc, query, where } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { usuariosReadSupabase, fetchUsuarios } from '../lib/usuarios-supabase';
+import { fetchUsuarios } from '../lib/usuarios-supabase';
+import { supabase } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
 // i18n: padrão do TermosUsoGate — texto definido em objeto { pt, en, es, ru }
@@ -69,27 +68,15 @@ export default function AdminTelegramPanel() {
       setLoading(true);
 
       // Carregar grupos Telegram
-      const gruposSnap = await getDocs(collection(db, 'gruposTelegram'));
-      const gruposData: GrupoTelegram[] = [];
-      gruposSnap.forEach((doc) => {
-        gruposData.push({ id: doc.id, ...doc.data() } as GrupoTelegram);
-      });
-      setGrupos(gruposData);
+      const { data: gruposData, error: gruposErr } = await supabase
+        .from('telegram_config')
+        .select('*');
+      if (gruposErr) throw gruposErr;
+      setGrupos((gruposData ?? []).map((d: any) => ({ id: d.id ?? d.firebase_id, nome: d.nome, chatId: d.chat_id ?? d.chatId, tipo: d.tipo ?? 'geral', ativo: d.ativo ?? true, criadoEm: d.criado_em })) as GrupoTelegram[]);
 
       // Carregar gestores
-      if (usuariosReadSupabase()) {
-        const gestoresData = await fetchUsuarios({ role_in: ['gestor', 'admin'] });
-        setGestores(gestoresData.map(g => ({ ...g, id: g.uid })) as GestorInfo[]);
-      } else {
-        const gestoresSnap = await getDocs(
-          query(collection(db, 'usuarios'), where('role', 'in', ['gestor', 'admin']))
-        );
-        const gestoresData: GestorInfo[] = [];
-        gestoresSnap.forEach((doc) => {
-          gestoresData.push({ id: doc.id, ...doc.data() } as GestorInfo);
-        });
-        setGestores(gestoresData);
-      }
+      const gestoresData = await fetchUsuarios({ role_in: ['gestor', 'admin'] });
+      setGestores(gestoresData.map(g => ({ ...g, id: g.uid })) as GestorInfo[]);
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
       toast.error(pick(T.toastErroLoad));
@@ -100,9 +87,8 @@ export default function AdminTelegramPanel() {
 
   const toggleGrupoAtivo = async (grupoId: string, ativoAtual: boolean) => {
     try {
-      await updateDoc(doc(db, 'gruposTelegram', grupoId), {
-        ativo: !ativoAtual,
-      });
+      const { error } = await supabase.from('telegram_config').update({ ativo: !ativoAtual }).eq('id', grupoId);
+      if (error) throw error;
       setGrupos(
         grupos.map((g) => (g.id === grupoId ? { ...g, ativo: !g.ativo } : g))
       );

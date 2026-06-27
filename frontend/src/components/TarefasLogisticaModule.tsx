@@ -5,15 +5,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  collection, query, where, orderBy, onSnapshot,
-  addDoc, updateDoc, doc, getDoc, serverTimestamp, getDocs, limit,
-  Timestamp, writeBatch,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
-import { logisticaWriteSupabase, criarTurnoLogisticaSupabase } from '../lib/onda-b-supabase';
-import { usuariosReadSupabase, fetchUsuarios } from '../lib/usuarios-supabase';
+import { fetchUsuarios } from '../lib/usuarios-supabase';
 import { uploadComRetry } from '../lib/uploadUtils';
 import { comprimirImagem, capturarFotoNativa } from '../lib/imageUtils';
 import { isAndroidNative } from '../lib/gps-native';
@@ -494,32 +487,74 @@ export default function TarefasLogisticaModule({
     if (t) setTarefaSel(t);
   }, [tarefaAbertaId, tarefas, loading]);
 
-  // Realtime onSnapshot — equivalente ao Supabase Realtime
+  // Supabase polling — carrega tarefas periodicamente
   useEffect(() => {
-    const q = isAdminRole(usuario.role)
-      ? query(collection(db,'tarefas_logistica'), where('cidade','==',cidade),
-               orderBy('criadoEm','desc'), limit(300))
-      : query(collection(db,'tarefas_logistica'), where('cidade','==',cidade),
-               where('assigneeUid','==',usuario.uid), orderBy('criadoEm','desc'), limit(100));
-    const unsub = onSnapshot(q, snap => {
-      setTarefas(snap.docs.map(d => ({ id: d.id, ...d.data() } as TarefaLogistica)));
-      setLoading(false);
-    });
-    return unsub;
+    const isAdmin = isAdminRole(usuario.role);
+    let cancelled = false;
+    const load = async () => {
+      try {
+        let q = supabase
+          .from('tarefas_logistica')
+          .select('*')
+          .eq('cidade', cidade)
+          .order('criado_em', { ascending: false })
+          .limit(isAdmin ? 300 : 100);
+        if (!isAdmin) q = q.eq('assignee_uid', usuario.uid);
+        const { data, error } = await q;
+        if (error) throw error;
+        if (!cancelled) {
+          const mapped = (data ?? []).map((r: any) => ({
+            id: String(r.id),
+            kind: r.kind ?? 'PONTO',
+            titulo: r.titulo ?? '',
+            descricao: r.descricao ?? '',
+            status: r.status ?? 'pendente',
+            prioridade: r.prioridade ?? 3,
+            parkingId: r.parking_id,
+            parkingNome: r.parking_nome,
+            parkingLat: r.parking_lat,
+            parkingLng: r.parking_lng,
+            bikeIdentifier: r.bike_identifier,
+            bikeLat: r.bike_lat,
+            bikeLng: r.bike_lng,
+            targetCount: r.target_count,
+            deliveredCount: r.delivered_count ?? 0,
+            entregas: r.entregas ?? [],
+            assigneeUid: r.assignee_uid,
+            assigneeNome: r.responsavel_nome ?? r.assignee_nome,
+            cidade: r.cidade ?? '',
+            pais: r.pais ?? 'BR',
+            criadoPor: r.criado_por ?? '',
+            criadoEm: r.criado_em,
+            atualizadoEm: r.atualizado_em,
+            iniciadoEm: r.iniciado_em,
+            concluidoEm: r.concluido_em,
+            fotoChegadaUrl: r.foto_chegada_url,
+            fotoConclusaoUrl: r.foto_conclusao_url,
+            geradoPorGoJet: r.gerado_por_gojet,
+            slotId: r.slot_id,
+            bateriaPercent: r.bateria_percent,
+            due_at: r.due_at,
+            destinoAlteradoEm: r.destino_alterado_em,
+          })) as TarefaLogistica[];
+          setTarefas(mapped);
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error('[tarefas] load error:', err);
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    const timer = setInterval(load, 10000);
+    return () => { cancelled = true; clearInterval(timer); };
   }, [cidade, usuario.uid, usuario.role]);
 
   useEffect(() => {
     if (!isAdminRole(usuario.role)) return;
-    if (usuariosReadSupabase()) {
-      fetchUsuarios({ role_in: ['logistica','campo','charger','scalt'] })
-        .then(users => setAgentes(users.map(u => ({ uid: u.uid, nome: u.nome||u.email, email: u.email }))))
-        .catch(() => {});
-    } else {
-      getDocs(query(collection(db,'usuarios'), where('role','in',['logistica','campo','charger','scalt'])))
-        .then(snap => setAgentes(snap.docs.map(d => {
-          const x = d.data(); return { uid: d.id, nome: x.nome||x.email, email: x.email };
-        }))).catch(() => {});
-    }
+    fetchUsuarios({ role_in: ['logistica','campo','charger','scalt'] })
+      .then(users => setAgentes(users.map((u: any) => ({ uid: u.uid, nome: u.nome||u.email, email: u.email }))))
+      .catch(() => {});
   }, [usuario.role]);
 
   if (tarefaSel) return (
@@ -671,19 +706,15 @@ function WorkerHome({ tarefas, usuario, onAbrirTarefa }: {
       const comp = await comprimir(file);
       const path = `turnos/${usuario.uid}/${agora.getTime()}.jpg`;
       const url  = await uploadComRetry(comp, path);
-      // Salva no Firestore (best-effort)
+      // Salva no Supabase (best-effort)
       try {
         const turnoDoc = {
           uid: usuario.uid, nome: usuario.nome ?? usuario.email,
-          fotoUrl: url, acao: 'inicio',
-          criadoEm: serverTimestamp(),
+          foto_url: url, acao: 'inicio',
+          criado_em: new Date().toISOString(),
           cidade: '',
         };
-        const ref = await addDoc(collection(db, 'turnos_logistica'), turnoDoc);
-        // Cutover de writes (Onda C): dual-write Supabase atrás de flag (best-effort).
-        if (logisticaWriteSupabase()) {
-          criarTurnoLogisticaSupabase(ref.id, turnoDoc).catch(err => console.error('[log-write] turno Supabase:', err));
-        }
+        await supabase.from('turnos_logistica').insert(turnoDoc);
       } catch { /* best-effort */ }
       localStorage.setItem('jet:worker-status', 'working');
       localStorage.setItem('jet:worker-started-at', agora.toISOString());
@@ -1121,25 +1152,49 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
   const [novoAgente, setNovoAgente]   = useState('');
   const [auditLog, setAuditLog]       = useState<any[]>([]);
 
-  // Realtime: escuta mudanças nessa tarefa específica
+  // Polling: escuta mudanças nessa tarefa específica
   useEffect(() => {
     if (!tarefa.id) return;
-    const unsub = onSnapshot(doc(db, 'tarefas_logistica', tarefa.id), d => {
-      if (d.exists()) setTarefa({ id: d.id, ...d.data() } as TarefaLogistica);
-    });
-    return unsub;
+    let cancelled = false;
+    const poll = async () => {
+      const { data } = await supabase.from('tarefas_logistica').select('*').eq('id', tarefa.id).maybeSingle();
+      if (data && !cancelled) {
+        setTarefa({
+          id: String(data.id),
+          kind: data.kind ?? 'PONTO', titulo: data.titulo ?? '', descricao: data.descricao ?? '',
+          status: data.status ?? 'pendente', prioridade: data.prioridade ?? 3,
+          parkingId: data.parking_id, parkingNome: data.parking_nome,
+          parkingLat: data.parking_lat, parkingLng: data.parking_lng,
+          bikeIdentifier: data.bike_identifier, bikeLat: data.bike_lat, bikeLng: data.bike_lng,
+          targetCount: data.target_count, deliveredCount: data.delivered_count ?? 0,
+          entregas: data.entregas ?? [], assigneeUid: data.assignee_uid,
+          assigneeNome: data.responsavel_nome ?? data.assignee_nome,
+          cidade: data.cidade ?? '', pais: data.pais ?? 'BR', criadoPor: data.criado_por ?? '',
+          criadoEm: data.criado_em, atualizadoEm: data.atualizado_em,
+          iniciadoEm: data.iniciado_em, concluidoEm: data.concluido_em,
+          fotoChegadaUrl: data.foto_chegada_url, fotoConclusaoUrl: data.foto_conclusao_url,
+          geradoPorGoJet: data.gerado_por_gojet, slotId: data.slot_id,
+          bateriaPercent: data.bateria_percent, due_at: data.due_at,
+          destinoAlteradoEm: data.destino_alterado_em,
+        } as TarefaLogistica);
+      }
+    };
+    poll();
+    const timer = setInterval(poll, 5000);
+    return () => { cancelled = true; clearInterval(timer); };
   }, [tarefa.id]);
 
-  // Realtime: audit log da tarefa
+  // Polling: audit log da tarefa
   useEffect(() => {
     if (!tarefa.id) return;
-    const q = query(
-      collection(db, 'tarefas_logistica', tarefa.id, 'audit_log'),
-      orderBy('ts', 'asc'),
-    );
-    return onSnapshot(q, snap => {
-      setAuditLog(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    let cancelled = false;
+    const loadLog = async () => {
+      const { data } = await supabase.from('tarefas_audit_log').select('*').eq('tarefa_id', tarefa.id).order('ts', { ascending: true });
+      if (data && !cancelled) setAuditLog(data);
+    };
+    loadLog();
+    const logTimer = setInterval(loadLog, 10000);
+    return () => { cancelled = true; clearInterval(logTimer); };
   }, [tarefa.id]);
 
   const mine    = tarefa.assigneeUid === usuario.uid || isAdminRole(usuario.role);
@@ -1151,9 +1206,13 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
     if (!tarefa.id) return;
     setBusy(true); setErro('');
     try {
-      await updateDoc(doc(db,'tarefas_logistica',tarefa.id), {
-        ...campos, atualizadoEm: serverTimestamp(),
-      });
+      const snakeCase: Record<string, unknown> = { atualizado_em: new Date().toISOString() };
+      for (const [k, v] of Object.entries(campos)) {
+        const sk = k.replace(/[A-Z]/g, c => '_' + c.toLowerCase());
+        snakeCase[sk] = v;
+      }
+      const { error } = await supabase.from('tarefas_logistica').update(snakeCase).eq('id', tarefa.id);
+      if (error) throw error;
       // Audit log: registra transições de status e entrega parcial
       const evento = campos.status
         ? { tipo: 'status', de: tarefa.status, para: campos.status }
@@ -1163,10 +1222,14 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
         ? { tipo: 'destino_alterado', para: campos.parkingNome ?? campos.parkingId }
         : null;
       if (evento) {
-        await addDoc(
-          collection(db, 'tarefas_logistica', tarefa.id, 'audit_log'),
-          { ...evento, ts: serverTimestamp(), uid: usuario.uid, nome: usuario.nome ?? usuario.email ?? '' }
-        );
+        const { error: logErr } = await supabase.from('tarefas_audit_log').insert({
+          tarefa_id: tarefa.id,
+          ...evento,
+          ts: new Date().toISOString(),
+          uid: usuario.uid,
+          nome: usuario.nome ?? usuario.email ?? '',
+        });
+        if (logErr) console.error('[audit] insert error:', logErr);
       }
       setOk(pick(T.atualizado)); setTimeout(() => setOk(''), 2000);
     } catch (e: any) { setErro(e.message); }
@@ -1181,10 +1244,10 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
       const url  = await uploadFoto(comp, tarefa.id, fotoTipo);
 
       if (fotoTipo === 'chegada') {
-        await atualizar({ fotoChegadaUrl: url, status: 'em_execucao', iniciadoEm: serverTimestamp() });
+        await atualizar({ fotoChegadaUrl: url, status: 'em_execucao', iniciadoEm: new Date().toISOString() });
         setOk(pick(T.okChegada));
       } else if (fotoTipo === 'conclusao') {
-        await atualizar({ fotoConclusaoUrl: url, status: 'concluida', concluidoEm: serverTimestamp() });
+        await atualizar({ fotoConclusaoUrl: url, status: 'concluida', concluidoEm: new Date().toISOString() });
         setOk(pick(T.okConcluida));
       } else {
         // Entrega parcial
@@ -1199,7 +1262,7 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
     const entrega: Entrega = {
       qtd: qtdEntrega,
       fotoUrl,
-      entregueEm: serverTimestamp(),
+      entregueEm: new Date().toISOString(),
       agentUid: usuario.uid,
       agentNome: usuario.nome ?? usuario.email,
     };
@@ -1208,7 +1271,7 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
     await atualizar({
       deliveredCount: novoEntregue,
       entregas: [...(tarefa.entregas ?? []), entrega],
-      ...(concluida ? { status: 'concluida', concluidoEm: serverTimestamp() } : {}),
+      ...(concluida ? { status: 'concluida', concluidoEm: new Date().toISOString() } : {}),
     });
     setOk(concluida ? pick(T.okMeta) : `+${qtdEntrega} ${pick(T.entregues)} ${novoEntregue}/${tarefa.targetCount}`);
   };
@@ -1219,22 +1282,22 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
     if (!ag) return;
     setBusy(true); setErro('');
     try {
-      await updateDoc(doc(db, 'tarefas_logistica', tarefa.id), {
-        assigneeUid: ag.uid, assigneeNome: ag.nome,
-        reatribuidoEm: serverTimestamp(), reatribuidoPor: usuario.uid,
-        atualizadoEm: serverTimestamp(),
+      const now = new Date().toISOString();
+      const { error } = await supabase.from('tarefas_logistica').update({
+        assignee_uid: ag.uid, assignee_nome: ag.nome, responsavel_nome: ag.nome,
+        reatribuido_em: now, reatribuido_por: usuario.uid,
+        atualizado_em: now,
+      }).eq('id', tarefa.id);
+      if (error) throw error;
+      await supabase.from('tarefas_audit_log').insert({
+        tarefa_id: tarefa.id,
+        tipo: 'reatribuicao',
+        de: tarefa.assigneeNome ?? '—',
+        para: ag.nome,
+        ts: now,
+        uid: usuario.uid,
+        nome: usuario.nome ?? usuario.email ?? '',
       });
-      await addDoc(
-        collection(db, 'tarefas_logistica', tarefa.id, 'audit_log'),
-        {
-          tipo: 'reatribuicao',
-          de: tarefa.assigneeNome ?? '—',
-          para: ag.nome,
-          ts: serverTimestamp(),
-          uid: usuario.uid,
-          nome: usuario.nome ?? usuario.email ?? '',
-        }
-      );
       // Telegram: notificar novo agente
       try {
         const { httpsCallable: hc, getFunctions: gf } = await import('firebase/functions');
@@ -1256,7 +1319,7 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
         parkingNome: parking.name ?? parking.nome,
         parkingLat: parking.latitude ?? parking.lat,
         parkingLng: parking.longitude ?? parking.lng,
-        destinoAlteradoEm: serverTimestamp(),
+        destinoAlteradoEm: new Date().toISOString(),
       });
       setOk(pick(T.okDestino));
     });
@@ -1388,7 +1451,7 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
                   style={{ ...S.btn('#3b82f6'), width: '100%' }}>
                   📸 {busy ? pick(T.aguarde) : pick(T.tirarFotoChegada)}
                 </button>
-                <button disabled={busy} onClick={() => atualizar({ status: 'em_execucao', iniciadoEm: serverTimestamp() })}
+                <button disabled={busy} onClick={() => atualizar({ status: 'em_execucao', iniciadoEm: new Date().toISOString() })}
                   style={S.ghost}>{pick(T.iniciarSemFoto)}</button>
               </>
             )}
@@ -1422,7 +1485,7 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
                   ✅ {busy ? pick(T.enviando) : pick(T.fotoConclusaoBtn)}
                 </button>
                 <button disabled={busy}
-                  onClick={() => atualizar({ status: 'concluida', concluidoEm: serverTimestamp() })}
+                  onClick={() => atualizar({ status: 'concluida', concluidoEm: new Date().toISOString() })}
                   style={S.ghost}>{pick(T.concluirSemFoto)}</button>
               </>
             )}
@@ -1604,16 +1667,16 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
   const [loadingPontos, setLoadingPontos] = useState(false);
   const [filtroCriticos, setFiltroCriticos] = useState(true); // só pontos abaixo do target
 
-  // Carregar snapshot GoJet do Firestore
+  // Carregar snapshot GoJet do Supabase
   useEffect(() => {
     setLoadingPontos(true);
-    getDocs(collection(db, 'gojet_snapshots')).then(snap => {
-      const latest = snap.docs.find(d => d.id === 'latest');
-      if (latest) {
-        const data = latest.data();
-        setPontosGoJet(data.parkings ?? []);
-      }
-    }).catch(() => {}).finally(() => setLoadingPontos(false));
+    (async () => {
+      try {
+        const { data } = await supabase.from('gojet_snapshots').select('id, parkings').eq('id', 'latest').maybeSingle();
+        if (data) setPontosGoJet(data.parkings ?? []);
+      } catch {}
+      setLoadingPontos(false);
+    })();
   }, []);
 
   // Auto-preenche target quando seleciona ponto
@@ -1659,39 +1722,40 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
     setBusy(true); setErro('');
     try {
       const ag = agentes.find(a => a.uid === assigneeUid);
-      const novaRef = await addDoc(collection(db, 'tarefas_logistica'), {
+      const now = new Date().toISOString();
+      const { data: novaData, error: novaErr } = await supabase.from('tarefas_logistica').insert({
         kind, titulo: titulo.trim(), descricao: descricao.trim() || null,
         status: 'pendente', prioridade, cidade, pais,
-        criadoPor: usuario.uid, criadoEm: serverTimestamp(), atualizadoEm: serverTimestamp(),
-        assigneeUid: assigneeUid || null, assigneeNome: ag?.nome ?? null,
-        parkingId:   parkSel?.id ?? null,
-        parkingNome: (parkSel?.nome ?? parkNome) || null,
-        parkingLat:  lat, parkingLng: lng,
-        targetCount: targetCount !== '' ? Number(targetCount) : null,
-        bikeIdentifier: bikeId || null,
-        deliveredCount: 0, entregas: [],
-        geradoPorGoJet: false, slotId: null,
-        due_at: dueAt ? Timestamp.fromDate(new Date(dueAt)) : null,
-      });
-      // Audit: criação
-      await addDoc(collection(db, 'tarefas_logistica', novaRef.id, 'audit_log'), {
+        criado_por: usuario.uid, criado_em: now, atualizado_em: now,
+        assignee_uid: assigneeUid || null, responsavel_nome: ag?.nome ?? null,
+        parking_id: parkSel?.id ?? null,
+        parking_nome: (parkSel?.nome ?? parkNome) || null,
+        parking_lat: lat, parking_lng: lng,
+        target_count: targetCount !== '' ? Number(targetCount) : null,
+        bike_identifier: bikeId || null,
+        delivered_count: 0, entregas: [],
+        gerado_por_gojet: false, slot_id: null,
+        due_at: dueAt ? new Date(dueAt).toISOString() : null,
+      }).select('id').single();
+      if (novaErr) throw novaErr;
+      const novaId = novaData.id;
+      // Audit: criacao
+      await supabase.from('tarefas_audit_log').insert({
+        tarefa_id: novaId,
         tipo: 'criacao', para: 'pendente',
-        atribuidoPara: ag?.nome ?? null,
-        ts: serverTimestamp(), uid: usuario.uid, nome: usuario.nome ?? usuario.email ?? '',
+        atribuido_para: ag?.nome ?? null,
+        ts: now, uid: usuario.uid, nome: usuario.nome ?? usuario.email ?? '',
       });
       // FCM push notification para o agente atribuído
       if (assigneeUid) {
         try {
-          const { getDoc: gd, doc: fd } = await import('firebase/firestore');
-          const tokenSnap = await gd(fd(db, 'fcm_tokens', assigneeUid));
-          if (tokenSnap.exists()) {
-            const fcmToken = tokenSnap.data().token;
-            // Chama Cloud Function para enviar FCM (token no servidor)
+          const { data: tokenData } = await supabase.from('fcm_tokens').select('token').eq('uid', assigneeUid).maybeSingle();
+          if (tokenData?.token) {
             const { httpsCallable, getFunctions } = await import('firebase/functions');
             const { getApp } = await import('firebase/app');
             const fns = getFunctions(getApp(), 'southamerica-east1');
             const fn  = httpsCallable(fns, 'notificarTarefaFn');
-            await fn({ tarefaTitulo: titulo, assigneeUid, cidade, fcmToken }).catch(() => {});
+            await fn({ tarefaTitulo: titulo, assigneeUid, cidade, fcmToken: tokenData.token }).catch(() => {});
           }
         } catch { /* best-effort */ }
       }
@@ -1700,7 +1764,7 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
         const { httpsCallable: hc2, getFunctions: gf2 } = await import('firebase/functions');
         const { getApp: ga2 } = await import('firebase/app');
         const fn2 = hc2(gf2(ga2(), 'southamerica-east1'), 'notificarTarefaAtribuida');
-        await fn2({ assigneeUid, tarefaId: novaRef.id, titulo: titulo.trim(), kind, parkingNome: parkSel?.nome ?? parkNome ?? null, cidade }).catch(() => {});
+        await fn2({ assigneeUid, tarefaId: novaId, titulo: titulo.trim(), kind, parkingNome: parkSel?.nome ?? parkNome ?? null, cidade }).catch(() => {});
       } catch { /* best-effort */ }
 
       onCriada();

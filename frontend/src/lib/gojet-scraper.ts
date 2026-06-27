@@ -3,10 +3,7 @@
 // Funciona porque a API tem CORS aberto (access-control-allow-origin: *).
 // Usado pelo botão "Atualizar agora" no GoJetOverlay.
 
-import {
-  collection, doc, setDoc, serverTimestamp,
-} from 'firebase/firestore';
-import { db } from './firebase';
+import { supabase } from './supabase';
 
 const GOJET_BASE = 'https://logistic.gojet.app/api/v0/urent';
 const LIMIT = 1000;
@@ -32,51 +29,32 @@ async function fetchAllPages<T>(endpoint: string, cityId: string): Promise<T[]> 
   return all;
 }
 
-async function salvarNoFirestore(
+async function salvarNoSupabase(
   parkings: any[], bikes: any[], cityId: string, cidade: string
 ): Promise<void> {
-  const now = serverTimestamp();
-  const col = collection(db, 'gojet_snapshots');
-  const docId      = `latest_${cityId}`;
-  const docIdBikes = `bikes_latest_${cityId}`;
+  const now = new Date().toISOString();
 
-  // ── Parkings ────────────────────────────────────────────────────────────────
-  if (parkings.length <= PARKING_CHUNK) {
-    await setDoc(doc(col, docId), { parkings, cityId, cidade, total: parkings.length, savedAt: now });
-  } else {
-    const totalChunks = Math.ceil(parkings.length / PARKING_CHUNK);
-    for (let i = 0, chunk = 0; i < parkings.length; i += PARKING_CHUNK, chunk++) {
-      await setDoc(doc(col, `${docId}_chunk${chunk}`), {
-        parkings: parkings.slice(i, i + PARKING_CHUNK),
-        chunk, totalChunks, cityId, cidade, savedAt: now,
-      });
-    }
-    await setDoc(doc(col, docId), { chunked: true, totalChunks, cityId, cidade, total: parkings.length, savedAt: now });
-  }
+  // Upsert parkings snapshot
+  const { error: errP } = await supabase.from('gojet_snapshots').upsert({
+    id: `latest_${cityId}`,
+    parkings,
+    city_id: cityId,
+    cidade,
+    total: parkings.length,
+    saved_at: now,
+  }, { onConflict: 'id' });
+  if (errP) console.error('[gojet-scraper] erro ao salvar parkings:', errP);
 
-  // ── Bikes ────────────────────────────────────────────────────────────────────
-  if (bikes.length <= BIKE_CHUNK) {
-    await setDoc(doc(col, docIdBikes), { bikes, cityId, cidade, total: bikes.length, savedAt: now });
-  } else {
-    const totalChunks = Math.ceil(bikes.length / BIKE_CHUNK);
-    for (let i = 0, chunk = 0; i < bikes.length; i += BIKE_CHUNK, chunk++) {
-      await setDoc(doc(col, `${docIdBikes}_chunk${chunk}`), {
-        bikes: bikes.slice(i, i + BIKE_CHUNK),
-        chunk, totalChunks, cityId, cidade, savedAt: now,
-      });
-    }
-    await setDoc(doc(col, docIdBikes), { chunked: true, totalChunks, cityId, cidade, total: bikes.length, savedAt: now });
-  }
-
-  // ── Legacy (compatibilidade) ─────────────────────────────────────────────────
-  await setDoc(doc(col, 'latest'), {
-    parkings: parkings.slice(0, PARKING_CHUNK), cityId, cidade,
-    total: parkings.length, hasMore: parkings.length > PARKING_CHUNK, savedAt: now,
-  });
-  await setDoc(doc(col, 'bikes_latest'), {
-    bikes: bikes.slice(0, BIKE_CHUNK), cityId, cidade,
-    total: bikes.length, hasMore: bikes.length > BIKE_CHUNK, savedAt: now,
-  });
+  // Upsert bikes snapshot
+  const { error: errB } = await supabase.from('gojet_snapshots').upsert({
+    id: `bikes_latest_${cityId}`,
+    bikes,
+    city_id: cityId,
+    cidade,
+    total: bikes.length,
+    saved_at: now,
+  }, { onConflict: 'id' });
+  if (errB) console.error('[gojet-scraper] erro ao salvar bikes:', errB);
 }
 
 export async function scraperGoJetBrowser(cityId: string, cidade: string): Promise<{
@@ -87,7 +65,7 @@ export async function scraperGoJetBrowser(cityId: string, cidade: string): Promi
     fetchAllPages<any>('bikes',    cityId),
   ]);
 
-  await salvarNoFirestore(parkings, bikes, cityId, cidade);
+  await salvarNoSupabase(parkings, bikes, cityId, cidade);
 
   return { totalParkings: parkings.length, totalBikes: bikes.length };
 }

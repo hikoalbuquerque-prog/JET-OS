@@ -3,13 +3,8 @@
 // Permissões: admin, gestor_seg podem editar
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import {
-  collection, query, where, orderBy, onSnapshot,
-  doc, updateDoc, serverTimestamp, limit,
-} from 'firebase/firestore';
 import { useTranslation } from 'react-i18next';
-import { db } from '../lib/firebase';
-import { guardProviderSupabase, carregarOcorrenciasSupabase, guardWriteSupabase, atualizarOcorrenciaSupabase } from '../lib/ocorrencias-supabase';
+import { carregarOcorrenciasSupabase, atualizarOcorrenciaSupabase } from '../lib/ocorrencias-supabase';
 import { analyticsProviderSupabase, fetchOcorrenciasRegional } from '../lib/analytics-supabase';
 import { supabase } from '../lib/supabase';
 import L from 'leaflet';
@@ -415,15 +410,13 @@ function ModalEditar({
   const salvar = async () => {
     setSalvando(true);
     try {
-      await updateDoc(doc(db, 'ocorrencias', ocorrencia.id), {
+      await atualizarOcorrenciaSupabase(ocorrencia.id, {
         status, observacao_fechamento: obs,
         ...(isVandal && {
           danoPct:   danoPct.trim()   !== '' ? Number(danoPct)                       : null,
           danoValor: danoValor.trim() !== '' ? Number(danoValor.replace(',', '.'))   : null,
         }),
-        atualizadoEm: serverTimestamp(),
       });
-      if (guardWriteSupabase()) atualizarOcorrenciaSupabase(ocorrencia.id, { status, observacao_fechamento: obs }).catch(err => console.error('[guard-write] update Supabase:', err));
       onSalvo();
       onFechar();
     } catch (e) {
@@ -1063,24 +1056,11 @@ export default function PainelRoubos({ visivel, onFechar, mapa, cidade, roleUsua
   useEffect(() => {
     if (!visivel) return;
     setLoading(true);
-    // Fase 2 / Onda B — leitura do Supabase atrás de flag (read-only).
-    if (guardProviderSupabase()) {
-      let vivo = true;
-      carregarOcorrenciasSupabase({ cidade: cidade || undefined, limit: 2000 })
-        .then(rows => { if (vivo) { setOcorrencias(rows as Ocorrencia[]); setLoading(false); } })
-        .catch(err => { console.error('[roubos] leitura Supabase falhou:', err); if (vivo) setLoading(false); });
-      return () => { vivo = false; };
-    }
-    const q = cidade
-      ? query(collection(db, 'ocorrencias'), where('cidade_inicial', '==', cidade), orderBy('criadoEm', 'desc'), limit(2000))
-      : query(collection(db, 'ocorrencias'), orderBy('criadoEm', 'desc'), limit(2000));
-
-    const unsub = onSnapshot(q, snap => {
-      setOcorrencias(snap.docs.map(d => ({ id: d.id, ...d.data() } as Ocorrencia)));
-      setLoading(false);
-    }, () => setLoading(false));
-
-    return unsub;
+    let vivo = true;
+    carregarOcorrenciasSupabase({ cidade: cidade || undefined, limit: 2000 })
+      .then(rows => { if (vivo) { setOcorrencias(rows as Ocorrencia[]); setLoading(false); } })
+      .catch(err => { console.error('[roubos] leitura Supabase falhou:', err); if (vivo) setLoading(false); });
+    return () => { vivo = false; };
   }, [visivel, cidade]);
 
   // Markers no mapa

@@ -8,10 +8,7 @@ import { useTranslation } from 'react-i18next';
 const T = {
   refresh: { pt: 'Atualizar', en: 'Refresh', es: 'Actualizar', ru: 'Обновить' },
 };
-import { collection, query, where, getDocs, Timestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
-import { slotsProviderSupabase } from '../lib/slots-supabase';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -412,53 +409,28 @@ export default function SlotsDashboard({ cidade, pais, usuario, onEnviarTelegram
 
       let docs: SlotDoc[];
 
-      if (slotsProviderSupabase()) {
-        // ── Supabase ──
-        const { data, error } = await supabase
-          .from('slots')
-          .select('*')
-          .eq('cidade', cidade);
-        if (error) throw error;
-        docs = (data ?? []).map((r: any) => {
-          const c = r.config ?? {};
-          const inicio = r.inicio ?? '';
-          const dataSlot = typeof inicio === 'string' ? inicio.slice(0, 10) : '';
-          const horaIni = typeof inicio === 'string' ? inicio.slice(11, 16) : '';
-          const fim = r.fim ?? '';
-          const horaFim = typeof fim === 'string' ? fim.slice(11, 16) : '';
-          return {
-            id: r.id, dataSlot, horaIni, horaFim,
-            cargo: r.tipo ?? c.cargo ?? 'scalt',
-            turno: c.turno ?? '',
-            status: r.status ?? 'aberto',
-            motivoCancelamento: c.motivo_cancelamento ?? undefined,
-            cidade: r.cidade,
-            vagas: r.vagas ?? 1,
-          };
-        });
-      } else {
-        // ── Firestore (fallback) ──
-        const q = query(
-          collection(db, 'slots'),
-          where('cidade', '==', cidade),
-        );
-        const snap = await getDocs(q);
-        docs = snap.docs.map(d => {
-          const raw = d.data();
-          const inicio = raw.turnoInicio ?? '';
-          const dataSlot = inicio.slice(0, 10);
-          const horaIni = inicio.slice(11, 16);
-          const fim = raw.turnoFim ?? '';
-          const horaFim = fim.slice(11, 16);
-          return {
-            id: d.id, dataSlot, horaIni, horaFim,
-            cargo: raw.cargo ?? 'scalt', turno: raw.turno ?? '',
-            status: raw.status ?? 'aberto',
-            motivoCancelamento: raw.motivoCancelamento ?? undefined,
-            cidade: raw.cidade, vagas: raw.vagas ?? 1,
-          };
-        });
-      }
+      const { data, error } = await supabase
+        .from('slots')
+        .select('*')
+        .eq('cidade', cidade);
+      if (error) throw error;
+      docs = (data ?? []).map((r: any) => {
+        const c = r.config ?? {};
+        const inicio = r.inicio ?? '';
+        const dataSlot = typeof inicio === 'string' ? inicio.slice(0, 10) : '';
+        const horaIni = typeof inicio === 'string' ? inicio.slice(11, 16) : '';
+        const fim = r.fim ?? '';
+        const horaFim = typeof fim === 'string' ? fim.slice(11, 16) : '';
+        return {
+          id: r.id, dataSlot, horaIni, horaFim,
+          cargo: r.tipo ?? c.cargo ?? 'scalt',
+          turno: c.turno ?? '',
+          status: r.status ?? 'aberto',
+          motivoCancelamento: c.motivo_cancelamento ?? undefined,
+          cidade: r.cidade,
+          vagas: r.vagas ?? 1,
+        };
+      });
 
       const slotsHoje = docs.filter(s => s.dataSlot === d0);
       const slotsAmanha = docs.filter(s => s.dataSlot === d1);

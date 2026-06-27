@@ -1,7 +1,7 @@
 // src/estacoes/index.ts
-import * as admin from 'firebase-admin';
 import axios from 'axios';
-import { db, validarLatLng, limparNulos, gerarCodigo, normalizarLargura, logEvento, erroResponse, okResponse } from '../utils';
+import { validarLatLng, limparNulos, gerarCodigo, normalizarLargura, logEvento, erroResponse, okResponse } from '../utils';
+import { supabaseGet, supabaseGetOne, supabaseInsert, supabaseUpdate } from '../lib/supabase-rest';
 import { fetchStreetViewCascata } from '../streetview';
 import { analisarCalcadaIA } from '../ia';
 
@@ -71,7 +71,7 @@ export async function addEstacao(
     aprovado:   iaPayload.aprovado         === true,
     confianca:  String(iaPayload.confianca || 'baixa'),
     motivo:     String(iaPayload.motivo    || ''),
-    analisadoEm: admin.firestore.FieldValue.serverTimestamp()
+    analisadoEm: new Date().toISOString()
   } : null;
 
   // Largura faixa normalizada
@@ -97,11 +97,11 @@ export async function addEstacao(
     imagens:       {},
     operador:      email,
     origem:        'PWA_CAMPO',
-    criadoEm:      admin.firestore.FieldValue.serverTimestamp(),
-    atualizadoEm:  admin.firestore.FieldValue.serverTimestamp()
+    criadoEm:      new Date().toISOString(),
+    atualizadoEm:  new Date().toISOString()
   });
 
-  await db().collection('estacoes').doc(codigo).set(doc);
+  await supabaseInsert('estacoes', doc);
 
   await logEvento({
     tipo: 'ADD_MAPA', estacaoId: codigo,
@@ -127,10 +127,10 @@ export async function gerarStreetView(
   }
 
   // Grava URL na estação
-  await db().collection('estacoes').doc(codigo).update({
-    'imagens.streetView': result.url,
-    atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
-  });
+  await supabaseUpdate('estacoes', {
+    imagens: { streetView: result.url },
+    atualizadoEm: new Date().toISOString()
+  }, `id=eq.${encodeURIComponent(codigo)}`);
 
   await logEvento({
     tipo: 'SV_GERADO', estacaoId: codigo,
@@ -160,15 +160,17 @@ export async function analisarCalcada(
   // Se tem código, grava resultado na estação
   if (codigo) {
     const r = result.resultado;
-    await db().collection('estacoes').doc(codigo).update({
-      'ia.largura':    r.larguraEstimada,
-      'ia.score':      r.score,
-      'ia.aprovado':   r.aprovado,
-      'ia.confianca':  r.confianca,
-      'ia.motivo':     r.motivoCodigo,
-      'ia.analisadoEm': admin.firestore.FieldValue.serverTimestamp(),
-      atualizadoEm:    admin.firestore.FieldValue.serverTimestamp()
-    });
+    await supabaseUpdate('estacoes', {
+      ia: {
+        largura:    r.larguraEstimada,
+        score:      r.score,
+        aprovado:   r.aprovado,
+        confianca:  r.confianca,
+        motivo:     r.motivoCodigo,
+        analisadoEm: new Date().toISOString(),
+      },
+      atualizadoEm: new Date().toISOString()
+    }, `id=eq.${encodeURIComponent(codigo)}`);
 
     await logEvento({
       tipo: 'IA_ANALISADA', estacaoId: codigo,
@@ -183,15 +185,13 @@ export async function analisarCalcada(
 
 // ── GET ESTAÇÕES ─────────────────────────────────────────────────
 export async function getEstacoes(cidade?: string, pais?: string) {
-  let query: admin.firestore.Query = db().collection('estacoes');
+  const filters: string[] = ['select=*'];
+  if (pais)   filters.push(`pais=eq.${encodeURIComponent(pais)}`);
+  if (cidade) filters.push(`cidade=eq.${encodeURIComponent(cidade)}`);
 
-  if (pais)   query = query.where('pais', '==', pais);
-  if (cidade) query = query.where('cidade', '==', cidade);
+  const estacoes = await supabaseGet<any>('estacoes', filters.join('&'));
 
-  const snap = await query.get();
-  const estacoes = snap.docs.map(d => d.data());
-
-  return okResponse({ estacoes });
+  return okResponse({ estacoes: estacoes || [] });
 }
 
 // ── EDITAR ESTAÇÃO ───────────────────────────────────────────────
@@ -200,16 +200,15 @@ export async function editarEstacao(
   campos: Record<string, unknown>,
   uid: string, email: string
 ) {
-  const ref = db().collection('estacoes').doc(codigo);
-  const doc = await ref.get();
-  if (!doc.exists) return erroResponse('Estação não encontrada.');
+  const existing = await supabaseGetOne<any>('estacoes', `select=id&id=eq.${encodeURIComponent(codigo)}`);
+  if (!existing) return erroResponse('Estação não encontrada.');
 
   const update = limparNulos({
     ...campos,
-    atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
+    atualizadoEm: new Date().toISOString()
   });
 
-  await ref.update(update);
+  await supabaseUpdate('estacoes', update, `id=eq.${encodeURIComponent(codigo)}`);
   await logEvento({
     tipo: 'EDIT', estacaoId: codigo,
     uid, email,
@@ -223,11 +222,10 @@ export async function editarEstacao(
 export async function excluirEstacao(
   codigo: string, uid: string, email: string
 ) {
-  const ref = db().collection('estacoes').doc(codigo);
-  const doc = await ref.get();
-  if (!doc.exists) return erroResponse('Estação não encontrada.');
+  const existing = await supabaseGetOne<any>('estacoes', `select=id&id=eq.${encodeURIComponent(codigo)}`);
+  if (!existing) return erroResponse('Estação não encontrada.');
 
-  await ref.delete();
+  await supabaseUpdate('estacoes', { deleted: true, atualizadoEm: new Date().toISOString() }, `id=eq.${encodeURIComponent(codigo)}`);
   await logEvento({
     tipo: 'DELETE', estacaoId: codigo,
     uid, email,
@@ -298,12 +296,11 @@ export async function normalizarEstacoes(
   loteSize = 20
 ) {
   // Busca estações — se cidade vazia, busca todas do país
-  let q = db().collection('estacoes').where('pais', '==', pais) as any;
-  if (cidade) q = q.where('cidade', '==', cidade);
-  const snap = await q.get();
+  const filters: string[] = [`select=*`, `pais=eq.${encodeURIComponent(pais)}`];
+  if (cidade) filters.push(`cidade=eq.${encodeURIComponent(cidade)}`);
+  const allRows = await supabaseGet<any>('estacoes', filters.join('&'));
 
-  const todosSemDados = snap.docs.filter((d: admin.firestore.QueryDocumentSnapshot) => {
-    const data = d.data();
+  const todosSemDados = (allRows || []).filter((data: any) => {
     return !data.bairro || !data.endereco || (data.cidade === 'São Paulo' && !data.subprefeitura);
   });
 
@@ -318,8 +315,7 @@ export async function normalizarEstacoes(
   const erros: string[] = [];
   const GMAPS_KEY = process.env.GMAPS_KEY || '';
 
-  for (const docSnap of semDados) {
-    const data = docSnap.data();
+  for (const data of semDados) {
     const { lat, lng } = data;
     if (!lat || !lng) continue;
 
@@ -374,10 +370,10 @@ export async function normalizarEstacoes(
       if (subpref  && !data.subprefeitura)    update.subprefeitura   = subpref;
 
       if (Object.keys(update).length > 0) {
-        await docSnap.ref.update({
+        await supabaseUpdate('estacoes', {
           ...update,
-          atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
-        });
+          atualizadoEm: new Date().toISOString()
+        }, `id=eq.${encodeURIComponent(data.id || data.codigo)}`);
         normalizados++;
       }
 

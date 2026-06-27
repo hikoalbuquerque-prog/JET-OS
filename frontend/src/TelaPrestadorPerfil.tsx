@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from './lib/firebase';
-import { usuariosWriteSupabase, escreverUsuarioSupabase, usuariosReadSupabase, fetchUsuario } from './lib/usuarios-supabase';
+import { supabase } from './lib/supabase';
+import { escreverUsuarioSupabase, fetchUsuario } from './lib/usuarios-supabase';
 import TelegramVinculo from './TelegramVinculo';
 
 interface Usuario {
@@ -252,60 +251,54 @@ export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Pro
   const carregar = useCallback(async () => {
     setLoading(true);
     try {
-      // Tenta carregar da coleção usuarios primeiro
-      if (usuariosReadSupabase()) {
-        const d = await fetchUsuario(usuario.uid);
-        if (d) {
-          setNome(d.nome || usuario.nome || '');
-          setCidade(d.cidade || usuario.cidade || '');
-          if (d.cpf_cnpj) setCpfCnpj(d.cpf_cnpj);
-          if (d.pix_tipo) setTipoPix(d.pix_tipo);
-          if (d.pix_chave) setChavePix(d.pix_chave);
-          if (d.tipo_contrato) setTipoContrato(d.tipo_contrato);
-        }
-      } else {
-        const userSnap = await getDoc(doc(db, 'usuarios', usuario.uid));
-        if (userSnap.exists()) {
-          const d = userSnap.data();
-          setNome(d.nome || usuario.nome || '');
-          setCidade(d.cidade || usuario.cidade || '');
-          if (d.cpf_cnpj) setCpfCnpj(d.cpf_cnpj);
-          if (d.pix_tipo) setTipoPix(d.pix_tipo);
-          if (d.pix_chave) setChavePix(d.pix_chave);
-          if (d.tipo_contrato) setTipoContrato(d.tipo_contrato);
-        }
+      // Carregar dados do usuário via Supabase
+      const d = await fetchUsuario(usuario.uid);
+      if (d) {
+        setNome(d.nome || usuario.nome || '');
+        setCidade(d.cidade || usuario.cidade || '');
+        if (d.cpf_cnpj) setCpfCnpj(d.cpf_cnpj);
+        if (d.pix_tipo) setTipoPix(d.pix_tipo);
+        if (d.pix_chave) setChavePix(d.pix_chave);
+        if (d.tipo_contrato) setTipoContrato(d.tipo_contrato);
       }
 
-      // Dados fiscais (NFS-e) — coleção prestadores_fiscal/{uid}
-      const fiscalSnap = await getDoc(doc(db, 'prestadores_fiscal', usuario.uid));
-      if (fiscalSnap.exists()) {
-        const f = fiscalSnap.data();
-        setCnpjFiscal(f.cnpj || '');
-        setRazaoSocial(f.razao_social || '');
-        setCpfResponsavel(f.cpf_responsavel || '');
-        setInscricaoMunicipal(f.inscricao_municipal || '');
-        setEmailFiscal(f.email_fiscal || '');
-        setNivelGovbr(f.nivel_govbr || 'desconhecido');
-        setProcuracaoStatus(f.procuracao_status || 'pendente');
+      // Dados fiscais (NFS-e) — tabela prestadores_fiscal
+      const { data: fiscalData } = await supabase
+        .from('prestadores_fiscal')
+        .select('*')
+        .eq('firebase_uid', usuario.uid)
+        .limit(1)
+        .maybeSingle();
+      if (fiscalData) {
+        setCnpjFiscal(fiscalData.cnpj || '');
+        setRazaoSocial(fiscalData.razao_social || '');
+        setCpfResponsavel(fiscalData.cpf_responsavel || '');
+        setInscricaoMunicipal(fiscalData.inscricao_municipal || '');
+        setEmailFiscal(fiscalData.email_fiscal || '');
+        setNivelGovbr(fiscalData.nivel_govbr || 'desconhecido');
+        setProcuracaoStatus(fiscalData.procuracao_status || 'pendente');
       }
 
       // Complementa com solicitação de cadastro se não tiver pix/cpf ainda
-      const sol = await getDocs(query(
-        collection(db, 'solicitacoes_prestadores'),
-        where('uid', '==', usuario.uid)
-      ));
-      if (!sol.empty) {
-        const s = sol.docs[0].data();
-        if (s.cpf_cnpj) setCpfCnpj(prev => prev || s.cpf_cnpj);
-        if (s.pix_chave) setChavePix(prev => prev || s.pix_chave);
-        if (s.pix_tipo) setTipoPix(s.pix_tipo);
-        if (s.tipo_contrato) setTipoContrato(prev => prev || s.tipo_contrato);
+      const { data: solData } = await supabase
+        .from('solicitacoes_prestadores')
+        .select('*')
+        .eq('firebase_uid', usuario.uid)
+        .limit(1)
+        .maybeSingle();
+      if (solData) {
+        if (solData.cpf_cnpj) setCpfCnpj(prev => prev || solData.cpf_cnpj);
+        if (solData.pix_chave) setChavePix(prev => prev || solData.pix_chave);
+        if (solData.pix_tipo) setTipoPix(solData.pix_tipo);
+        if (solData.tipo_contrato) setTipoContrato(prev => prev || solData.tipo_contrato);
       }
 
       // Buscar cidades reais das estações
-      const estSnap = await getDocs(collection(db, 'estacoes'));
+      const { data: estData } = await supabase
+        .from('estacoes')
+        .select('cidade');
       const cidSet = new Set<string>();
-      estSnap.docs.forEach(d => { const c = d.data().cidade; if (c) cidSet.add(c.trim()); });
+      (estData ?? []).forEach((r: any) => { if (r.cidade) cidSet.add(r.cidade.trim()); });
       setCidadesDisponiveis(Array.from(cidSet).sort());
     } catch (e) {
       console.error('[perfil prestador] erro ao carregar:', e);
@@ -334,21 +327,14 @@ export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Pro
         cpf_cnpj: cpfCnpj.trim(),
         pix_tipo: tipoPix,
         pix_chave: chavePix.trim(),
-        atualizadoEm: serverTimestamp(),
       };
-      await updateDoc(doc(db, 'usuarios', usuario.uid), patch);
-      if (usuariosWriteSupabase()) escreverUsuarioSupabase(usuario.uid, {
-        nome: nome.trim(), cidade: cidade.trim(), cpf_cnpj: cpfCnpj.trim(),
-      }).catch(err => console.error('[usuarios-write] perfil Supabase:', err));
+      await escreverUsuarioSupabase(usuario.uid, patch);
 
       // Espelha na solicitação de cadastro para o gestor ver dados atualizados
-      const sol = await getDocs(query(
-        collection(db, 'solicitacoes_prestadores'),
-        where('uid', '==', usuario.uid)
-      ));
-      if (!sol.empty) {
-        await updateDoc(sol.docs[0].ref, patch);
-      }
+      await supabase
+        .from('solicitacoes_prestadores')
+        .update(patch)
+        .eq('firebase_uid', usuario.uid);
 
       showToast(pick(T.dadosSalvos));
     } catch (e) {
@@ -365,17 +351,18 @@ export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Pro
   const salvarFiscal = async () => {
     setSalvando(true);
     try {
-      await setDoc(doc(db, 'prestadores_fiscal', usuario.uid), {
-        uid:                 usuario.uid,
-        cnpj:                cnpjFiscal.trim(),
-        razao_social:        razaoSocial.trim(),
-        cpf_responsavel:     cpfResponsavel.trim(),
-        inscricao_municipal: inscricaoMunicipal.trim(),
-        email_fiscal:        emailFiscal.trim(),
-        nivel_govbr:         nivelGovbr,
-        regime_tributario:   'MEI',
-        atualizadoEm:        serverTimestamp(),
-      }, { merge: true });
+      await supabase
+        .from('prestadores_fiscal')
+        .upsert({
+          firebase_uid:        usuario.uid,
+          cnpj:                cnpjFiscal.trim(),
+          razao_social:        razaoSocial.trim(),
+          cpf_responsavel:     cpfResponsavel.trim(),
+          inscricao_municipal: inscricaoMunicipal.trim(),
+          email_fiscal:        emailFiscal.trim(),
+          nivel_govbr:         nivelGovbr,
+          regime_tributario:   'MEI',
+        }, { onConflict: 'firebase_uid' });
       showToast(pick(T.dadosFiscaisSalvos));
     } catch (e) {
       console.error('[perfil fiscal] erro ao salvar:', e);

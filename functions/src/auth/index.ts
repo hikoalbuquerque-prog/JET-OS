@@ -1,16 +1,16 @@
 // functions/src/auth/index.ts
 import * as admin from 'firebase-admin';
-import { db, erroResponse, okResponse, logEvento } from '../utils';
+import { erroResponse, okResponse, logEvento } from '../utils';
+import { supabaseGet, supabaseGetOne, supabaseInsert, supabaseUpdate, supabaseUpsert } from '../lib/supabase-rest';
 
 // ── GET USUÁRIO ──────────────────────────────────────────────────
 export async function getUsuario(uid: string) {
-  const docSnap = await db().collection('usuarios').doc(uid).get();
-  if (!docSnap.exists) return erroResponse('Usuário não encontrado.');
-  const data = docSnap.data()!;
+  const data = await supabaseGetOne<any>('usuarios', `select=*&uid=eq.${encodeURIComponent(uid)}`);
+  if (!data) return erroResponse('Usuário não encontrado.');
   if (!data.ativo) return erroResponse('Usuário inativo.');
-  await db().collection('usuarios').doc(uid).update({
-    ultimoAcesso: admin.firestore.FieldValue.serverTimestamp()
-  });
+  await supabaseUpdate('usuarios', {
+    ultimo_acesso: new Date().toISOString()
+  }, `uid=eq.${encodeURIComponent(uid)}`);
   return okResponse({
     usuario: {
       uid:    data.uid,
@@ -36,25 +36,22 @@ export async function solicitarAcesso(payload: {
     return erroResponse('Email, nome e países são obrigatórios.');
   }
 
-  const existente = await db().collection('solicitacoes')
-    .where('email', '==', email)
-    .where('status', '==', 'PENDENTE')
-    .get();
-  if (!existente.empty) {
+  const existente = await supabaseGet<any>('solicitacoes_prestadores', `select=id&email=eq.${encodeURIComponent(email)}&status=eq.PENDENTE`);
+  if (existente && existente.length > 0) {
     return erroResponse('Já existe uma solicitação pendente para este email.');
   }
 
   const rolesValidos = ['campo', 'guard'];
   const roleValido   = rolesValidos.includes(roleDesejado || '') ? roleDesejado : 'campo';
 
-  await db().collection('solicitacoes').add({
+  await supabaseInsert('solicitacoes_prestadores', {
     email,
     nome,
     paises,
-    motivo:      motivo || '',
-    roleDesejado: roleValido,
-    status:      'PENDENTE',
-    criadoEm:    admin.firestore.FieldValue.serverTimestamp()
+    motivo:        motivo || '',
+    role_desejado: roleValido,
+    status:        'PENDENTE',
+    criado_em:     new Date().toISOString()
   });
 
   return okResponse({ mensagem: 'Solicitação enviada com sucesso.' });
@@ -70,18 +67,16 @@ export async function aprovarSolicitacao(
   email:         string,
   roleOverride?: string
 ) {
-  const ref     = db().collection('solicitacoes').doc(solicitacaoId);
-  const docSnap = await ref.get();
-  if (!docSnap.exists) return erroResponse('Solicitação não encontrada.');
-  const sol = docSnap.data()!;
+  const sol = await supabaseGetOne<any>('solicitacoes_prestadores', `select=*&id=eq.${encodeURIComponent(solicitacaoId)}`);
+  if (!sol) return erroResponse('Solicitação não encontrada.');
 
   // Determina role final: override > roleDesejado da solicitação > fallback 'campo'
   const rolesPermitidos = ['campo', 'guard'];
   let roleFinal = 'campo';
   if (roleOverride && rolesPermitidos.includes(roleOverride)) {
     roleFinal = roleOverride;
-  } else if (sol.roleDesejado && rolesPermitidos.includes(sol.roleDesejado)) {
-    roleFinal = sol.roleDesejado;
+  } else if (sol.role_desejado && rolesPermitidos.includes(sol.role_desejado)) {
+    roleFinal = sol.role_desejado;
   }
 
   // Cria ou busca usuário no Firebase Auth
@@ -96,16 +91,16 @@ export async function aprovarSolicitacao(
     });
   }
 
-  // Cria / sobrescreve perfil no Firestore com role correto
-  await db().collection('usuarios').doc(userRecord.uid).set({
-    uid:          userRecord.uid,
-    email:        sol.email,
-    nome:         sol.nome,
-    role:         roleFinal,
-    paises:       sol.paises,
-    ativo:        true,
-    criadoEm:     admin.firestore.FieldValue.serverTimestamp(),
-    ultimoAcesso: null
+  // Cria / sobrescreve perfil no Supabase com role correto
+  await supabaseUpsert('usuarios', {
+    uid:           userRecord.uid,
+    email:         sol.email,
+    nome:          sol.nome,
+    role:          roleFinal,
+    paises:        sol.paises,
+    ativo:         true,
+    criado_em:     new Date().toISOString(),
+    ultimo_acesso: null
   });
 
   // Envia email de reset de senha para o novo usuário definir a senha
@@ -134,12 +129,12 @@ export async function aprovarSolicitacao(
   }
 
   // Atualiza solicitação
-  await ref.update({
-    status:        'APROVADA',
-    resolvidoEm:   admin.firestore.FieldValue.serverTimestamp(),
-    resolvidoPor:  email,
-    roleAtribuido: roleFinal
-  });
+  await supabaseUpdate('solicitacoes_prestadores', {
+    status:         'APROVADA',
+    resolvido_em:   new Date().toISOString(),
+    resolvido_por:  email,
+    role_atribuido: roleFinal
+  }, `id=eq.${encodeURIComponent(solicitacaoId)}`);
 
   await logEvento({
     tipo:     'STATUS_CHANGED',
@@ -157,21 +152,16 @@ export async function aprovarSolicitacao(
 
 // ── LISTAR SOLICITAÇÕES PENDENTES ────────────────────────────────
 export async function listarSolicitacoesPendentes() {
-  const snap = await db().collection('solicitacoes')
-    .where('status', '==', 'PENDENTE')
-    .orderBy('criadoEm', 'desc')
-    .get();
+  const rows = await supabaseGet<any>('solicitacoes_prestadores', 'select=*&status=eq.PENDENTE&order=criado_em.desc');
   return okResponse({
-    solicitacoes: snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    solicitacoes: rows ?? []
   });
 }
 
 // ── LISTAR USUÁRIOS ──────────────────────────────────────────────
 export async function listarUsuarios() {
-  const snap = await db().collection('usuarios')
-    .orderBy('criadoEm', 'desc')
-    .get();
+  const rows = await supabaseGet<any>('usuarios', 'select=*&order=criado_em.desc');
   return okResponse({
-    usuarios: snap.docs.map(d => d.data())
+    usuarios: rows ?? []
   });
 }

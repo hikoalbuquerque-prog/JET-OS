@@ -11,12 +11,9 @@
 //   gerarSlotsAutomatico — webhook seguro para trigger manual
 //   gerarTarefasMonitor  — webhook para trigger manual/teste
 
-import * as admin from 'firebase-admin';
 import { onRequest }  from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { supabaseGet, supabaseGetOne } from './lib/supabase-rest';
-
-const db = admin.firestore();
+import { supabaseGet, supabaseGetOne, supabaseInsert } from './lib/supabase-rest';
 
 const CITY_ID = '669f89ebd06775867c31b984';
 const GOJET_BASE = 'https://logistic.gojet.app/api/v0/urent';
@@ -231,13 +228,9 @@ async function _gerarTarefasMonitor(parkings: GoJetParking[], turno: 'T0' | 'T1'
     } else if (est.tipoMonitor === 'M3') {
       const m3 = monConfig.M3 ?? {};
       if (m3.promotorAtivo) {
-        const slotPromo = await db.collection('slots')
-          .where('cargo', '==', 'promotor')
-          .where('cidade', '==', est.cidade)
-          .where('status', 'in', ['aceito', 'em_andamento'])
-          .limit(1).get();
+        const slotPromoRows = await supabaseGet<any>('slots', `select=id&cargo=eq.promotor&cidade=eq.${encodeURIComponent(est.cidade)}&status=in.(aceito,em_andamento)&limit=1`);
 
-        if (slotPromo.empty) {
+        if (!slotPromoRows || slotPromoRows.length === 0) {
           precisaTarefa = true;
           prioridade    = 3;
           descricao     = `👤 ${est.nome}: ponto M3 sem promotor ativo`;
@@ -249,15 +242,11 @@ async function _gerarTarefasMonitor(parkings: GoJetParking[], turno: 'T0' | 'T1'
     if (!precisaTarefa) continue;
 
     // Evita duplicata: verifica se já tem tarefa aberta para este ponto hoje
-    const existente = await db.collection('tarefas')
-      .where('estacao.id', '==', est.id)
-      .where('status', 'in', ['pendente', 'aceita', 'em_andamento'])
-      .where('criadaHoje', '==', hoje)
-      .limit(1).get();
+    const existRows = await supabaseGet<any>('tarefas', `select=id,estacao&status=in.(pendente,aceita,em_andamento)&criada_hoje=eq.${hoje}`);
+    const hasDupe = (existRows ?? []).some((r: any) => r.estacao?.id === est.id);
+    if (hasDupe) continue;
 
-    if (!existente.empty) continue;
-
-    await db.collection('tarefas').add({
+    await supabaseInsert('tarefas', {
       tipo:             est.tipoMonitor === 'M3' ? 'promo_abordagem' : 'rebalanceamento',
       titulo:           descricao,
       status:           'pendente',
@@ -265,9 +254,9 @@ async function _gerarTarefasMonitor(parkings: GoJetParking[], turno: 'T0' | 'T1'
       cargo,
       cidade:           est.cidade ?? '',
       pais:             est.pais   ?? 'BR',
-      slotId:           null,
-      assigneeUid:      null,
-      assigneeNome:     null,
+      slot_id:          null,
+      assignee_uid:     null,
+      assignee_nome:    null,
       estacao: {
         id:       est.id,
         nome:     est.nome ?? est.codigo,
@@ -275,13 +264,13 @@ async function _gerarTarefasMonitor(parkings: GoJetParking[], turno: 'T0' | 'T1'
         lat:      est.lat,
         lng:      est.lng,
       },
-      gojetParkingId:    parking.id,
-      patinetesAtual:    patinetes,
-      geradoAutomatico:  true,
-      tipoMonitorOrigem: est.tipoMonitor,
-      criadaHoje:        hoje,
-      criadoEm:          admin.firestore.FieldValue.serverTimestamp(),
-      atualizadoEm:      admin.firestore.FieldValue.serverTimestamp(),
+      gojet_parking_id:     parking.id,
+      patinetes_atual:      patinetes,
+      gerado_automatico:    true,
+      tipo_monitor_origem:  est.tipoMonitor,
+      criada_hoje:          hoje,
+      criado_em:            new Date().toISOString(),
+      atualizado_em:        new Date().toISOString(),
     });
 
     criadas++;
@@ -356,25 +345,25 @@ async function _gerarSlots(cfg: SlotConfigGlobal, statsZonas: Record<string, Zon
     try {
       for (let i = 0; i < vagas; i++) {
         const [yyyy, mm, dd] = dataStr.split('-');
-        await db.collection('slots').add({
+        await supabaseInsert('slots', {
           titulo:           `${zonaCfg.cargo === 'charger' ? 'Charger' : 'Scalt'} — ${zonaCfg.zona} ${zonaCfg.turno}`,
           cargo:            zonaCfg.cargo,
           cidade:           zonaCfg.cidade || cfg.cidade,
           pais:             cfg.pais,
-          turnoInicio:      inicio,
-          turnoFim:         fim,
-          dataSlot:         `${dd}/${mm}/${yyyy}`,
+          turno_inicio:     inicio,
+          turno_fim:        fim,
+          data_slot:        `${dd}/${mm}/${yyyy}`,
           turno:            zonaCfg.turno,
           tipo:             zonaCfg.cargo === 'charger' ? 'Charger' : 'Scalt',
           status:           'aberto',
-          qtdPessoas:       1,
-          criadoPor:        'scheduler',
-          aceitoPor:        null,
-          tarefasIds:       [],
-          geradoAutomatico: true,
-          zonaOrigem:       zonaCfg.zona,
-          criadoEm:         admin.firestore.FieldValue.serverTimestamp(),
-          atualizadoEm:     admin.firestore.FieldValue.serverTimestamp(),
+          qtd_pessoas:      1,
+          criado_por:       'scheduler',
+          aceito_por:       null,
+          tarefas_ids:      [],
+          gerado_automatico: true,
+          zona_origem:      zonaCfg.zona,
+          criado_em:        new Date().toISOString(),
+          atualizado_em:    new Date().toISOString(),
         });
         totalGerados++;
       }
@@ -383,12 +372,12 @@ async function _gerarSlots(cfg: SlotConfigGlobal, statsZonas: Record<string, Zon
     }
   }
 
-  await db.collection('logs_automacao').add({
-    tipo:         'geracao_slots',
-    data:         dataStr,
-    totalGerados,
+  await supabaseInsert('logs_automacao', {
+    tipo:          'geracao_slots',
+    data:          dataStr,
+    total_gerados: totalGerados,
     erros,
-    criadoEm:     admin.firestore.FieldValue.serverTimestamp(),
+    criado_em:     new Date().toISOString(),
   });
 
   console.log(`[gerarSlots] ${totalGerados} slots gerados para ${dataStr}`);

@@ -3,7 +3,7 @@
 // Já importado no index.ts via: export * from './relatorios';
 import { gerarRelatorioGuard, enviarRelatorioTelegram } from './relatorio';
 
-import * as admin from 'firebase-admin';
+import { supabaseGet } from './lib/supabase-rest';
 import { getAppSetting } from './config-supabase';
 import { onCall }     from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
@@ -25,7 +25,7 @@ interface Ocorrencia {
   lng_inicial?: number;
   foto1_url?: string;
   foto2_url?: string;
-  criadoEm?: admin.firestore.Timestamp;
+  criadoEm?: any;
   created_at?: string;
   filial?: string;
   procurando?: boolean;
@@ -61,14 +61,28 @@ function getRange(tipo: 'ontem' | 'semana'): { ini: Date; fim: Date; label: stri
 }
 
 async function buscarOcorrencias(ini: Date, fim: Date): Promise<Ocorrencia[]> {
-  const snap = await admin.firestore().collection('ocorrencias').get();
-  const docs: Ocorrencia[] = [];
-  snap.forEach(d => {
-    const o = { id: d.id, ...d.data() } as Ocorrencia;
-    const dt = getDataOcorrencia(o);
-    if (dt && dt >= ini && dt <= fim) docs.push(o);
-  });
-  return docs;
+  const rows = await supabaseGet<any>('ocorrencias', `select=*&created_at=gte.${encodeURIComponent(ini.toISOString())}&created_at=lte.${encodeURIComponent(fim.toISOString())}`);
+  if (!rows) return [];
+  return rows.map((r: any) => ({
+    id: r.id,
+    tipo: r.tipo,
+    status: r.status,
+    prioridade: r.prioridade,
+    cidade_inicial: r.cidade_inicial,
+    bairro_inicial: r.bairro_inicial,
+    endereco_inicial: r.endereco_inicial,
+    responsavel: r.responsavel,
+    ativo_tipo: r.ativo_tipo,
+    asset_id: r.asset_id,
+    descricao: r.descricao,
+    lat_inicial: r.lat_inicial,
+    lng_inicial: r.lng_inicial,
+    foto1_url: r.foto1_url,
+    foto2_url: r.foto2_url,
+    created_at: r.created_at,
+    filial: r.filial,
+    procurando: r.procurando,
+  } as Ocorrencia));
 }
 
 async function getTelegramConfig(): Promise<{ token: string; chatId: string }> {

@@ -27,11 +27,8 @@
 
 import { registerPlugin } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
-import {
-  addDoc, collection, doc, updateDoc, serverTimestamp,
-} from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { db } from './firebase';
+import { supabase } from './supabase';
 import { isAndroidNative, iniciarGpsNativo, atualizarSlotNativo, pararGpsNativo } from './gps-native';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -187,26 +184,26 @@ export async function tamanhoFila(): Promise<number> {
 
 async function uploadPonto(ponto: PontoGPS): Promise<boolean> {
   try {
-    await addDoc(collection(db, 'gps_logistica'), {
-      ...ponto,
-      criadoEm: serverTimestamp(),
-    });
-
-    // Item 1 — grava também no histórico permanente (best-effort, evita cold start da CF)
-    try {
-      await addDoc(collection(db, 'gps_logistica_hist', ponto.uid, 'pontos'), {
+    // Envia para Supabase Edge Function ingest-gps
+    const { error } = await supabase.functions.invoke('ingest-gps', {
+      body: {
         uid:        ponto.uid,
+        slot_id:    ponto.slotId,
         lat:        ponto.lat,
         lng:        ponto.lng,
         accuracy:   ponto.accuracy,
-        capturedAt: ponto.capturedAt,
-        criadoEm:   serverTimestamp(),
-      });
-    } catch (histErr: any) {
-      console.warn('[GPS-BG] hist write falhou (best-effort):', histErr?.code);
-    }
+        speed:      ponto.speed,
+        heading:    ponto.heading,
+        altitude:   ponto.altitude,
+        bateria:    ponto.bateria,
+        captured_at: ponto.capturedAt,
+        estrategia: ponto.estrategia,
+        is_mock:    ponto.isMock,
+      },
+    });
+    if (error) throw error;
 
-    // Item 2 — alerta backend quando mock GPS detectado (best-effort)
+    // Alerta backend quando mock GPS detectado (best-effort)
     if (ponto.isMock) {
       try {
         const fns = getFunctions(undefined, 'southamerica-east1');
@@ -222,22 +219,9 @@ async function uploadPonto(ponto: PontoGPS): Promise<boolean> {
       }
     }
 
-    // Fire-and-forget: falha não compromete o registro do ponto
-    updateDoc(doc(db, 'usuarios', ponto.uid), {
-      ultimaLat:        ponto.lat,
-      ultimaLng:        ponto.lng,
-      ultimaAccuracy:   ponto.accuracy,
-      ultimaVelocidade: ponto.speed,
-      ultimaPosicaoEm:  serverTimestamp(),
-      slotAtualId:      ponto.slotId,
-      ultimoIsMock:     ponto.isMock,
-    }).catch(() => { /* best-effort */ });
-
     return true;
   } catch (err: any) {
-    // addDoc só rejeita por erros não-rede (permission denied, schema inválido).
-    // Rede/VPN são tratados internamente pelo SDK — não chegam aqui.
-    console.error('[GPS-BG] uploadPonto erro:', err?.code, err?.message);
+    console.error('[GPS-BG] uploadPonto erro:', err?.code ?? err?.message, err);
     await enqueue(ponto);
     return false;
   }
@@ -250,7 +234,15 @@ async function drenarFila(): Promise<number> {
   const restante: PontoGPS[] = [];
   for (const p of fila) {
     try {
-      await addDoc(collection(db, 'gps_logistica'), { ...p, criadoEm: serverTimestamp() });
+      const { error } = await supabase.functions.invoke('ingest-gps', {
+        body: {
+          uid: p.uid, slot_id: p.slotId, lat: p.lat, lng: p.lng,
+          accuracy: p.accuracy, speed: p.speed, heading: p.heading,
+          altitude: p.altitude, bateria: p.bateria,
+          captured_at: p.capturedAt, estrategia: p.estrategia, is_mock: p.isMock,
+        },
+      });
+      if (error) throw error;
       enviados++;
       await new Promise(r => setTimeout(r, 200));
     } catch { restante.push(p); }

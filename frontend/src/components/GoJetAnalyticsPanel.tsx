@@ -10,30 +10,15 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { doc, getDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { fnExportarHistoricoParking } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { classifyBike, BIKE_STATUS_HEX, BIKE_STATUS_LABEL, BikeForClassify, BikeStatus } from '../lib/bike-classify';
-import { analyticsProviderSupabase, fetchGojetSnapshot } from '../lib/analytics-supabase';
+import { fetchGojetSnapshot } from '../lib/analytics-supabase';
+import { carregarZonasSupabase } from '../lib/estacoes-supabase';
 import { colorForParking, PARKING_COLOR_HEX, ParkingColor } from '../lib/parking-colors';
 import {
   computeZoneAnalytics, ZoneStats, ZonePolygon, ParkingPoint, BikePoint,
 } from '../lib/zone-analytics';
-
-// ─── Helpers para ler snapshot chunked do Firestore ──────────────────────────
-
-async function lerSnapshotDoc(docId: string, campo: string): Promise<any[]> {
-  const snap = await getDoc(doc(db, 'gojet_snapshots', docId));
-  if (!snap.exists()) return [];
-  const data = snap.data()!;
-  if (!data.chunked) return data[campo] ?? [];
-  const chunkDocs = await Promise.all(
-    Array.from({ length: data.totalChunks as number }, (_, i) =>
-      getDoc(doc(db, 'gojet_snapshots', `${docId}_chunk${i}`))
-    )
-  );
-  return chunkDocs.flatMap(c => c.exists() ? (c.data()![campo] ?? []) : []);
-}
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -166,38 +151,16 @@ export default function GoJetAnalyticsPanel({ visivel, onFechar, cidade }: Props
     if (!cidade) return;
     setCarregando(true);
     try {
-      // Migração: lê parkings/bikes do Postgres (scrape-gojet) quando o flag está ligado.
-      if (analyticsProviderSupabase()) {
-        const r = await fetchGojetSnapshot(cidade);
-        setParkings(r.parkings as any);
-        setBikes(r.bikes as any);
-        setSnapshotAge(r.savedAtMs ? Math.round((Date.now() - r.savedAtMs) / 60000) : null);
-      } else {
-        const [pList, bList] = await Promise.all([
-          lerSnapshotDoc(`latest_${cidade}`, 'parkings'),
-          lerSnapshotDoc(`bikes_latest_${cidade}`, 'bikes'),
-        ]);
-        setParkings(pList);
-        setBikes(bList);
-        const snap = await getDoc(doc(db, 'gojet_snapshots', `latest_${cidade}`));
-        if (snap.exists()) {
-          const ts = snap.data()?.savedAt?.toMillis?.() ?? null;
-          setSnapshotAge(ts ? Math.round((Date.now() - ts) / 60000) : null);
-        }
-      }
+      const r = await fetchGojetSnapshot(cidade);
+      setParkings(r.parkings as any);
+      setBikes(r.bikes as any);
+      setSnapshotAge(r.savedAtMs ? Math.round((Date.now() - r.savedAtMs) / 60000) : null);
 
-      // Zonas (poligonos collection)
-      const zonasSnap = await getDocs(query(collection(db, 'poligonos'), where('cidade', '==', cidade)));
-      const zonasList: ZonePolygon[] = zonasSnap.docs.map(d => {
-        const data = d.data();
-        // Converte coordenadas GeoJSON [[lng,lat]] ou Leaflet [[lat,lng]]
-        let coords: [number, number][] = [];
-        if (data.coordenadas && Array.isArray(data.coordenadas)) {
-          coords = data.coordenadas;
-        } else if (data.latlngs && Array.isArray(data.latlngs)) {
-          coords = data.latlngs.map((p: any) => [p.lng ?? p[1], p.lat ?? p[0]]);
-        }
-        return { id: d.id, nome: data.nome ?? d.id, cor: data.cor, coordenadas: coords };
+      // Zonas (polígonos) via Supabase
+      const zonasData = await carregarZonasSupabase([cidade]);
+      const zonasList: ZonePolygon[] = zonasData.map((z: any) => {
+        const coords: [number, number][] = (z.pontos || []).map((p: any) => [p.lng, p.lat]);
+        return { id: z.id, nome: z.nome ?? z.id, cor: z.cor, coordenadas: coords };
       });
       setZonas(zonasList);
     } finally {
@@ -258,13 +221,14 @@ export default function GoJetAnalyticsPanel({ visivel, onFechar, cidade }: Props
     if (!cidade) return;
     setCarregandoHist(true);
     try {
-      const snap = await getDocs(query(
-        collection(db, 'parking_history'),
-        where('cidade', '==', cidade),
-        orderBy('data', 'desc'),
-        limit(90),
-      ));
-      setHistorico(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const { data, error } = await supabase
+        .from('parking_history')
+        .select('*')
+        .eq('cidade', cidade)
+        .order('data', { ascending: false })
+        .limit(90);
+      if (error) throw error;
+      setHistorico((data ?? []).map((d: any) => ({ id: d.id, ...d })));
     } catch { setHistorico([]); }
     finally { setCarregandoHist(false); }
   }, [cidade]);

@@ -1,8 +1,7 @@
 ﻿// MapaHelpers.tsx — Helper components for TelaMapa extracted from App.tsx
 import React, { useState, useEffect, useRef, CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
-import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, where } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import L from 'leaflet';
 import { uploadComRetry } from '../lib/uploadUtils';
 import { comprimirImagem } from '../lib/imageUtils';
@@ -11,17 +10,7 @@ import i18n from '../i18n/index';
 import type { Estacao } from '../lib/app-utils';
 import { POIPanel } from './POIPanel';
 import type { POI } from './POIPanel';
-import { supabase } from '../lib/supabase';
 
-// Flag dual-run para zonas (poligonos): localStorage.setItem('jet_zonas_provider','supabase')
-const zonasProviderSupabase = (): boolean => {
-  try {
-    const v = localStorage.getItem('jet_zonas_provider');
-    if (v === 'supabase') return true;
-    if (v === 'firebase') return false;
-  } catch {}
-  return (import.meta.env.VITE_ZONAS_PROVIDER as string) !== 'firebase';
-};
 
 export function PadAssinatura({ onSalvar, onCancelar }: {
   onSalvar: (dataUrl: string) => void;
@@ -1319,38 +1308,28 @@ export function LangSelector() {
 type Tela = 'loading' | 'login' | 'mapa' | 'guard' | 'trocar-senha' | 'prestador-pendente';
 
 // ── EXPORT ZONAS ─────────────────────────────────────────────────
-export async function exportarZonas(cidade: string, pais: string, formato: 'geojson' | 'csv' | 'wkt', db: any) {
-  let zonas: any[];
-
-  if (zonasProviderSupabase()) {
-    // ── Supabase: lê da view zonas_geo ──
-    const { data, error } = await supabase
-      .from('zonas_geo')
-      .select('*')
-      .eq('cidade', cidade);
-    if (error) throw error;
-    zonas = (data ?? []).map((r: any) => {
-      // Converte GeoJSON string → array [{lat,lng}]
-      let poligono: any[] = [];
-      try {
-        const geo = typeof r.geojson === 'string' ? JSON.parse(r.geojson) : r.geojson;
-        if (geo?.coordinates?.[0]) {
-          poligono = geo.coordinates[0].map((c: number[]) => ({ lat: c[1], lng: c[0] }));
-        }
-      } catch {}
-      return {
-        id: r.firebase_id ?? r.id,
-        nome: r.nome, grupo: r.grupo, fase: r.fase, cor: r.cor,
-        ativo: r.ativo, criadoEm: r.criado_em, importadoEm: null,
-        poligono,
-      };
-    });
-  } else {
-    // ── Firestore (fallback) ──
-    const { getDocs, collection, query, where } = await import('firebase/firestore');
-    const snap = await getDocs(query(collection(db, 'poligonos'), where('cidade', 'in', [cidade])));
-    zonas = snap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
-  }
+export async function exportarZonas(cidade: string, pais: string, formato: 'geojson' | 'csv' | 'wkt') {
+  const { data, error } = await supabase
+    .from('zonas_geo')
+    .select('*')
+    .eq('cidade', cidade);
+  if (error) throw error;
+  const zonas = (data ?? []).map((r: any) => {
+    // Converte GeoJSON string → array [{lat,lng}]
+    let poligono: any[] = [];
+    try {
+      const geo = typeof r.geojson === 'string' ? JSON.parse(r.geojson) : r.geojson;
+      if (geo?.coordinates?.[0]) {
+        poligono = geo.coordinates[0].map((c: number[]) => ({ lat: c[1], lng: c[0] }));
+      }
+    } catch {}
+    return {
+      id: r.firebase_id ?? r.id,
+      nome: r.nome, grupo: r.grupo, fase: r.fase, cor: r.cor,
+      ativo: r.ativo, criadoEm: r.criado_em, importadoEm: null,
+      poligono,
+    };
+  });
 
   let conteudo = '', nomeArquivo = '', tipo = '';
 

@@ -5,9 +5,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { guardProviderSupabase, carregarOcorrenciasSupabase } from '../lib/ocorrencias-supabase';
+import { carregarOcorrenciasSupabase } from '../lib/ocorrencias-supabase';
 
 // ─── i18n (padrão TermosUsoGate: objeto T { pt,en,es,ru } + seletor, sem chaves json) ──
 type LangG = 'pt' | 'en' | 'es' | 'ru';
@@ -95,7 +93,7 @@ const T = {
   totRecup:     { pt: 'Recup.:', en: 'Recov.:', es: 'Recup.:', ru: 'Возвр.:' },
   // Rodapé
   footTitulo:   { pt: 'JET OS Guard · Dashboard', en: 'JET OS Guard · Dashboard', es: 'JET OS Guard · Dashboard', ru: 'JET OS Guard · Панель' },
-  footRealtime: { pt: 'Dados em tempo real via Firestore', en: 'Real-time data via Firestore', es: 'Datos en tiempo real vía Firestore', ru: 'Данные в реальном времени через Firestore' },
+  footRealtime: { pt: 'Dados em tempo real via Supabase', en: 'Real-time data via Supabase', es: 'Datos en tiempo real vía Supabase', ru: 'Данные в реальном времени через Supabase' },
 };
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
@@ -298,21 +296,12 @@ export default function GuardDashboard({ visivel, onFechar, roleUsuario = 'admin
 
   useEffect(() => {
     if (!visivel) return;
-    // Fase 2 / Onda B — leitura do Supabase atrás de flag (read-only).
-    if (guardProviderSupabase()) {
-      let vivo = true;
-      setLoading(true);
-      carregarOcorrenciasSupabase({ limit: 5000 })
-        .then(rows => { if (vivo) { setOcorrencias(rows as Ocorrencia[]); setLoading(false); } })
-        .catch(err => { console.error('[guard-dash] leitura Supabase falhou:', err); if (vivo) setLoading(false); });
-      return () => { vivo = false; };
-    }
-    const q = query(collection(db, 'ocorrencias'), orderBy('criadoEm', 'desc'));
-    const unsub = onSnapshot(q, snap => {
-      setOcorrencias(snap.docs.map(d => ({ id: d.id, ...d.data() } as Ocorrencia)));
-      setLoading(false);
-    }, () => setLoading(false));
-    return unsub;
+    let vivo = true;
+    setLoading(true);
+    carregarOcorrenciasSupabase({ limit: 5000 })
+      .then(rows => { if (vivo) { setOcorrencias(rows as Ocorrencia[]); setLoading(false); } })
+      .catch(err => { console.error('[guard-dash] leitura Supabase falhou:', err); if (vivo) setLoading(false); });
+    return () => { vivo = false; };
   }, [visivel]);
 
   // ── filtrado pelo período selecionado

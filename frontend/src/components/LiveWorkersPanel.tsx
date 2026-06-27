@@ -8,13 +8,8 @@
 //   - Mostra tarefa ativa do operador se houver
 
 import React, { useEffect, useState, useRef } from 'react';
-import {
-  collection, query, where, orderBy, onSnapshot,
-  Timestamp, getDocs, limit,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { gpsProviderSupabase, fetchGpsAtual } from '../lib/gps-supabase';
-import { usuariosReadSupabase, fetchUsuariosByIds } from '../lib/usuarios-supabase';
+import { fetchGpsAtual } from '../lib/gps-supabase';
+import { fetchUsuariosByIds } from '../lib/usuarios-supabase';
 import L from 'leaflet';
 import { useTranslation } from 'react-i18next';
 
@@ -159,90 +154,40 @@ export default function LiveWorkersPanel({ mapa, visivel, cidade, usuario }: Pro
     if (workers.length === 0) return;
     const uidsComNome = workers.filter(w => !w.nome && !nomes.has(w.uid)).map(w => w.uid);
     if (uidsComNome.length === 0) return;
-    const batches: string[][] = [];
-    for (let i = 0; i < uidsComNome.length; i += 30) batches.push(uidsComNome.slice(i, i + 30));
-    if (usuariosReadSupabase()) {
-      const allUids = batches.flat();
-      fetchUsuariosByIds(allUids).then(users => {
-        setNomes(prev => {
-          const next = new Map(prev);
-          users.forEach(u => {
-            const nome = [u.nome, u.sobrenome].filter(Boolean).join(' ') || (u.uid || '').slice(0, 8);
-            next.set(u.uid, nome);
-          });
-          return next;
+    fetchUsuariosByIds(uidsComNome).then(users => {
+      setNomes(prev => {
+        const next = new Map(prev);
+        users.forEach(u => {
+          const nome = [u.nome, u.sobrenome].filter(Boolean).join(' ') || (u.uid || '').slice(0, 8);
+          next.set(u.uid, nome);
         });
-      }).catch(() => {});
-    } else {
-      Promise.all(batches.map(batch =>
-        getDocs(query(collection(db, 'usuarios'), where('__name__', 'in', batch)))
-      )).then(snaps => {
-        setNomes(prev => {
-          const next = new Map(prev);
-          snaps.flatMap(s => s.docs).forEach(d => {
-            const data = d.data();
-            const nome = [data.nome, data.sobrenome].filter(Boolean).join(' ') || d.id.slice(0, 8);
-            next.set(d.id, nome);
-          });
-          return next;
-        });
-      }).catch(() => {});
-    }
+        return next;
+      });
+    }).catch(() => {});
   }, [workers]);
 
-  // Realtime GPS — Supabase polling (Onda D) ou Firestore onSnapshot (fallback)
+  // Realtime GPS — Supabase polling
   useEffect(() => {
     if (!visivel) return;
 
-    if (gpsProviderSupabase()) {
-      // Supabase: polling a cada 10s
-      let alive = true;
-      const poll = () => {
-        fetchGpsAtual(JANELA_MIN).then(pts => {
-          if (!alive) return;
-          const byUid = new Map<string, GPS>();
-          for (const p of pts) {
-            if (!byUid.has(p.uid) || (p.criadoEm?.seconds ?? 0) > (byUid.get(p.uid)!.criadoEm?.seconds ?? 0)) {
-              byUid.set(p.uid, { uid: p.uid, lat: p.lat, lng: p.lng, criadoEm: p.criadoEm, accuracy: p.accuracy ?? undefined, nome: p.nome, slotId: p.slotId, cidade: p.cidade, isMock: p.isMock });
-            }
+    let alive = true;
+    const poll = () => {
+      fetchGpsAtual(JANELA_MIN).then(pts => {
+        if (!alive) return;
+        const byUid = new Map<string, GPS>();
+        for (const p of pts) {
+          if (!byUid.has(p.uid) || (p.criadoEm?.seconds ?? 0) > (byUid.get(p.uid)!.criadoEm?.seconds ?? 0)) {
+            byUid.set(p.uid, { uid: p.uid, lat: p.lat, lng: p.lng, criadoEm: p.criadoEm, accuracy: p.accuracy ?? undefined, nome: p.nome, slotId: p.slotId, cidade: p.cidade, isMock: p.isMock });
           }
-          let lista = [...byUid.values()];
-          if (cidade) lista = lista.filter(w => !w.cidade || w.cidade === cidade);
-          setWorkers(lista);
-        });
-      };
-      poll();
-      const id = setInterval(poll, 10_000);
-      return () => { alive = false; clearInterval(id); };
-    }
-
-    // Firestore fallback
-    const desde = new Date(Date.now() - JANELA_MIN * 60_000);
-
-    const constraints = [
-      where('criadoEm', '>=', Timestamp.fromDate(desde)),
-      orderBy('criadoEm', 'desc'),
-      limit(200),
-    ];
-    // Se não é admin, só vê a própria cidade
-    const q = query(collection(db, 'gps_logistica'), ...constraints);
-
-    const unsub = onSnapshot(q, snap => {
-      // Agrupa por uid — pega o mais recente de cada
-      const byUid = new Map<string, GPS>();
-      for (const d of snap.docs) {
-        const x = d.data() as GPS;
-        if (!byUid.has(x.uid) || (x.criadoEm?.seconds ?? 0) > (byUid.get(x.uid)!.criadoEm?.seconds ?? 0)) {
-          byUid.set(x.uid, { ...x });
         }
-      }
-      // Filtra por cidade se fornecida
-      let lista = [...byUid.values()];
-      if (cidade) lista = lista.filter(w => !w.cidade || w.cidade === cidade);
-      setWorkers(lista);
-    }, err => console.warn('[LiveWorkers]', err));
-
-    return unsub;
+        let lista = [...byUid.values()];
+        if (cidade) lista = lista.filter(w => !w.cidade || w.cidade === cidade);
+        setWorkers(lista);
+      });
+    };
+    poll();
+    const id = setInterval(poll, 10_000);
+    return () => { alive = false; clearInterval(id); };
   }, [visivel, cidade]);
 
   // Cria/destrói o LayerGroup apenas quando o mapa muda — evita recriar markers a cada tick

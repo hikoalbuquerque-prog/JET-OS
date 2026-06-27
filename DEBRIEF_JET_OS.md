@@ -1,5 +1,5 @@
 # Jet OS Firebase — Master Debrief
-**Atualizado em:** 27/06/2026 (§19.19 Dual-write Fase 2 + Functions Supabase-first · §19.18 Audit pré-shutdown Firestore · §19.17 i18n final + POI server-side + Functions deploy · §19.16 APK distribution · §19.15 i18n resíduos + Guia · §19.13 code-split + LGPD + config)  
+**Atualizado em:** 27/06/2026 (§19.21 Migração 22 coleções Firestore → Supabase · §19.20 Remoção mirrors + purge DashboardManager · §19.19 Dual-write Fase 2 · §19.18 Audit pré-shutdown · §19.17 i18n + POI + deploy · §19.16 APK distribution)  
 **Projeto:** jet-os-1 | Firebase Hosting + Firestore + Storage + Cloud Functions  
 **Stack:** React + Vite + TypeScript + Leaflet + deck.gl | Node.js 22 Cloud Functions
 
@@ -3056,9 +3056,120 @@ AnalyticsManager, CidadesExpansao, MonitorPanel, SlotsModule, TelaGuard, Telegra
 - **Functions:** `tsc` limpo, sem mirrors.
 - **Firestore imports residuais no frontend:** `db`/`auth` de `./lib/firebase` ainda importados (usado por `auth` lazy fallback e eventuais reads legados em componentes menores). Remoção completa = próximo passo (remover `firebase.ts` do bundle).
 
-#### ⏭️ PENDÊNCIAS
-1. **Deploy:** `firebase deploy --only hosting` + `firebase deploy --only functions` (cota CPU pode bloquear).
+#### ⏭️ PENDÊNCIAS §19.20
+1. ~~**Deploy hosting + functions**~~ ✅ (commit `b5da71d`)
 2. **Deletar mirrors no Firebase:** `firebase functions:delete espelharEstacaoSupabase espelharZonaSupabase espelharLocalSupabase espelharOcorrenciaSupabase espelharSolicitacaoPrestadorSupabase espelharTurnoLogisticaSupabase espelharTarefaSupabase espelharTarefaLogisticaSupabase espelharGojetConfigSupabase espelharConsentimentoLgpdSupabase espelharSolicitacaoSupabase --region southamerica-east1`
-3. **Rebuild APK** com auth flip + code-split + sem mirrors.
+3. ~~**Rebuild APK**~~ ✅ v2.3 (code 12), uploaded Supabase Storage
 4. **Rotacionar secrets** (service_role key, keystore password).
-5. **Shutdown Firestore** — 22 coleções ainda sem tabela Supabase; 9 módulos com escrita só Firestore.
+5. ~~**Shutdown Firestore — 22 coleções**~~ → resolvido em §19.21
+
+---
+
+### 19.21 Sessão 27/06/2026 (cont.) — Migração 22 coleções Firestore → Supabase + APK v2.3
+
+#### 📦 APK v2.3 (`2.3-supabase-only`, code 12)
+- Build: `cap sync` + `assembleRelease` — 11.5 MB
+- Upload: `apk/jet-os-latest.apk` + `version.json` no Supabase Storage (bucket `apk`)
+- Inclui: auth flip Supabase primário, mirrors removidos, code-split, i18n
+
+#### 🗄️ Migration 0066 + 0067 aplicadas
+- **0066:** tabelas `inventario`, `config_logistica`, `telegram_grupos` + colunas extras `meis`, `eficiencias_logistica`
+- **0067:** tabelas `monitor_config`, `guard_regioes`, `guard_controle_perdas`, `operacoes` + colunas extras `slot_alertas`, `slot_lembretes`, `eventos` + seeds `app_settings`
+
+#### 🔄 Auditoria das 22 coleções — resultado
+| Status | Coleções |
+|---|---|
+| **Já 100% Supabase (0 trabalho)** | `slot_config`, `config_auto_slots`, `bug_reports`, `penalidades`, `meis`, `eficiencias_logistica`, `notificacoes_app`, `monitor_alertas`, `rotas` (aposentado) |
+| **Migradas nesta sessão** | `config/telegram`, `config/sv_stats`, `monitor_config`, `guard_config`, `gojet_snapshots`, `disponibilidades`, `feriados`, `slot_aceites`, `slot_alertas`, `slot_lembretes`, `log_slots_auto`, `eventos` |
+| **Tabela criada, CF parcial** | `operacoes` (callable CFs em `auth.ts` ainda Firestore) |
+
+#### ⚡ Frontend migrado (10 arquivos, +521/−694)
+- `MonitorConfigPanel.tsx` — `monitor_config` Firestore → Supabase table
+- `GoJetOverlay.tsx` — `monitor_config` read → Supabase
+- `PainelRoubos.tsx` — `guard_config/regioes` → `guard_regioes` table
+- `PainelControlePerdasSeg.tsx` — `guard_config/controle_perdas` → `guard_controle_perdas` table
+- `SlotsTeamsModule.tsx` — removidos TODOS os `if(escalaProviderSupabase())` dual-write; Supabase-only
+- `EventoGoJetPanel.tsx` — GoJet point linking write → Supabase `eventos`
+- `CadastroTelegram.tsx` — removidos `setDoc` Firestore (`usuarios`, `prestadores`)
+- `TarefasLogisticaModule.tsx` — `config_logistica` read → Supabase
+- `DashboardManager.tsx` — `config/telegram` → `app_settings`
+- `escala-supabase.ts` — `escalaProviderSupabase()` → always true
+
+#### ⚡ Cloud Functions migradas (9 arquivos)
+- `slot-confirmacao.ts` — `slot_aceites`/`slot_alertas`/`slot_lembretes` writes → Supabase
+- `automacao-gojet-scraper.ts` — `gojet_snapshots` dual-write → Supabase-only, `tarefas_logistica` → Supabase
+- `automacao-tarefas.ts` — `log_slots_auto`/`gojet_snapshots`/`parking_history` → Supabase
+- `automacao.ts` — `limpezaSnapshots` → no-op (Supabase upsert)
+- `relatorios.ts` — `config/telegram` → Supabase `telegram_config`/`app_settings`
+- `slots.ts` — `config/telegram` → Supabase
+- `streetview/index.ts` — `config/sv_stats` → `app_settings`
+- `utils/index.ts` — `logEvento` → Supabase `eventos`
+- `lib/supabase-rest.ts` — novo `supabaseUpdate()` (PATCH)
+
+#### 📊 Estado pós-migração — Firestore residual
+
+**Frontend (19 arquivos ainda importam `firebase/firestore`):**
+| Arquivo | Coleções Firestore usadas |
+|---|---|
+| `TelaPrestadorPerfil.tsx` | `prestadores`, `solicitacoes_prestadores`, `usuarios` |
+| `TelegramVinculo.tsx` | `usuarios`, callable CF |
+| `GoJetAnalyticsPanel.tsx` | `gojet_snapshots` reads, callable CF |
+| `GoJetOverlay.tsx` | `estacoes`, `gojet_snapshots`, `tarefas_logistica`, callable CF |
+| `GpsHeatmapPanel.tsx` | `gps_tracks` |
+| `GpsRotaPanel.tsx` | `gps_tracks` |
+| `GuardDashboard.tsx` | `ocorrencias` (onSnapshot) |
+| `LiveTrackingMap.tsx` | `gps_positions` (onSnapshot) |
+| `LiveWorkersPanel.tsx` | `gps_positions`, `turnos`, `slots_escala` |
+| `LocaisOperacionais.tsx` | `locais_operacionais` |
+| `MapaHelpers.tsx` | `pois`, callable CF geocode |
+| `PainelControlePerdasSeg.tsx` | imports residuais (não usados, limpar) |
+| `PainelRoubos.tsx` | imports residuais (não usados, limpar) |
+| `ShiftNotifications.tsx` | `turnos`, `slots_escala` |
+| `SlotsDashboard.tsx` | `slots`, `slots_escala` |
+| `TarefasLogisticaModule.tsx` | `tarefas_logistica`, `gojet_snapshots` reads |
+| `gojet-scraper.ts` | `gojet_snapshots` reads |
+| `gps-background.ts` | `gps_positions` write, callable CF |
+| `AdminTelegramPanel.tsx` | `telegram_config` |
+
+**Cloud Functions (20 arquivos ainda importam `firebase-admin`):**
+Maioria para coleções: `slots`, `slots_escala`, `tarefas`, `tarefas_logistica`, `usuarios`, `fcm_tokens`, `turnos`, `logs_automacao`, `gps_positions`, `gps_tracks`, `prestadores`, `telegram_config`.
+
+#### ⏭️ PENDÊNCIAS ATUAIS
+
+##### 🔴 Crítico
+1. **Validar auth flip em campo** — instalar APK v2.3, testar login/logout/reload
+2. **Re-testar GPS no celular** — foreground + 15min tela off + reboot
+3. **Rotacionar service_role key** — exposta em chat/scripts. Regenerar no dashboard Supabase, atualizar `functions/.env`, Edge Functions secrets
+4. **Rotacionar keystore password** — mover de `build.gradle` para `keystore.properties` (gitignored)
+
+##### 🟠 Firestore shutdown — próximas ondas
+5. **Onda A — Imports residuais sem uso:** Limpar `PainelControlePerdasSeg.tsx`, `PainelRoubos.tsx` (já migrados mas imports ficaram)
+6. **Onda B — Coleções com tabela Supabase existente mas frontend ainda lê Firestore:**
+   - `gojet_snapshots` reads (GoJetAnalyticsPanel, GoJetOverlay, TarefasLogisticaModule, gojet-scraper.ts)
+   - `tarefas_logistica` reads (GoJetOverlay, TarefasLogisticaModule)
+   - `locais_operacionais` (LocaisOperacionais.tsx)
+   - `telegram_config` (AdminTelegramPanel.tsx)
+   - `ocorrencias` (GuardDashboard.tsx — onSnapshot)
+7. **Onda C — Coleções que precisam de tabela + migração frontend:**
+   - `gps_positions` (LiveTrackingMap onSnapshot, LiveWorkersPanel, gps-background write) — realtime critical
+   - `gps_tracks` (GpsHeatmapPanel, GpsRotaPanel)
+   - `slots`/`slots_escala` (SlotsDashboard, ShiftNotifications, LiveWorkersPanel)
+   - `turnos` (ShiftNotifications, LiveWorkersPanel)
+   - `prestadores` (TelaPrestadorPerfil)
+   - `pois` (MapaHelpers)
+   - `operacoes` (callable CFs em auth.ts)
+8. **Onda D — Cloud Functions restantes** (20 arquivos): slots.ts, auth.ts, tasks.ts, gps-ingest.ts, etc.
+
+##### 🟡 Infra
+9. **Deploy functions** — `firebase deploy --only functions` (cota CPU, usar cirúrgico)
+10. **Deletar mirrors remotos** do Firebase (comando em §19.20)
+11. **Desabilitar Firebase Auth** — após confirmar Supabase auth estável em campo
+12. **Remover `firebase.ts` do bundle** — após zero imports residuais
+
+##### 🟢 Produto / Features
+13. **NFS-e** — módulo emissão automática (§13, plano completo)
+14. **Chat in-app** — `CHAT_DESIGN.md` pronto, aguarda sign-off jurídico
+15. **Relatórios Guard v2** — por cidade + turnos
+16. **Slots convergência (§15)** — unificar motor escala + demanda GoJet
+17. **i18n resíduos** — templates PDF/CSV, `STATUS_META.label`
+18. **Front usar `buscarPOIsOSMFn`** — trocar Overpass client-side

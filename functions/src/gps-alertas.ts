@@ -6,18 +6,12 @@
 //   verificarAtrasos      — scheduler: a cada 5min
 //
 // Deploy: export * from './gps-alertas'; no index.ts
-// Índices necessários (criar no Console Firestore):
-//   gps_logistica: uid ASC + criadoEm DESC
-//   tarefas_logistica: assigneeUid ASC + status ASC + criadoEm DESC
 
-import * as admin  from 'firebase-admin';
 import * as functions from 'firebase-functions';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { onSchedule }        from 'firebase-functions/v2/scheduler';
 import { onCall }            from 'firebase-functions/v2/https';
-import { supabaseGet, supabaseGetOne, supabaseInsert } from './lib/supabase-rest';
-
-const db = admin.firestore();
+import { supabaseGet, supabaseGetOne, supabaseInsert, supabaseUpdate } from './lib/supabase-rest';
 
 // Item 6 — defaults hard-coded (podem ser sobrescritos via Firestore: monitor_config/gps)
 const DEFAULT_CFG = {
@@ -132,34 +126,24 @@ export const verificarChegadaPonto = onDocumentCreated(
     const { uid, lat, lng } = gps;
 
     // Busca tarefas ativas deste operador que ainda não fizeram check-in
-    const tarefasSnap = await db.collection('tarefas_logistica')
-      .where('assigneeUid', '==', uid)
-      .where('status', '==', 'em_execucao')
-      .get();
+    const tarefasRows = await supabaseGet<any>('tarefas_logistica', `select=*&assignee_uid=eq.${encodeURIComponent(uid)}&status=eq.em_execucao`);
 
-    const batch = db.batch();
-    let atualizou = false;
+    for (const t of (tarefasRows ?? [])) {
+      if (!t.parking_lat || !t.parking_lng) continue;
+      if (t.check_in_gps) continue; // já chegou
 
-    for (const tDoc of tarefasSnap.docs) {
-      const t = tDoc.data();
-      if (!t.parkingLat || !t.parkingLng) continue;
-      if (t.checkInGPS) continue; // já chegou
-
-      const dist = distM(lat, lng, t.parkingLat, t.parkingLng);
+      const dist = distM(lat, lng, t.parking_lat, t.parking_lng);
 
       if (dist <= CFG.raioChegadaMetros) {
-        batch.update(tDoc.ref, {
-          checkInGPS:   true,
-          checkInGPSEm: admin.firestore.FieldValue.serverTimestamp(),
-          checkInDistM: Math.round(dist),
-          atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        atualizou = true;
-        functions.logger.info(`[gps-alertas] ${uid} chegou ao ponto ${t.parkingNome} (${Math.round(dist)}m)`);
+        await supabaseUpdate('tarefas_logistica', {
+          check_in_gps:    true,
+          check_in_gps_em: new Date().toISOString(),
+          check_in_dist_m: Math.round(dist),
+          atualizado_em:   new Date().toISOString(),
+        }, `id=eq.${t.id}`);
+        functions.logger.info(`[gps-alertas] ${uid} chegou ao ponto ${t.parking_nome} (${Math.round(dist)}m)`);
       }
     }
-
-    if (atualizou) await batch.commit();
 
     // ── FEATURE 1: Detecção de teleporte ────────────────────────────────────
     try {
@@ -167,18 +151,14 @@ export const verificarChegadaPonto = onDocumentCreated(
       const TELEPORTE_VEL_MS = 150;                   // 150 m/s = 540 km/h
       const TELEPORTE_COOLDOWN_MS = 10 * 60 * 1000;  // cooldown 10 min por uid
 
-      const doisPontosSnap = await db.collection('gps_logistica')
-        .where('uid', '==', uid)
-        .orderBy('criadoEm', 'desc')
-        .limit(2)
-        .get();
+      const doisPontos = await supabaseGet<any>('gps_logistica', `select=*&uid=eq.${encodeURIComponent(uid)}&order=criado_em.desc&limit=2`);
 
-      if (doisPontosSnap.docs.length >= 2) {
-        const pontoNovo = doisPontosSnap.docs[0].data();
-        const pontoAnt  = doisPontosSnap.docs[1].data();
+      if (doisPontos && doisPontos.length >= 2) {
+        const pontoNovo = doisPontos[0];
+        const pontoAnt  = doisPontos[1];
 
-        const tsNovo = pontoNovo.criadoEm?.toMillis?.() ?? pontoNovo.criadoEm?.getTime?.() ?? Date.now();
-        const tsAnt  = pontoAnt.criadoEm?.toMillis?.()  ?? pontoAnt.criadoEm?.getTime?.()  ?? 0;
+        const tsNovo = pontoNovo.criado_em ? new Date(pontoNovo.criado_em).getTime() : Date.now();
+        const tsAnt  = pontoAnt.criado_em ? new Date(pontoAnt.criado_em).getTime() : 0;
         const deltaMs = tsNovo - tsAnt;
 
         if (deltaMs > 0 && deltaMs <= TELEPORTE_MAX_MS) {
@@ -187,7 +167,6 @@ export const verificarChegadaPonto = onDocumentCreated(
 
           if (velocidadeMs > TELEPORTE_VEL_MS) {
             // Verifica cooldown no doc do usuário
-            const opRef  = db.collection('usuarios').doc(uid);
             let opData: any = {};
             try {
               const sbUser = await supabaseGetOne<any>('usuarios', `select=*&id=eq.${encodeURIComponent(uid)}`);
@@ -195,7 +174,7 @@ export const verificarChegadaPonto = onDocumentCreated(
             } catch (e) {
               functions.logger.warn('[gps-alertas] Supabase usuarios falhou:', e);
             }
-            const ultimoAlerta = opData.alertaTeleporteEm?.toMillis?.() ?? 0;
+            const ultimoAlerta = opData.alerta_teleporte_em ? new Date(opData.alerta_teleporte_em).getTime() : 0;
             const agora = Date.now();
 
             if (agora - ultimoAlerta >= TELEPORTE_COOLDOWN_MS) {
@@ -237,9 +216,9 @@ export const verificarChegadaPonto = onDocumentCreated(
               }
 
               // Atualiza cooldown
-              await opRef.update({
-                alertaTeleporteEm: admin.firestore.FieldValue.serverTimestamp(),
-              });
+              await supabaseUpdate('usuarios', {
+                alerta_teleporte_em: new Date().toISOString(),
+              }, `id=eq.${encodeURIComponent(uid)}`);
 
               functions.logger.warn(`[gps-alertas] Teleporte detectado: ${nome} (${uid}) ${distanciaM}m em ${segundos}s`);
             }
@@ -254,7 +233,6 @@ export const verificarChegadaPonto = onDocumentCreated(
     try {
       const GEOFENCE_COOLDOWN_MS = 15 * 60 * 1000; // cooldown 15 min por uid
 
-      const opRef  = db.collection('usuarios').doc(uid);
       let opData: any = {};
       try {
         const sbUser = await supabaseGetOne<any>('usuarios', `select=*&id=eq.${encodeURIComponent(uid)}`);
@@ -298,7 +276,7 @@ export const verificarChegadaPonto = onDocumentCreated(
 
       if (!dentroDeAlgumaZona) {
         const agora = Date.now();
-        const ultimoAlerta = opData.alertaGeofenceEm?.toMillis?.() ?? 0;
+        const ultimoAlerta = opData.alerta_geofence_em ? new Date(opData.alerta_geofence_em).getTime() : 0;
 
         if (agora - ultimoAlerta >= GEOFENCE_COOLDOWN_MS) {
           const nomesZonas = zonasComPoligono.map(z => z.nome ?? z.id);
@@ -331,9 +309,9 @@ export const verificarChegadaPonto = onDocumentCreated(
           }
 
           // Atualiza cooldown
-          await opRef.update({
-            alertaGeofenceEm: admin.firestore.FieldValue.serverTimestamp(),
-          });
+          await supabaseUpdate('usuarios', {
+            alerta_geofence_em: new Date().toISOString(),
+          }, `id=eq.${encodeURIComponent(uid)}`);
 
           functions.logger.warn(`[gps-alertas] Geofence: ${nome} (${uid}) fora das zonas [${nomesZonas.join(', ')}]`);
         }
@@ -377,32 +355,23 @@ export const verificarAtrasos = onSchedule(
 
     // ── 1. Tarefas em execução sem check-in após X min ───────────────────────
     const limiteChegada = new Date(agora - CFG.minutosParaChegar * 60_000);
-    const semCheckIn = await db.collection('tarefas_logistica')
-      .where('status', '==', 'em_execucao')
-      .where('checkInGPS', '==', false)
-      .get();
+    const semCheckInRows = await supabaseGet<any>('tarefas_logistica', 'select=*&status=eq.em_execucao&check_in_gps=eq.false');
 
-    for (const tDoc of semCheckIn.docs) {
-      const t = tDoc.data();
-      const iniciadoEm = t.iniciadoEm?.toDate?.();
+    for (const t of (semCheckInRows ?? [])) {
+      const iniciadoEm = t.iniciado_em ? new Date(t.iniciado_em) : null;
       if (!iniciadoEm || iniciadoEm > limiteChegada) continue;
-      if (t.alertaChegadaEnviadoEm) {
-        const ultimo = t.alertaChegadaEnviadoEm.toDate?.().getTime?.() ?? 0;
+      if (t.alerta_chegada_enviado_em) {
+        const ultimo = new Date(t.alerta_chegada_enviado_em).getTime();
         if (agora - ultimo < CFG.cooldownAlertaMin * 60_000) continue;
       }
 
       const minutos = Math.round((agora - iniciadoEm.getTime()) / 60_000);
 
       // Último GPS do operador
-      const gpsSnap = await db.collection('gps_logistica')
-        .where('uid', '==', t.assigneeUid)
-        .orderBy('criadoEm', 'desc')
-        .limit(1)
-        .get();
-
-      const ultGPS = gpsSnap.docs[0]?.data();
-      const distancia = ultGPS && t.parkingLat
-        ? Math.round(distM(ultGPS.lat, ultGPS.lng, t.parkingLat, t.parkingLng))
+      const gpsRows = await supabaseGet<any>('gps_logistica', `select=*&uid=eq.${encodeURIComponent(t.assignee_uid)}&order=criado_em.desc&limit=1`);
+      const ultGPS = gpsRows?.[0];
+      const distancia = ultGPS && t.parking_lat
+        ? Math.round(distM(ultGPS.lat, ultGPS.lng, t.parking_lat, t.parking_lng))
         : null;
 
       const chatId = await getChatId(t.cidade ?? '');
@@ -411,39 +380,36 @@ export const verificarAtrasos = onSchedule(
       await telegram(tgCfg.token, chatId, [
         `⏰ <b>Operador não chegou ao ponto</b>`,
         ``,
-        `👤 ${t.assigneeNome ?? t.assigneeUid}`,
-        `📍 ${t.parkingNome ?? t.titulo}`,
+        `👤 ${t.assignee_nome ?? t.assignee_uid}`,
+        `📍 ${t.parking_nome ?? t.titulo}`,
         `⏱ ${minutos} min em execução sem check-in`,
         distancia !== null
           ? `📡 Distância atual: ${distancia}m`
           : `📡 GPS não recebido recentemente`,
         ``,
-        `🆔 Tarefa: ${tDoc.id.slice(-6)}`,
+        `🆔 Tarefa: ${t.id.slice(-6)}`,
       ].join('\n'));
 
-      await tDoc.ref.update({
-        alertaChegadaEnviadoEm: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      await supabaseUpdate('tarefas_logistica', {
+        alerta_chegada_enviado_em: new Date().toISOString(),
+      }, `id=eq.${t.id}`);
     }
 
     // ── 2. Tarefas em execução há muito tempo sem concluir ───────────────────
     const limiteExecucao = new Date(agora - CFG.minutosAtrasoTarefa * 60_000);
-    const emExecucao = await db.collection('tarefas_logistica')
-      .where('status', '==', 'em_execucao')
-      .get();
+    const emExecucaoRows = await supabaseGet<any>('tarefas_logistica', 'select=*&status=eq.em_execucao');
 
-    for (const tDoc of emExecucao.docs) {
-      const t = tDoc.data();
-      const iniciadoEm = t.iniciadoEm?.toDate?.();
+    for (const t of (emExecucaoRows ?? [])) {
+      const iniciadoEm = t.iniciado_em ? new Date(t.iniciado_em) : null;
       if (!iniciadoEm || iniciadoEm > limiteExecucao) continue;
-      if (t.alertaAtrasoEnviadoEm) {
-        const ultimo = t.alertaAtrasoEnviadoEm.toDate?.().getTime?.() ?? 0;
+      if (t.alerta_atraso_enviado_em) {
+        const ultimo = new Date(t.alerta_atraso_enviado_em).getTime();
         if (agora - ultimo < CFG.cooldownAlertaMin * 60_000) continue;
       }
 
       const minutos = Math.round((agora - iniciadoEm.getTime()) / 60_000);
-      const progress = t.targetCount > 0
-        ? `${t.deliveredCount ?? 0}/${t.targetCount} entregues`
+      const progress = t.target_count > 0
+        ? `${t.delivered_count ?? 0}/${t.target_count} entregues`
         : null;
 
       const chatId = await getChatId(t.cidade ?? '');
@@ -452,55 +418,51 @@ export const verificarAtrasos = onSchedule(
       await telegram(tgCfg.token, chatId, [
         `⚠️ <b>Tarefa demorando mais que o esperado</b>`,
         ``,
-        `👤 ${t.assigneeNome ?? t.assigneeUid}`,
-        `📍 ${t.parkingNome ?? t.titulo}`,
+        `👤 ${t.assignee_nome ?? t.assignee_uid}`,
+        `📍 ${t.parking_nome ?? t.titulo}`,
         `⏱ ${minutos} min em execução`,
         progress ? `📦 Progresso: ${progress}` : '',
         ``,
-        `🆔 Tarefa: ${tDoc.id.slice(-6)}`,
+        `🆔 Tarefa: ${t.id.slice(-6)}`,
       ].filter(Boolean).join('\n'));
 
-      await tDoc.ref.update({
-        alertaAtrasoEnviadoEm: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      await supabaseUpdate('tarefas_logistica', {
+        alerta_atraso_enviado_em: new Date().toISOString(),
+      }, `id=eq.${t.id}`);
     }
 
     // ── 3. Operadores com GPS parado durante turno ativo ────────────────────
     const limiteGPS = new Date(agora - CFG.minutesSemGPS * 60_000);
 
     // Busca operadores que têm tarefas ativas
-    const tarefasAtivasSnap = await db.collection('tarefas_logistica')
-      .where('status', 'in', ['pendente', 'em_execucao'])
-      .get();
+    const tarefasAtivasRows = await supabaseGet<any>('tarefas_logistica', 'select=assignee_uid,assignee_nome,cidade&status=in.(pendente,em_execucao)');
 
     const operadoresAtivos = new Map<string, { nome: string; cidade: string }>();
-    for (const tDoc of tarefasAtivasSnap.docs) {
-      const t = tDoc.data();
-      if (t.assigneeUid && !operadoresAtivos.has(t.assigneeUid)) {
-        operadoresAtivos.set(t.assigneeUid, {
-          nome:   t.assigneeNome ?? t.assigneeUid,
+    for (const t of (tarefasAtivasRows ?? [])) {
+      if (t.assignee_uid && !operadoresAtivos.has(t.assignee_uid)) {
+        operadoresAtivos.set(t.assignee_uid, {
+          nome:   t.assignee_nome ?? t.assignee_uid,
           cidade: t.cidade ?? '',
         });
       }
     }
 
     for (const [uid, info] of operadoresAtivos) {
-      const gpsSnap = await db.collection('gps_logistica')
-        .where('uid', '==', uid)
-        .orderBy('criadoEm', 'desc')
-        .limit(1)
-        .get();
+      const gpsRows = await supabaseGet<any>('gps_logistica', `select=*&uid=eq.${encodeURIComponent(uid)}&order=criado_em.desc&limit=1`);
 
-      if (gpsSnap.empty) continue;
+      if (!gpsRows || gpsRows.length === 0) continue;
 
-      const ultGPS = gpsSnap.docs[0].data();
-      const ultEnvio = ultGPS.criadoEm?.toDate?.();
+      const ultGPS = gpsRows[0];
+      const ultEnvio = ultGPS.criado_em ? new Date(ultGPS.criado_em) : null;
       if (!ultEnvio || ultEnvio > limiteGPS) continue;
 
       // Verifica cooldown no doc do operador
-      const opRef  = db.collection('usuarios').doc(uid);
-      const opSnap = await opRef.get();
-      const ultimoAlerta = opSnap.data()?.alertaGPSPerdidoEm?.toDate?.()?.getTime?.() ?? 0;
+      let opData: any = {};
+      try {
+        const sbUser = await supabaseGetOne<any>('usuarios', `select=*&id=eq.${encodeURIComponent(uid)}`);
+        opData = sbUser ?? {};
+      } catch { /* best-effort */ }
+      const ultimoAlerta = opData.alerta_gps_perdido_em ? new Date(opData.alerta_gps_perdido_em).getTime() : 0;
       if (agora - ultimoAlerta < CFG.cooldownAlertaMin * 60_000) continue;
 
       const minSem = Math.round((agora - ultEnvio.getTime()) / 60_000);
@@ -516,27 +478,24 @@ export const verificarAtrasos = onSchedule(
         `📱 Verifique se o app está aberto e com permissão de localização`,
       ].join('\n'));
 
-      await opRef.update({
-        alertaGPSPerdidoEm: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      await supabaseUpdate('usuarios', {
+        alerta_gps_perdido_em: new Date().toISOString(),
+      }, `id=eq.${encodeURIComponent(uid)}`);
     }
 
     // ── 4. Operadores com SLOT ativo mas sem GPS por X min ───────────────────
     // Complementa seção 3 (tarefas) — cobre chargers/scalts sem tarefas atribuídas
     try {
       const COOLDOWN_SLOT_GPS_MS = 20 * 60_000; // 20 min cooldown por worker
-      const slotsAtivosSnap = await db.collection('slots')
-        .where('status', '==', 'em_andamento')
-        .get();
+      const slotsAtivosRows = await supabaseGet<any>('slots', 'select=id,aceito_por,aceito_por_nome,cidade&status=eq.em_andamento');
 
       const workersPorSlot = new Map<string, { nome: string; cidade: string; slotId: string }>();
-      for (const sDoc of slotsAtivosSnap.docs) {
-        const s = sDoc.data();
-        if (s.aceitoPor && !workersPorSlot.has(s.aceitoPor)) {
-          workersPorSlot.set(s.aceitoPor, {
-            nome:   s.aceitoPorNome ?? s.aceitoPor,
+      for (const s of (slotsAtivosRows ?? [])) {
+        if (s.aceito_por && !workersPorSlot.has(s.aceito_por)) {
+          workersPorSlot.set(s.aceito_por, {
+            nome:   s.aceito_por_nome ?? s.aceito_por,
             cidade: s.cidade ?? '',
-            slotId: sDoc.id,
+            slotId: s.id,
           });
         }
       }
@@ -545,20 +504,19 @@ export const verificarAtrasos = onSchedule(
       for (const uid of operadoresAtivos.keys()) workersPorSlot.delete(uid);
 
       for (const [uid, info] of workersPorSlot) {
-        const gpsSnap = await db.collection('gps_logistica')
-          .where('uid', '==', uid)
-          .orderBy('criadoEm', 'desc')
-          .limit(1)
-          .get();
+        const gpsRows = await supabaseGet<any>('gps_logistica', `select=*&uid=eq.${encodeURIComponent(uid)}&order=criado_em.desc&limit=1`);
 
-        if (gpsSnap.empty) continue;
-        const ultGPS    = gpsSnap.docs[0].data();
-        const ultEnvio  = ultGPS.criadoEm?.toDate?.();
+        if (!gpsRows || gpsRows.length === 0) continue;
+        const ultGPS    = gpsRows[0];
+        const ultEnvio  = ultGPS.criado_em ? new Date(ultGPS.criado_em) : null;
         if (!ultEnvio || ultEnvio > limiteGPS) continue;
 
-        const opRef     = db.collection('usuarios').doc(uid);
-        const opSnap    = await opRef.get();
-        const ultimoAlerta = opSnap.data()?.alertaGPSSlotEm?.toDate?.()?.getTime?.() ?? 0;
+        let opData: any = {};
+        try {
+          const sbUser = await supabaseGetOne<any>('usuarios', `select=*&id=eq.${encodeURIComponent(uid)}`);
+          opData = sbUser ?? {};
+        } catch { /* best-effort */ }
+        const ultimoAlerta = opData.alerta_gps_slot_em ? new Date(opData.alerta_gps_slot_em).getTime() : 0;
         if (agora - ultimoAlerta < COOLDOWN_SLOT_GPS_MS) continue;
 
         const minSem = Math.round((agora - ultEnvio.getTime()) / 60_000);
@@ -582,9 +540,9 @@ export const verificarAtrasos = onSchedule(
           ts: new Date().toISOString(),
         }).catch((e) => { functions.logger.warn('[gps-alertas] Supabase insert monitor_alertas falhou:', e); });
 
-        await opRef.update({
-          alertaGPSSlotEm: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        await supabaseUpdate('usuarios', {
+          alerta_gps_slot_em: new Date().toISOString(),
+        }, `id=eq.${encodeURIComponent(uid)}`);
       }
     } catch (e) {
       functions.logger.error('[verificarAtrasos] Erro na seção 4 (slots GPS):', e);
@@ -610,8 +568,8 @@ export const alertarMockGPS = onCall(
     // 1. Busca nome do prestador
     let nome = uid;
     try {
-      const userSnap = await db.collection('usuarios').doc(uid).get();
-      nome = userSnap.data()?.nome ?? userSnap.data()?.email ?? uid;
+      const userRow = await supabaseGetOne<any>('usuarios', `select=nome,email&id=eq.${encodeURIComponent(uid)}`);
+      nome = userRow?.nome ?? userRow?.email ?? uid;
     } catch { /* best-effort */ }
 
     // 2. Busca config Telegram (botToken + chatIds)

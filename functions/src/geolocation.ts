@@ -1,8 +1,6 @@
 // functions/src/geolocation.ts — firebase-functions v2
 import { HttpsError } from 'firebase-functions/v2/https';
-import * as admin from 'firebase-admin';
-
-const db = admin.firestore();
+import { supabaseGetOne, supabaseUpdate, supabaseUpsert } from './lib/supabase-rest';
 
 export async function updatePrestadorPosition(data: any, context: any) {
   try {
@@ -11,24 +9,25 @@ export async function updatePrestadorPosition(data: any, context: any) {
 
     const position = { lat: latitude, lng: longitude };
 
-    await db.collection('slots').doc(slotId)
-      .collection('prestadores').doc(uid)
-      .set({ position, timestamp: new Date(), uid }, { merge: true });
+    await supabaseUpsert('slot_prestadores', {
+      slot_id: slotId,
+      uid,
+      position,
+      timestamp: new Date().toISOString(),
+    }, 'slot_id,uid');
 
-    const slotSnap = await db.collection('slots').doc(slotId).get();
-    const slot = slotSnap.data();
+    const slot = await supabaseGetOne<any>('slots', `select=*&id=eq.${encodeURIComponent(slotId)}`);
     if (!slot?.poligonoPontos) return { success: true };
 
     const dentroDaZona = estaEntroPol(position, slot.poligonoPontos);
 
-    const prestSnap = await db.collection('slots').doc(slotId)
-      .collection('prestadores').doc(uid).get();
-    const prestData = prestSnap.data();
+    const prestData = await supabaseGetOne<any>('slot_prestadores', `select=*&slot_id=eq.${encodeURIComponent(slotId)}&uid=eq.${encodeURIComponent(uid)}`);
 
     if (prestData?.dentroDaZona !== dentroDaZona) {
-      await db.collection('slots').doc(slotId)
-        .collection('prestadores').doc(uid)
-        .update({ dentroDaZona, mudouEstadoEm: new Date() });
+      await supabaseUpdate('slot_prestadores', {
+        dentroDaZona,
+        mudouEstadoEm: new Date().toISOString(),
+      }, `slot_id=eq.${encodeURIComponent(slotId)}&uid=eq.${encodeURIComponent(uid)}`);
 
       if (!dentroDaZona && prestData?.dentroDaZona) {
         console.log(`Prestador ${uid} SAIU da zona ${slot.zone}`);

@@ -3,23 +3,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { db } from '../lib/firebase';
-import {
-  collection, addDoc, updateDoc, deleteDoc,
-  doc, onSnapshot, query, where, serverTimestamp
-} from 'firebase/firestore';
 import { comprimirImagem } from '../lib/imageUtils';
 import { supabase } from '../lib/supabase';
-
-// Flag dual-run: localStorage.setItem('jet_locais_provider','supabase') liga Supabase
-const locaisProviderSupabase = (): boolean => {
-  try {
-    const v = localStorage.getItem('jet_locais_provider');
-    if (v === 'supabase') return true;
-    if (v === 'firebase') return false;
-  } catch {}
-  return (import.meta.env.VITE_LOCAIS_PROVIDER as string) !== 'firebase';
-};
 
 // ── I18N (padrão objeto T, sem json) ─────────────────────────────
 type Lang = 'pt' | 'en' | 'es' | 'ru';
@@ -130,51 +115,37 @@ export function useLocaisOperacionais(cidade: string, pais: string) {
   useEffect(() => {
     if (!cidade) return;
 
-    if (locaisProviderSupabase()) {
-      // ── Supabase: polling via locais_geo view ──
-      let cancelled = false;
-      const fetchLocais = async () => {
-        try {
-          const { data, error } = await supabase
-            .from('locais_geo')
-            .select('*')
-            .eq('cidade', cidade)
-            .eq('pais', pais);
-          if (error) throw error;
-          if (!cancelled && data) {
-            setLocais(data.map((r: any) => ({
-              id: r.firebase_id ?? r.id,
-              tipo: r.tipo ?? 'BASE_CARGA',
-              nome: r.nome ?? '',
-              endereco: '',
-              lat: r.lat ?? 0,
-              lng: r.lng ?? 0,
-              cidade: r.cidade ?? '',
-              pais: r.pais ?? 'BR',
-              obs: r.obs ?? '',
-              ativo: true,
-              criadoEm: r.criado_em,
-            } as LocalOperacional)));
-          }
-        } catch (e) {
-          console.error('[LocaisOp] supabase fetch error:', e);
+    let cancelled = false;
+    const fetchLocais = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('locais_geo')
+          .select('*')
+          .eq('cidade', cidade)
+          .eq('pais', pais);
+        if (error) throw error;
+        if (!cancelled && data) {
+          setLocais(data.map((r: any) => ({
+            id: r.firebase_id ?? r.id,
+            tipo: r.tipo ?? 'BASE_CARGA',
+            nome: r.nome ?? '',
+            endereco: '',
+            lat: r.lat ?? 0,
+            lng: r.lng ?? 0,
+            cidade: r.cidade ?? '',
+            pais: r.pais ?? 'BR',
+            obs: r.obs ?? '',
+            ativo: true,
+            criadoEm: r.criado_em,
+          } as LocalOperacional)));
         }
-      };
-      fetchLocais();
-      const timer = setInterval(fetchLocais, 15_000);
-      return () => { cancelled = true; clearInterval(timer); };
-    }
-
-    // ── Firestore (fallback) ──
-    const q = query(
-      collection(db, 'locais_operacionais'),
-      where('cidade', '==', cidade),
-      where('pais', '==', pais)
-    );
-    const unsub = onSnapshot(q, snap => {
-      setLocais(snap.docs.map(d => ({ id: d.id, ...d.data() } as LocalOperacional)));
-    });
-    return () => unsub();
+      } catch (e) {
+        console.error('[LocaisOp] supabase fetch error:', e);
+      }
+    };
+    fetchLocais();
+    const timer = setInterval(fetchLocais, 15_000);
+    return () => { cancelled = true; clearInterval(timer); };
   }, [cidade, pais]);
 
   return locais;
@@ -248,24 +219,24 @@ export function LocalOperacionalModal({
     if (!nome.trim()) { showToast(pick(T.informeNome), 'error'); return; }
     setBusy(true);
     try {
-      const raw: Record<string,any> = {
+      const payload: Record<string, any> = {
         tipo, nome: nome.trim(), endereco, lat: latLng.lat, lng: latLng.lng,
-        cidade, pais, ativo, atualizadoEm: serverTimestamp(),
+        cidade, pais, ativo, atualizado_em: new Date().toISOString(),
       };
-      if (capacidade)  raw.capacidade  = Number(capacidade);
-      if (responsavel) raw.responsavel = responsavel;
-      if (telefone)    raw.telefone    = telefone;
-      if (horario)     raw.horario     = horario;
-      if (obs)         raw.obs         = obs;
-      if (foto)        raw.foto        = foto;
-      const payload = raw as Omit<LocalOperacional, 'id'>;
+      if (capacidade)  payload.capacidade  = Number(capacidade);
+      if (responsavel) payload.responsavel = responsavel;
+      if (telefone)    payload.telefone    = telefone;
+      if (horario)     payload.horario     = horario;
+      if (obs)         payload.obs         = obs;
+      if (foto)        payload.foto        = foto;
       if (editando) {
-        await updateDoc(doc(db, 'locais_operacionais', editando.id), payload as any);
+        const { error } = await supabase.from('locais_operacionais').update(payload).eq('id', editando.id);
+        if (error) throw error;
         showToast(pick(T.localAtualizado), 'success');
       } else {
-        await addDoc(collection(db, 'locais_operacionais'), {
-          ...payload, criadoEm: serverTimestamp()
-        });
+        payload.criado_em = new Date().toISOString();
+        const { error } = await supabase.from('locais_operacionais').insert(payload);
+        if (error) throw error;
         showToast(pick(T.localAdicionado), 'success');
       }
       onFechar();
@@ -277,7 +248,8 @@ export function LocalOperacionalModal({
 
   const excluir = async () => {
     if (!editando || !confirm(pick(T.confirmExcluir).replace('{nome}', editando.nome))) return;
-    await deleteDoc(doc(db, 'locais_operacionais', editando.id));
+    const { error } = await supabase.from('locais_operacionais').delete().eq('id', editando.id);
+    if (error) throw error;
     showToast(pick(T.localRemovido), 'success');
     onFechar();
   };

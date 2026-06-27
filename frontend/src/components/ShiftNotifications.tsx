@@ -3,21 +3,7 @@
 // Para workers: mostra status do próprio turno em tempo real
 
 import { useEffect, useCallback, useRef } from 'react';
-import {
-  collection, query, where, orderBy, limit, onSnapshot,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
-
-// Flag dual-run: localStorage.setItem('jet_turnos_provider','supabase')
-const turnosProviderSupabase = (): boolean => {
-  try {
-    const v = localStorage.getItem('jet_turnos_provider');
-    if (v === 'supabase') return true;
-    if (v === 'firebase') return false;
-  } catch {}
-  return (import.meta.env.VITE_TURNOS_PROVIDER as string) !== 'firebase';
-};
 
 export type TurnoAcao = 'entrada' | 'saida';
 
@@ -46,86 +32,50 @@ export function useShiftNotifications({ cidade, isGestor, userUid, onEvento }: P
   useEffect(() => {
     if (!cidade) return;
 
-    if (turnosProviderSupabase()) {
-      // ── Supabase: polling a cada 10s ──
-      const mountedAt = new Date().toISOString();
-      let cancelled = false;
+    // ── Supabase: polling a cada 10s ──
+    const mountedAt = new Date().toISOString();
+    let cancelled = false;
 
-      const poll = async () => {
-        try {
-          let q = supabase
-            .from('turnos_logistica')
-            .select('*')
-            .gt('criado_em', mountedAt)
-            .order('criado_em', { ascending: false })
-            .limit(1);
+    const poll = async () => {
+      try {
+        let q = supabase
+          .from('turnos_logistica')
+          .select('*')
+          .gt('criado_em', mountedAt)
+          .order('criado_em', { ascending: false })
+          .limit(1);
 
-          if (isGestor) {
-            q = q.eq('cidade', cidade);
-          } else {
-            q = q.eq('firebase_uid', userUid);
-          }
-
-          const { data, error } = await q;
-          if (error || cancelled || !data?.length) return;
-
-          const row = data[0];
-          const rowId = row.id ?? row.firebase_id;
-          if (rowId === lastSeenRef.current) return;
-          lastSeenRef.current = rowId;
-
-          onEvento({
-            id: row.firebase_id ?? row.id,
-            uid: row.firebase_uid ?? '',
-            nome: row.nome ?? '',
-            acao: (row.acao === 'inicio' ? 'entrada' : row.acao === 'fim' ? 'saida' : row.acao) as TurnoAcao,
-            funcao: row.funcao ?? '',
-            turno: row.turno ?? '',
-            cidade: row.cidade ?? '',
-            registradoEm: row.criado_em ? { toDate: () => new Date(row.criado_em) } : null,
-          });
-        } catch (e) {
-          console.error('[ShiftNotif] supabase poll error:', e);
+        if (isGestor) {
+          q = q.eq('cidade', cidade);
+        } else {
+          q = q.eq('firebase_uid', userUid);
         }
-      };
 
-      const timer = setInterval(poll, 10_000);
-      return () => { cancelled = true; clearInterval(timer); };
-    }
+        const { data, error } = await q;
+        if (error || cancelled || !data?.length) return;
 
-    // ── Firestore (fallback) ──
-    // Gestores veem todos da cidade; workers veem só os próprios
-    const q = isGestor
-      ? query(
-          collection(db, 'turnos'),
-          where('cidade', '==', cidade),
-          orderBy('registradoEm', 'desc'),
-          limit(1),
-        )
-      : query(
-          collection(db, 'turnos'),
-          where('uid', '==', userUid),
-          orderBy('registradoEm', 'desc'),
-          limit(1),
-        );
+        const row = data[0];
+        const rowId = row.id ?? row.firebase_id;
+        if (rowId === lastSeenRef.current) return;
+        lastSeenRef.current = rowId;
 
-    // Guarda o timestamp de quando o listener foi montado
-    const mountedAt = Date.now();
-    let primeiraLeitura = true;
+        onEvento({
+          id: row.firebase_id ?? row.id,
+          uid: row.firebase_uid ?? '',
+          nome: row.nome ?? '',
+          acao: (row.acao === 'inicio' ? 'entrada' : row.acao === 'fim' ? 'saida' : row.acao) as TurnoAcao,
+          funcao: row.funcao ?? '',
+          turno: row.turno ?? '',
+          cidade: row.cidade ?? '',
+          registradoEm: row.criado_em ? { toDate: () => new Date(row.criado_em) } : null,
+        });
+      } catch (e) {
+        console.error('[ShiftNotif] supabase poll error:', e);
+      }
+    };
 
-    return onSnapshot(q, snap => {
-      // Ignora a leitura inicial (dados já existentes)
-      if (primeiraLeitura) { primeiraLeitura = false; return; }
-
-      snap.docChanges().forEach(change => {
-        if (change.type !== 'added') return;
-        const data = change.doc.data();
-        const ts = data.registradoEm?.toMillis?.() ?? 0;
-        // Só notifica eventos gerados após o mount
-        if (ts < mountedAt - 5000) return;
-        onEvento({ id: change.doc.id, ...data } as TurnoEvento);
-      });
-    });
+    const timer = setInterval(poll, 10_000);
+    return () => { cancelled = true; clearInterval(timer); };
   }, [cidade, isGestor, userUid, onEvento]);
 }
 

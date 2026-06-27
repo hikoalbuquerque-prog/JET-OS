@@ -12,10 +12,10 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { doc, getDoc, getDocs, collection, query, where, addDoc, serverTimestamp } from 'firebase/firestore';
-import { gojetProviderSupabase, buscarCityIdSupabase } from '../lib/gojet-config-supabase';
-import { db } from '../lib/firebase';
+import { buscarCityIdSupabase } from '../lib/gojet-config-supabase';
 import { fnScraperGoJetManual } from '../lib/firebase';
+import { carregarEstacoesSupabase } from '../lib/estacoes-supabase';
+import { fetchGojetSnapshot } from '../lib/analytics-supabase';
 import { supabase } from '../lib/supabase';
 import L from 'leaflet';
 import { classifyBike as classifyBikeShared, BIKE_STATUS_HEX } from '../lib/bike-classify';
@@ -29,11 +29,6 @@ function isNativeApp(): boolean {
   const cap = (window as any).Capacitor;
   return !!(cap?.isNativePlatform?.());
 }
-
-// Cache de estações no módulo — evita getDocs repetido entre mounts
-let _estacoesCache: EstacaoMonitor[] | null = null;
-let _estacoesCacheTs = 0;
-const ESTACOES_TTL = 5 * 60_000; // 5 min
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -137,17 +132,17 @@ const T = {
   // Aviso "não configurado"
   naoConfigTitulo: { pt: '🛴 GoJet não configurado', en: '🛴 GoJet not configured', es: '🛴 GoJet no configurado', ru: '🛴 GoJet не настроен' } as Tr,
   naoConfigHint: {
-    pt: (c: string) => `Adicione o doc gojet_config/${c} com o campo cityId no Firestore para ativar o mapa ao vivo.`,
-    en: (c: string) => `Add the doc gojet_config/${c} with the cityId field in Firestore to enable the live map.`,
-    es: (c: string) => `Agregue el doc gojet_config/${c} con el campo cityId en Firestore para activar el mapa en vivo.`,
-    ru: (c: string) => `Добавьте документ gojet_config/${c} с полем cityId в Firestore, чтобы включить карту в реальном времени.`,
+    pt: (c: string) => `Configure em GoJet Config com o cityId para "${c}" para ativar o mapa ao vivo.`,
+    en: (c: string) => `Configure GoJet Config with the cityId for "${c}" to enable the live map.`,
+    es: (c: string) => `Configure GoJet Config con el cityId para "${c}" para activar el mapa en vivo.`,
+    ru: (c: string) => `Настройте GoJet Config с cityId для «${c}», чтобы включить карту в реальном времени.`,
   },
   // Erros
   errNaoConfig: {
-    pt: (c: string) => `GoJet não configurado para "${c}". Adicione um doc em gojet_config/${c} com campo cityId.`,
-    en: (c: string) => `GoJet not configured for "${c}". Add a doc at gojet_config/${c} with a cityId field.`,
-    es: (c: string) => `GoJet no configurado para "${c}". Agregue un doc en gojet_config/${c} con el campo cityId.`,
-    ru: (c: string) => `GoJet не настроен для «${c}». Добавьте документ gojet_config/${c} с полем cityId.`,
+    pt: (c: string) => `GoJet não configurado para "${c}". Configure o cityId em GoJet Config.`,
+    en: (c: string) => `GoJet not configured for "${c}". Set the cityId in GoJet Config.`,
+    es: (c: string) => `GoJet no configurado para "${c}". Configure el cityId en GoJet Config.`,
+    ru: (c: string) => `GoJet не настроен для «${c}». Настройте cityId в GoJet Config.`,
   },
   errBuscarConfig: { pt: 'Erro ao buscar config GoJet', en: 'Error loading GoJet config', es: 'Error al cargar config de GoJet', ru: 'Ошибка загрузки конфигурации GoJet' } as Tr,
   errSnapshotInexistente: {
@@ -458,60 +453,46 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
   // ── Buscar estações M1/M2/M3 do JET OS + pontos temporários de evento ────────
   useEffect(() => {
     if (!visivel) return;
-    const agora = Date.now();
 
     async function carregarEstacoes() {
-      // Query 1: estações permanentes M1/M2/M3 (cache 5 min — mesmas para toda BR)
-      let permanentes: EstacaoMonitor[] = [];
-      if (_estacoesCache && agora - _estacoesCacheTs < ESTACOES_TTL) {
-        permanentes = _estacoesCache;
-      } else {
-        const snap = await getDocs(query(collection(db, 'estacoes'),
-          where('tipoMonitor', 'in', ['M1','M2','M3'])
-        ));
-        permanentes = snap.docs
-          .filter(d => !d.data().temporario)
-          .map(d => {
-            const x = d.data();
-            return {
-              id: d.id, tipoMonitor: x.tipoMonitor,
-              lat: x.lat ?? x.latitude ?? 0, lng: x.lng ?? x.longitude ?? 0,
-              nome: x.nome ?? x.name, codigo: x.codigo,
-            };
-          }).filter(e => e.lat && e.lng);
-        _estacoesCache = permanentes;
-        _estacoesCacheTs = Date.now();
-      }
+      try {
+        const allEstacoes = await carregarEstacoesSupabase();
+        // Filter for monitor stations (M1/M2/M3)
+        const permanentes: EstacaoMonitor[] = allEstacoes
+          .filter((e: any) => ['M1','M2','M3'].includes(e.tipoMonitor || e.tipo_monitor))
+          .map((e: any) => ({
+            id: e.id, tipoMonitor: e.tipoMonitor || e.tipo_monitor,
+            lat: e.lat ?? 0, lng: e.lng ?? 0,
+            nome: e.nome ?? e.name, codigo: e.codigo,
+          }))
+          .filter((e: EstacaoMonitor) => e.lat && e.lng);
 
-      // Query 2: pontos temporários de evento — filtrado por cidade (escala BR)
-      let temporarias: EstacaoMonitor[] = [];
-      if (cidade) {
-        const tempSnap = await getDocs(query(collection(db, 'estacoes'),
-          where('temporario', '==', true),
-          where('cidade', '==', cidade),
-        ));
-        const now = new Date();
-        temporarias = tempSnap.docs
-          .filter(d => {
-            const fim = d.data().eventoFim?.toDate?.();
-            return fim && fim > now;
-          })
-          .map(d => {
-            const x = d.data();
-            return {
-              id: d.id, tipoMonitor: 'M3' as const,
-              lat: x.lat ?? 0, lng: x.lng ?? 0,
-              nome: x.eventoNome ?? x.nome,
-              temporario: true,
-              eventoId: x.eventoId,
-              eventoNome: x.eventoNome,
-              eventoFim: x.eventoFim?.toDate?.(),
-              targetBikes: x.targetBikes,
-            };
-          }).filter(e => e.lat && e.lng);
+        // Temporary event points — also from Supabase
+        let temporarias: EstacaoMonitor[] = [];
+        if (cidade) {
+          const cidadeEstacoes = await carregarEstacoesSupabase(cidade);
+          const now = new Date();
+          temporarias = cidadeEstacoes
+            .filter((e: any) => e.temporario)
+            .filter((e: any) => {
+              const fim = e.eventoFim ? new Date(e.eventoFim) : null;
+              return fim && fim > now;
+            })
+            .map((e: any) => ({
+              id: e.id, tipoMonitor: 'M3' as const,
+              lat: e.lat ?? 0, lng: e.lng ?? 0,
+              nome: e.eventoNome ?? e.nome,
+              temporario: true, eventoId: e.eventoId,
+              eventoNome: e.eventoNome,
+              eventoFim: e.eventoFim ? new Date(e.eventoFim) : undefined,
+              targetBikes: e.targetBikes,
+            }))
+            .filter((e: EstacaoMonitor) => e.lat && e.lng);
+        }
+        setEstacoes([...permanentes, ...temporarias]);
+      } catch (err) {
+        console.error('[GoJetOverlay] erro carregando estacoes:', err);
       }
-
-      setEstacoes([...permanentes, ...temporarias]);
     }
 
     carregarEstacoes().catch(() => {});
@@ -523,71 +504,33 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
     setParkings([]); setBikes([]);
     setErro(null); setAtualizadoEm(null);
     if (!cidade) return;
-    // Onda H: leitura do Supabase (flag-based) ou Firestore
-    if (gojetProviderSupabase()) {
-      buscarCityIdSupabase(cidade).then(cid => {
-        if (cid) setCityId(cid);
-        else setErro(T.errNaoConfig[lang](cidade));
-      }).catch(() => setErro(pick(T.errBuscarConfig)));
-    } else {
-      import('firebase/firestore').then(({ doc: fDoc, getDoc }) =>
-        getDoc(fDoc(db, 'gojet_config', cidade)).then(snap => {
-          if (snap.exists() && snap.data().cityId) {
-            setCityId(snap.data().cityId);
-          } else {
-            setErro(T.errNaoConfig[lang](cidade));
-          }
-        }).catch(() => setErro(pick(T.errBuscarConfig)))
-      );
-    }
+    buscarCityIdSupabase(cidade).then(cid => {
+      if (cid) setCityId(cid);
+      else setErro(T.errNaoConfig[lang](cidade));
+    }).catch(() => setErro(pick(T.errBuscarConfig)));
   }, [cidade]);
 
-  // ── Carrega snapshot do Firestore (scraper já fez paginação completa) ─────────
+  // ── Carrega snapshot do Supabase ──────────────────────────────────────────────
   const estacoesRef = useRef<EstacaoMonitor[]>([]);
   useEffect(() => { estacoesRef.current = estacoes; }, [estacoes]);
-
-  // Lê doc do Firestore montando chunks se necessário
-  async function lerSnapshotDoc(docId: string, campo: string): Promise<any[]> {
-    const snap = await getDoc(doc(db, 'gojet_snapshots', docId));
-    if (!snap.exists()) return [];
-    const data = snap.data()!;
-    if (!data.chunked) return data[campo] ?? [];
-    // Lê todos os chunks em paralelo
-    const chunkDocs = await Promise.all(
-      Array.from({ length: data.totalChunks as number }, (_, i) =>
-        getDoc(doc(db, 'gojet_snapshots', `${docId}_chunk${i}`))
-      )
-    );
-    return chunkDocs.flatMap(c => (c.exists() ? (c.data()![campo] ?? []) : []));
-  }
 
   const [snapshotIdade, setSnapshotIdade] = useState<number | null>(null); // minutos
   const [atualizandoScraper, setAtualizandoScraper] = useState(false);
 
   const carregarSnapshot = useCallback(async () => {
-    if (!cityId) return;
+    if (!cityId || !cidade) return;
     setLoading(true); setErro(null);
     try {
-      const snapId      = `latest_${cityId}`;
-      const bikesSnapId = `bikes_latest_${cityId}`;
-
-      // Lê parkings e bikes em paralelo, com suporte a chunks
-      const [parkingList, bikeList, pMetaSnap] = await Promise.all([
-        lerSnapshotDoc(snapId, 'parkings'),
-        lerSnapshotDoc(bikesSnapId, 'bikes'),
-        getDoc(doc(db, 'gojet_snapshots', snapId)),
-      ]);
+      const result = await fetchGojetSnapshot(cidade);
+      const parkingList = result.parkings;
+      const bikeList = result.bikes;
 
       if (parkingList.length === 0 && bikeList.length === 0) {
         setErro(pick(T.errSnapshotInexistente));
         return;
       }
 
-      // Calcula idade do snapshot
-      const savedAt = pMetaSnap.exists()
-        ? (pMetaSnap.data()?.savedAt?.toMillis?.() ?? pMetaSnap.data()?.atualizadoEm?.toMillis?.() ?? null)
-        : null;
-      if (savedAt) setSnapshotIdade(Math.round((Date.now() - savedAt) / 60000));
+      if (result.savedAtMs) setSnapshotIdade(Math.round((Date.now() - result.savedAtMs) / 60000));
 
       // Contagens por parking
       const totalPorP:   Record<string, number> = {};
@@ -642,7 +585,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
 
     } catch (e: any) { setErro(e.message ?? pick(T.errLerSnapshot)); }
     finally { setLoading(false); }
-  }, [cityId]);
+  }, [cityId, cidade]);
 
   // Força atualização: fetch direto da GoJet API pelo browser (sem proxy, sem Cloud Function)
   const forcarAtualizacao = useCallback(async () => {
@@ -702,33 +645,33 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
     setCriandoTarefas(true);
     let criadas = 0;
     try {
-      const col = collection(db, 'tarefas_logistica');
       for (const { parking: p, cfg, deficit } of violacoes) {
         const avail  = p.availableCount ?? 0;
         const target = p.target_bikes_count ?? 0;
         const titulo = cfg.titulo
           .replace('{mLevel}', p.monitorLevel!)
           .replace('{parkingName}', p.name || p.id);
-        await addDoc(col, {
+        const { error } = await supabase.from('tarefas_logistica').insert({
           cidade,
-          tipo: cfg.tipoTarefa,
+          kind: cfg.tipoTarefa,
           titulo,
           descricao: T.descTarefa[lang](p.name, p.monitorLevel!, avail, target, deficit),
           status: 'aberto',
-          prioridade: cfg.prioridade,
-          parkingId: p.id,
-          parkingNome: p.name,
-          parkingLat: p.latitude,
-          parkingLng: p.longitude,
-          monitorLevel: p.monitorLevel,
-          estacaoId: p.estacaoId ?? null,
-          availableCount: avail,
-          targetCount: target,
+          prioridade: cfg.prioridade === 'alta' ? 4 : cfg.prioridade === 'media' ? 3 : 2,
+          parking_id: p.id,
+          parking_nome: p.name,
+          parking_lat: p.latitude,
+          parking_lng: p.longitude,
+          monitor_level: p.monitorLevel,
+          estacao_id: p.estacaoId ?? null,
+          available_count: avail,
+          target_count: target,
           deficit,
-          criadoPor: 'monitor_manual',
-          criadoEm: serverTimestamp(),
-          atualizadoEm: serverTimestamp(),
+          criado_por: 'monitor_manual',
+          criado_em: new Date().toISOString(),
+          atualizado_em: new Date().toISOString(),
         });
+        if (error) throw error;
         criadas++;
       }
       setTarefasCriadas(criadas);
@@ -744,7 +687,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
   useEffect(() => {
     if (!visivel || !cityId) return;
     carregarSnapshot();
-    // Recarrega do Firestore a cada 5 min (o scraper já atualizou o snapshot)
+    // Recarrega do Supabase a cada 5 min (o scraper já atualizou o snapshot)
     const t = setInterval(carregarSnapshot, 5 * 60_000);
     return () => clearInterval(t);
   }, [visivel, cityId, carregarSnapshot]);
@@ -1442,8 +1385,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
           mapa={mapa}
           onFechar={() => setShowEventosPanel(false)}
           onEstacaoCriada={() => {
-            // Invalida cache para recarregar estações com o novo ponto temporário
-            _estacoesCacheTs = 0;
+            // Recarrega estações e snapshot com o novo ponto temporário
             carregarSnapshot();
           }}
         />
