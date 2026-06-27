@@ -1089,6 +1089,16 @@ export const escalarSlotsSLA = scheduler.onSchedule(
 // NOTIFICAÇÕES DE TURNO — dispara quando worker registra entrada/saída
 // ══════════════════════════════════════════════════════════════════════════════
 
+export const notificarTurnoCallable = https.onCall(
+  { region: 'southamerica-east1', maxInstances: 10, cors: true },
+  async (request) => {
+    const { nome, acao, funcao, turno, cidade } = request.data ?? {};
+    if (!nome || !acao) return { ok: false, error: 'missing_fields' };
+    await notificarTurnoFn({ nome, acao, funcao: funcao ?? '', turno: turno ?? '', cidade: cidade ?? '' });
+    return { ok: true };
+  }
+);
+
 export async function notificarTurnoFn(turno: { nome: string; acao: string; funcao: string; turno: string; cidade: string }): Promise<void> {
     const { nome, acao, funcao, turno: turnoId, cidade } = turno;
     const emoji = acao === 'entrada' ? '▶' : '⏹';

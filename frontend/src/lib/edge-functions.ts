@@ -74,6 +74,7 @@ const EDGE_MAP: Record<string, () => CallableFn> = {
   alertarMockGPS:              edgeCallable('slots-actions', 'alertar-mock-gps'),
   notificarStatusNF:           edgeCallable('slots-actions', 'notificar-status-nf'),
   notificarTarefaAtribuida:    edgeCallable('slots-actions', 'notificar-tarefa-atribuida'),
+  notificarTurnoCallable:      edgeCallable('automacao-tarefas', 'notificar-turno'),
 };
 
 export function getEdgeCallable(firebaseFnName: string): (() => CallableFn) | null {

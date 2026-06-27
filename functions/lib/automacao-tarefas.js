@@ -45,7 +45,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.exportarHistoricoParking = exports.salvarHistoricoParking = exports.escalarSlotsSLA = exports.gerarSlotsManualFn = exports.gerarSlotsInteligenteFn = exports.notificarTarefaFn = exports.gerarTarefasAgendado = exports.gerarTarefasGoJetFn = void 0;
+exports.exportarHistoricoParking = exports.salvarHistoricoParking = exports.notificarTurnoCallable = exports.escalarSlotsSLA = exports.gerarSlotsManualFn = exports.gerarSlotsInteligenteFn = exports.notificarTarefaFn = exports.gerarTarefasAgendado = exports.gerarTarefasGoJetFn = void 0;
 exports.notificarTurnoFn = notificarTurnoFn;
 const admin = __importStar(require("firebase-admin"));
 const v2_1 = require("firebase-functions/v2");
@@ -977,6 +977,13 @@ exports.escalarSlotsSLA = scheduler.onSchedule({ schedule: '*/5 * * * *', timeZo
 // ══════════════════════════════════════════════════════════════════════════════
 // NOTIFICAÇÕES DE TURNO — dispara quando worker registra entrada/saída
 // ══════════════════════════════════════════════════════════════════════════════
+exports.notificarTurnoCallable = https.onCall({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
+    const { nome, acao, funcao, turno, cidade } = request.data ?? {};
+    if (!nome || !acao)
+        return { ok: false, error: 'missing_fields' };
+    await notificarTurnoFn({ nome, acao, funcao: funcao ?? '', turno: turno ?? '', cidade: cidade ?? '' });
+    return { ok: true };
+});
 async function notificarTurnoFn(turno) {
     const { nome, acao, funcao, turno: turnoId, cidade } = turno;
     const emoji = acao === 'entrada' ? '▶' : '⏹';

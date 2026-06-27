@@ -715,6 +715,9 @@ function WorkerHome({ tarefas, usuario, onAbrirTarefa }: {
           cidade: '',
         };
         await supabase.from('turnos_logistica').insert(turnoDoc);
+        const { getEdgeCallable } = await import('../lib/edge-functions');
+        const edge = getEdgeCallable('notificarTurnoCallable');
+        if (edge) edge()({ data: { nome: turnoDoc.nome, acao: 'entrada', funcao: 'logistica', turno: '', cidade: turnoDoc.cidade } }).catch(() => {});
       } catch { /* best-effort */ }
       localStorage.setItem('jet:worker-status', 'working');
       localStorage.setItem('jet:worker-started-at', agora.toISOString());
