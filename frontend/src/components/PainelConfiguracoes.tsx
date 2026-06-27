@@ -9,6 +9,7 @@ import {
   getDoc, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { gojetProviderSupabase, onGojetConfigChange } from '../lib/gojet-config-supabase';
 import { MonitorConfigPanel } from './MonitorConfigPanel';
 import TelegramConfigPanel from '../TelegramConfigPanel';
 
@@ -157,6 +158,13 @@ function AbaGoJet() {
   }, []);
 
   useEffect(() => {
+    // Onda H: leitura do Supabase (flag-based) ou Firestore
+    if (gojetProviderSupabase()) {
+      return onGojetConfigChange(lista => {
+        setCidades(lista);
+        setLoading(false);
+      });
+    }
     return onSnapshot(collection(db, 'gojet_config'), snap => {
       setCidades(snap.docs.map(d => ({ id: d.id, ...d.data() } as GoJetCidade)));
       setLoading(false);

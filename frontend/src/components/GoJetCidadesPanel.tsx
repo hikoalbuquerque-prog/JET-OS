@@ -12,6 +12,7 @@ import {
   collection, doc, getDocs, setDoc, deleteDoc, onSnapshot,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { gojetProviderSupabase, onGojetConfigChange } from '../lib/gojet-config-supabase';
 
 const T = {
   cidadesGoJet:       { pt: '🗺 Cidades GoJet',                                    en: '🗺 GoJet Cities',                                          es: '🗺 Ciudades GoJet',                                       ru: '🗺 Города GoJet' },
@@ -76,6 +77,13 @@ export default function GoJetCidadesPanel() {
   }, []);
 
   useEffect(() => {
+    // Onda H: leitura do Supabase (flag-based) ou Firestore
+    if (gojetProviderSupabase()) {
+      return onGojetConfigChange(lista => {
+        setCidades(lista);
+        setLoading(false);
+      });
+    }
     const unsub = onSnapshot(collection(db, 'gojet_config'), snap => {
       const lista = snap.docs.map(d => ({ id: d.id, ...d.data() } as GoJetCidade));
       setCidades(lista);

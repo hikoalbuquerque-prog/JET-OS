@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { doc, getDoc, getDocs, collection, query, where, addDoc, serverTimestamp } from 'firebase/firestore';
+import { gojetProviderSupabase, buscarCityIdSupabase } from '../lib/gojet-config-supabase';
 import { db } from '../lib/firebase';
 import { fnScraperGoJetManual } from '../lib/firebase';
 import L from 'leaflet';
@@ -521,15 +522,23 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
     setParkings([]); setBikes([]);
     setErro(null); setAtualizadoEm(null);
     if (!cidade) return;
-    import('firebase/firestore').then(({ doc: fDoc, getDoc }) =>
-      getDoc(fDoc(db, 'gojet_config', cidade)).then(snap => {
-        if (snap.exists() && snap.data().cityId) {
-          setCityId(snap.data().cityId);
-        } else {
-          setErro(T.errNaoConfig[lang](cidade));
-        }
-      }).catch(() => setErro(pick(T.errBuscarConfig)))
-    );
+    // Onda H: leitura do Supabase (flag-based) ou Firestore
+    if (gojetProviderSupabase()) {
+      buscarCityIdSupabase(cidade).then(cid => {
+        if (cid) setCityId(cid);
+        else setErro(T.errNaoConfig[lang](cidade));
+      }).catch(() => setErro(pick(T.errBuscarConfig)));
+    } else {
+      import('firebase/firestore').then(({ doc: fDoc, getDoc }) =>
+        getDoc(fDoc(db, 'gojet_config', cidade)).then(snap => {
+          if (snap.exists() && snap.data().cityId) {
+            setCityId(snap.data().cityId);
+          } else {
+            setErro(T.errNaoConfig[lang](cidade));
+          }
+        }).catch(() => setErro(pick(T.errBuscarConfig)))
+      );
+    }
   }, [cidade]);
 
   // ── Carrega snapshot do Firestore (scraper já fez paginação completa) ─────────

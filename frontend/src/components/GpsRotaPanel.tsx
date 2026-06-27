@@ -7,6 +7,7 @@ import {
   collection, query, where, orderBy, getDocs, limit, Timestamp,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { gpsProviderSupabase, fetchGpsRota } from '../lib/gps-supabase';
 import L from 'leaflet';
 
 const TR = {
@@ -85,9 +86,21 @@ export default function GpsRotaPanel({ uid, nome, onFechar }: Props) {
   const mapaRef = useRef<L.Map | null>(null);
   const rotaLayerRef = useRef<L.LayerGroup | null>(null);
 
-  // Busca pontos
+  // Busca pontos — Supabase (Onda D) ou Firestore (fallback)
   useEffect(() => {
     setCarregando(true);
+
+    if (gpsProviderSupabase()) {
+      fetchGpsRota(uid, data).then(pts => {
+        setPontos(pts.map(p => ({ lat: p.lat, lng: p.lng, criadoEm: p.criadoEm, velocidade: p.velocidade ?? undefined })));
+      }).catch(err => {
+        console.warn('[GpsRotaPanel]', err);
+        setPontos([]);
+      }).finally(() => setCarregando(false));
+      return;
+    }
+
+    // Firestore fallback
     const ini = new Date(data + 'T00:00:00');
     const fim = new Date(data + 'T23:59:59');
     const q = query(

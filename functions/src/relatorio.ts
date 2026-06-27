@@ -3,6 +3,7 @@
 // Seções: Guard (ocorrências) + Roubos 24h/7d/total + Perdas (planilha)
 
 import * as admin from 'firebase-admin';
+import { getAppSetting } from './config-supabase';
 
 // ── TIPOS ──────────────────────────────────────────────────────────────────
 const REPORT_TR: Record<string, Record<string, string>> = {
@@ -179,16 +180,23 @@ const PERDAS_ACUM = {
   ],
 };
 
-// Busca dados dinâmicos (vand 24h, não enc. 24h, status) do Firestore (guard_config/controle_perdas)
+// Busca dados dinâmicos (vand 24h, não enc. 24h, status) do Supabase (app_settings/controle_perdas) c/ fallback Firestore
 async function buscarDadosDinamicosFiliais(): Promise<Record<string, {
   vand_patins: number; vand_bikes: number; vand_total: number;
   nao_enc_patins: number; nao_enc_bikes: number; nao_enc_bat: number;
   status1_24h: string; status2_7d: string;
 }>> {
   try {
-    const snap = await admin.firestore().collection('guard_config').doc('controle_perdas').get();
-    if (!snap.exists) return {};
-    const filiais: any[] = snap.data()?.filiais || [];
+    // Supabase-first
+    const supa = await getAppSetting<{ filiais?: any[] }>('controle_perdas');
+    let filiais: any[] = supa?.filiais ?? [];
+
+    // Fallback Firestore
+    if (filiais.length === 0) {
+      const snap = await admin.firestore().collection('guard_config').doc('controle_perdas').get();
+      if (!snap.exists) return {};
+      filiais = snap.data()?.filiais || [];
+    }
     const mapa: Record<string, any> = {};
     filiais.forEach(f => {
       if (f.filial) mapa[f.filial] = {
@@ -1631,6 +1639,16 @@ document.addEventListener('keydown', function(e) {
 
 async function getTelegramConfigFromFirestore(): Promise<{ token: string; chatId: string }> {
   try {
+    // Supabase-first (app_settings/telegram)
+    const supa = await getAppSetting<Record<string, any>>('telegram');
+    if (supa) {
+      const token  = String(supa.bot_token  || supa.botToken || '').trim();
+      const chatId = String(supa.chat_id    || supa.chatId   || supa.relatorios_chat_id || supa.relatoriosChatId || '').trim();
+      console.log('[telegram-cfg] Supabase app_settings/telegram → token:', token?'OK':'VAZIO', 'chatId:', chatId||'VAZIO');
+      if (token && chatId) return { token, chatId };
+    }
+
+    // Fallback Firestore: config/telegram
     const db = admin.firestore();
     const snap1 = await db.collection('config').doc('telegram').get();
     if (snap1.exists) {

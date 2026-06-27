@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { collection, getDocs, doc, updateDoc, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { usuariosReadSupabase, fetchUsuarios } from '../lib/usuarios-supabase';
 import toast from 'react-hot-toast';
 
 // i18n: padrão do TermosUsoGate — texto definido em objeto { pt, en, es, ru }
@@ -76,14 +77,19 @@ export default function AdminTelegramPanel() {
       setGrupos(gruposData);
 
       // Carregar gestores
-      const gestoresSnap = await getDocs(
-        query(collection(db, 'usuarios'), where('role', 'in', ['gestor', 'admin']))
-      );
-      const gestoresData: GestorInfo[] = [];
-      gestoresSnap.forEach((doc) => {
-        gestoresData.push({ id: doc.id, ...doc.data() } as GestorInfo);
-      });
-      setGestores(gestoresData);
+      if (usuariosReadSupabase()) {
+        const gestoresData = await fetchUsuarios({ role_in: ['gestor', 'admin'] });
+        setGestores(gestoresData.map(g => ({ ...g, id: g.uid })) as GestorInfo[]);
+      } else {
+        const gestoresSnap = await getDocs(
+          query(collection(db, 'usuarios'), where('role', 'in', ['gestor', 'admin']))
+        );
+        const gestoresData: GestorInfo[] = [];
+        gestoresSnap.forEach((doc) => {
+          gestoresData.push({ id: doc.id, ...doc.data() } as GestorInfo);
+        });
+        setGestores(gestoresData);
+      }
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
       toast.error(pick(T.toastErroLoad));

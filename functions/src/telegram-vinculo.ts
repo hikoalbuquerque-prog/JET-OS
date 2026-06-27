@@ -39,9 +39,16 @@ export const telegramWebhook = onRequest((req, res) => {
         const text     = msg.text.trim();
         const firstName = msg.from?.first_name ?? 'usuário';
 
-        // Busca token do bot
-        const cfgSnap = await db.collection('telegram_config').doc('global').get();
-        const botToken = cfgSnap.data()?.botToken ?? '';
+        // Busca token do bot — Supabase-first (Onda G)
+        let botToken = '';
+        try {
+          const { getTelegramBotTokenSupa } = await import('./telegram-supabase');
+          botToken = await getTelegramBotTokenSupa();
+        } catch { /* fallback */ }
+        if (!botToken) {
+          const cfgSnap = await db.collection('telegram_config').doc('global').get();
+          botToken = cfgSnap.data()?.botToken ?? '';
+        }
         if (!botToken) { res.json({ ok: true }); return; }
 
         const sendMsg = async (txt: string) => {
@@ -209,9 +216,16 @@ export const validarVinculoTelegram = onCall({ region:'southamerica-east1', cors
       vinculoRef.update({ usado: true }),
     ]);
 
-    // Notifica no próprio Telegram que vinculou
-    const cfgSnap = await db.collection('telegram_config').doc('global').get();
-    const botToken = cfgSnap.data()?.botToken ?? '';
+    // Notifica no próprio Telegram que vinculou — Supabase-first (Onda G)
+    let botToken = '';
+    try {
+      const { getTelegramBotTokenSupa } = await import('./telegram-supabase');
+      botToken = await getTelegramBotTokenSupa();
+    } catch { /* fallback */ }
+    if (!botToken) {
+      const cfgSnap = await db.collection('telegram_config').doc('global').get();
+      botToken = cfgSnap.data()?.botToken ?? '';
+    }
     const userSnap = await db.collection('usuarios').doc(uid).get();
     const userName = userSnap.data()?.nome ?? 'usuário';
 
@@ -252,8 +266,17 @@ export const iniciarVinculoTelegram = onCall({ region: 'southamerica-east1', cor
     usado:    false,
   });
 
-  const cfgSnap     = await db.collection('telegram_config').doc('global').get();
-  const botUsername = String(cfgSnap.data()?.botUsername ?? '').replace(/^@/, '');
+  // Supabase-first para botUsername (Onda G)
+  let botUsername = '';
+  try {
+    const { getTelegramConfigSupa } = await import('./telegram-supabase');
+    const supaCfg = await getTelegramConfigSupa('global');
+    botUsername = String(supaCfg?.bot_username || '').replace(/^@/, '');
+  } catch { /* fallback */ }
+  if (!botUsername) {
+    const cfgSnap = await db.collection('telegram_config').doc('global').get();
+    botUsername = String(cfgSnap.data()?.botUsername ?? '').replace(/^@/, '');
+  }
   const deepLink    = botUsername ? `https://t.me/${botUsername}?start=${token}` : '';
 
   return { token, deepLink, botUsername };

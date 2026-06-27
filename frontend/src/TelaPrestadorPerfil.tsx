@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from './lib/firebase';
-import { usuariosWriteSupabase, escreverUsuarioSupabase } from './lib/usuarios-supabase';
+import { usuariosWriteSupabase, escreverUsuarioSupabase, usuariosReadSupabase, fetchUsuario } from './lib/usuarios-supabase';
 import TelegramVinculo from './TelegramVinculo';
 
 interface Usuario {
@@ -253,15 +253,27 @@ export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Pro
     setLoading(true);
     try {
       // Tenta carregar da coleção usuarios primeiro
-      const userSnap = await getDoc(doc(db, 'usuarios', usuario.uid));
-      if (userSnap.exists()) {
-        const d = userSnap.data();
-        setNome(d.nome || usuario.nome || '');
-        setCidade(d.cidade || usuario.cidade || '');
-        if (d.cpf_cnpj) setCpfCnpj(d.cpf_cnpj);
-        if (d.pix_tipo) setTipoPix(d.pix_tipo);
-        if (d.pix_chave) setChavePix(d.pix_chave);
-        if (d.tipo_contrato) setTipoContrato(d.tipo_contrato);
+      if (usuariosReadSupabase()) {
+        const d = await fetchUsuario(usuario.uid);
+        if (d) {
+          setNome(d.nome || usuario.nome || '');
+          setCidade(d.cidade || usuario.cidade || '');
+          if (d.cpf_cnpj) setCpfCnpj(d.cpf_cnpj);
+          if (d.pix_tipo) setTipoPix(d.pix_tipo);
+          if (d.pix_chave) setChavePix(d.pix_chave);
+          if (d.tipo_contrato) setTipoContrato(d.tipo_contrato);
+        }
+      } else {
+        const userSnap = await getDoc(doc(db, 'usuarios', usuario.uid));
+        if (userSnap.exists()) {
+          const d = userSnap.data();
+          setNome(d.nome || usuario.nome || '');
+          setCidade(d.cidade || usuario.cidade || '');
+          if (d.cpf_cnpj) setCpfCnpj(d.cpf_cnpj);
+          if (d.pix_tipo) setTipoPix(d.pix_tipo);
+          if (d.pix_chave) setChavePix(d.pix_chave);
+          if (d.tipo_contrato) setTipoContrato(d.tipo_contrato);
+        }
       }
 
       // Dados fiscais (NFS-e) — coleção prestadores_fiscal/{uid}

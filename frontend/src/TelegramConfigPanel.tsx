@@ -8,6 +8,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { usuariosReadSupabase, fetchUsuarios } from './lib/usuarios-supabase';
 import {
   doc,
   getDoc,
@@ -453,11 +454,16 @@ function GestoresEditor({
     if (termo.length < 2) { setResultados([]); return; }
     setBuscando(true);
     try {
-      const snap = await getDocs(query(
-        collection(db, 'usuarios'),
-        where('role', 'in', ['admin', 'gestor'])
-      ));
-      const todos = snap.docs.map(d => ({ uid: d.id, ...d.data() })) as any[];
+      let todos: any[];
+      if (usuariosReadSupabase()) {
+        todos = await fetchUsuarios({ role_in: ['admin', 'gestor'] });
+      } else {
+        const snap = await getDocs(query(
+          collection(db, 'usuarios'),
+          where('role', 'in', ['admin', 'gestor'])
+        ));
+        todos = snap.docs.map(d => ({ uid: d.id, ...d.data() })) as any[];
+      }
       const filtrado = todos.filter((u: any) =>
         u.nome?.toLowerCase().includes(termo.toLowerCase()) ||
         u.email?.toLowerCase().includes(termo.toLowerCase())

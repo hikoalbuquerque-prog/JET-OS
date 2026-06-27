@@ -8,6 +8,7 @@ import {
   Timestamp, getDocs,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { gpsProviderSupabase, fetchGpsAtual } from '../lib/gps-supabase';
 import L from 'leaflet';
 import GpsRotaPanel from './GpsRotaPanel';
 
@@ -135,9 +136,32 @@ export default function LiveTrackingMap({ cidade, usuario }: Props) {
     return () => { m.remove(); mapaRef.current = null; };
   }, []);
 
-  // onSnapshot em gps_logistica
+  // GPS data — Supabase polling (Onda D) ou Firestore onSnapshot (fallback)
   useEffect(() => {
     if (!cidade) return;
+
+    if (gpsProviderSupabase()) {
+      // Supabase: polling a cada 10s
+      let alive = true;
+      const poll = () => {
+        fetchGpsAtual(60).then(pts => {
+          if (!alive) return;
+          const filtered = pts.filter(p => !p.cidade || p.cidade === cidade || p.cidade === '');
+          const byUid = new Map<string, Worker>();
+          for (const p of filtered) {
+            if (!byUid.has(p.uid) || (p.criadoEm?.seconds ?? 0) > (byUid.get(p.uid)!.criadoEm?.seconds ?? 0)) {
+              byUid.set(p.uid, { uid: p.uid, lat: p.lat, lng: p.lng, criadoEm: p.criadoEm, velocidade: p.velocidade ?? undefined, nome: p.nome, cidade: p.cidade });
+            }
+          }
+          setWorkers([...byUid.values()]);
+        });
+      };
+      poll();
+      const id = setInterval(poll, 10_000);
+      return () => { alive = false; clearInterval(id); };
+    }
+
+    // Firestore fallback
     const desde = new Date(Date.now() - 60 * 60_000); // última hora
     const q = query(
       collection(db, 'gps_logistica'),

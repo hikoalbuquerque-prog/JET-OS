@@ -4,7 +4,7 @@ import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/fire
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db, auth } from './lib/firebase';
 import { logisticaProviderSupabase, carregarSolicitacoesPendentesSupabase, logisticaWriteSupabase, atualizarSolicitacaoSupabase } from './lib/onda-b-supabase';
-import { usuariosWriteSupabase, escreverUsuarioSupabase } from './lib/usuarios-supabase';
+import { usuariosWriteSupabase, escreverUsuarioSupabase, usuariosReadSupabase, fetchUsuarios } from './lib/usuarios-supabase';
 
 // ── i18n: padrão TermosUsoGate (objeto T com { pt, en, es, ru }, sem chaves json) ──
 type Lang = 'pt' | 'en' | 'es' | 'ru';
@@ -349,16 +349,22 @@ export default function UsuariosManager({
       try {
         // gestor_seg só vê guards; outros gestores veem todos
         const rolesGuard = ['guard', 'gestor_seg', 'campo', 'logistica', 'promotor', 'viewer'];
-        const q = roleAtual === 'gestor_seg'
-          ? query(collection(db, 'usuarios'), where('role', 'in', rolesGuard))
-          : query(collection(db, 'usuarios'));
-        const snap = await getDocs(q);
-        const dados = snap.docs.map(d => ({
-          id: d.id,
-          uid: d.id,
-          ...d.data()
-        })) as UsuarioAtivo[];
-        setUsuarios(dados);
+        if (usuariosReadSupabase()) {
+          const filtros = roleAtual === 'gestor_seg' ? { role_in: rolesGuard } : undefined;
+          const dados = await fetchUsuarios(filtros);
+          setUsuarios(dados.map(d => ({ ...d, id: d.uid })) as UsuarioAtivo[]);
+        } else {
+          const q = roleAtual === 'gestor_seg'
+            ? query(collection(db, 'usuarios'), where('role', 'in', rolesGuard))
+            : query(collection(db, 'usuarios'));
+          const snap = await getDocs(q);
+          const dados = snap.docs.map(d => ({
+            id: d.id,
+            uid: d.id,
+            ...d.data()
+          })) as UsuarioAtivo[];
+          setUsuarios(dados);
+        }
       } catch (err) {
         console.error('Erro carregando usuários:', err);
       }

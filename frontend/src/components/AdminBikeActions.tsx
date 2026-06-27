@@ -8,6 +8,7 @@ import {
   collection, addDoc, query, where, getDocs, serverTimestamp, orderBy, limit,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { usuariosReadSupabase, fetchUsuarios } from '../lib/usuarios-supabase';
 import { colorForParking, PARKING_COLOR_HEX } from '../lib/parking-colors';
 import { classifyBike } from '../lib/bike-classify';
 
@@ -96,13 +97,19 @@ export default function AdminBikeActions({
 
   // Carrega workers disponíveis
   useEffect(() => {
-    getDocs(query(
-      collection(db, 'usuarios'),
-      where('cidade', '==', cidade),
-      where('role', 'in', ['campo', 'logistica', 'motorista']),
-    )).then(snap => {
-      setWorkers(snap.docs.map(d => ({ uid: d.id, nome: d.data().nome ?? d.data().email ?? d.id })));
-    }).catch(() => {});
+    if (usuariosReadSupabase()) {
+      fetchUsuarios({ cidade, role_in: ['campo', 'logistica', 'motorista'] })
+        .then(users => { setWorkers(users.map(u => ({ uid: u.uid, nome: u.nome ?? u.email ?? u.uid }))); })
+        .catch(() => {});
+    } else {
+      getDocs(query(
+        collection(db, 'usuarios'),
+        where('cidade', '==', cidade),
+        where('role', 'in', ['campo', 'logistica', 'motorista']),
+      )).then(snap => {
+        setWorkers(snap.docs.map(d => ({ uid: d.id, nome: d.data().nome ?? d.data().email ?? d.id })));
+      }).catch(() => {});
+    }
   }, [cidade]);
 
   // Bikes disponíveis próximas ao parking alvo, ordenadas por distância

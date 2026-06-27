@@ -1,5 +1,6 @@
 import * as admin from 'firebase-admin';
 import { onRequest, onCall, HttpsError } from 'firebase-functions/v2/https';
+import { getAppSetting } from './config-supabase';
 
 // functions/src/slots.ts
 // Cloud Functions para módulo Slots + Logística + Telegram
@@ -33,6 +34,12 @@ interface TelegramTarget {
 
 async function getBotToken(): Promise<string> {
   try {
+    // Supabase-first
+    const supa = await getAppSetting<Record<string, any>>('telegram');
+    const supaToken = String(supa?.bot_token || supa?.botToken || '').trim();
+    if (supaToken) return supaToken;
+
+    // Fallback Firestore
     const snap = await db.collection('telegram_config').doc('global').get();
     return snap.data()?.botToken ?? '';
   } catch {
@@ -107,33 +114,55 @@ const CARGO_PARA_GRUPO: Record<string, { grupo: string; topico: string }> = {
 };
 
 async function getConfig(): Promise<{ global: ConfigGlobal; cidades: Record<string, CidadeConfig> }> {
-  const [gSnap, cSnap, legSnap] = await Promise.all([
+  // Onda G: tenta Supabase telegram_config primeiro, depois Firestore
+  let supaTgCfg: Record<string, any> | null = null;
+  try {
+    const { getTelegramConfigSupa } = await import('./telegram-supabase');
+    supaTgCfg = await getTelegramConfigSupa('global');
+  } catch { /* fallback */ }
+
+  const [supaTelegram, gSnap, cSnap, legSnap] = await Promise.all([
+    getAppSetting<Record<string, any>>('telegram'),
     db.collection('telegram_config').doc('global').get(),
     db.collection('telegram_config').doc('cidades').get(),
     db.collection('config').doc('telegram').get(),   // onde DashboardManager salva
   ]);
 
-  // Monta config global unificando as duas fontes
+  // Monta config global unificando as fontes
   const gData  = gSnap.data()  ?? {};
   const legData= legSnap.data() ?? {};
 
-  // Prioridade: telegram_config/global → config/telegram
-  const botToken = (gData.botToken || gData.bot_token ||
-                    legData.botToken || legData.bot_token || '') as string;
+  // Prioridade: Supabase telegram_config → app_settings/telegram → Firestore telegram_config/global → config/telegram
+  const botToken = (
+    supaTgCfg?.bot_token ||
+    supaTelegram?.bot_token || supaTelegram?.botToken ||
+    gData.botToken || gData.bot_token ||
+    legData.botToken || legData.bot_token || '') as string;
   // Chat ID do grupo Guard Reports (usado como fallback para alertas)
-  const guardChatId = (gData.relatoriosChatId || gData.chat_id ||
-                       legData.relatoriosChatId || legData.chat_id || '') as string;
+  const guardChatId = (
+    supaTgCfg?.guard_chat_id || supaTgCfg?.relatorios_chat_id ||
+    supaTelegram?.relatorios_chat_id || supaTelegram?.relatoriosChatId || supaTelegram?.chat_id ||
+    gData.relatoriosChatId || gData.chat_id ||
+    legData.relatoriosChatId || legData.chat_id || '') as string;
 
   const globalCfg: ConfigGlobal = {
     ...{ botToken: '', diretoria: [], regionais: [] },
     ...gData,
+    // Overlay Supabase fields if available
+    ...(supaTgCfg?.diretoria ? { diretoria: supaTgCfg.diretoria } : {}),
+    ...(supaTgCfg?.regionais ? { regionais: supaTgCfg.regionais } : {}),
     botToken,
     guardChatId,   // campo extra para fallback
   };
 
+  // Cidades: Supabase cidades jsonb → Firestore telegram_config/cidades
+  const cidadesSupa = (supaTgCfg?.cidades && typeof supaTgCfg.cidades === 'object')
+    ? supaTgCfg.cidades as Record<string, CidadeConfig>
+    : null;
+
   return {
     global: globalCfg,
-    cidades: (cSnap.data() ?? {}) as Record<string, CidadeConfig>,
+    cidades: cidadesSupa ?? (cSnap.data() ?? {}) as Record<string, CidadeConfig>,
   };
 }
 

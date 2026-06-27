@@ -6,6 +6,7 @@ import { useState as useLocalState } from 'react';
 import { db, auth } from './lib/firebase';
 import { guardProviderSupabase, carregarOcorrenciasSupabase, buscarOcorrenciaSupabase, guardWriteSupabase, atualizarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
 import { mapaProviderSupabase, carregarEstacoesSupabase } from './lib/estacoes-supabase';
+import { usuariosReadSupabase, fetchUsuarios } from './lib/usuarios-supabase';
 import JSZip from 'jszip';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { getApp } from 'firebase/app';
@@ -3826,8 +3827,13 @@ function UsuariosPanel() {
         ));
         setSolicitacoes(snapSol.docs.map(d => ({ id: d.id, ...d.data() })));
         // Usuários ativos
-        const snapUs = await getDocs(collection(db,'usuarios'));
-        setUsuarios(snapUs.docs.map(d => ({ id: d.id, ...d.data() })));
+        if (usuariosReadSupabase()) {
+          const users = await fetchUsuarios();
+          setUsuarios(users.map(u => ({ ...u, id: u.uid })));
+        } else {
+          const snapUs = await getDocs(collection(db,'usuarios'));
+          setUsuarios(snapUs.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
       } catch(e) { console.error(e); }
       setLoading(false);
     };

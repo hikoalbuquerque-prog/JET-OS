@@ -98,6 +98,19 @@ async function telegram(token: string, chatId: string, texto: string): Promise<v
 
 async function getTgConfig(): Promise<{ token: string; chatIds: Record<string, string> } | null> {
   try {
+    // Supabase-first (Onda G)
+    const { getTelegramConfigSupa, getTelegramChatIdsSupa } = await import('./telegram-supabase');
+    const supa = await getTelegramConfigSupa('global');
+    if (supa?.bot_token) {
+      const chatIds = (supa.chat_ids && typeof supa.chat_ids === 'object')
+        ? supa.chat_ids as Record<string, string>
+        : await getTelegramChatIdsSupa();
+      return { token: String(supa.bot_token), chatIds };
+    }
+  } catch { /* fallback */ }
+
+  try {
+    // Fallback Firestore
     const snap = await db.collection('telegram_config').doc('global').get();
     if (!snap.exists) return null;
     const d = snap.data()!;

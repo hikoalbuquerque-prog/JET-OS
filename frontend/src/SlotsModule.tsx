@@ -11,6 +11,8 @@ import {
 } from 'firebase/firestore';
 import { db, fnNotificarTarefa, fnGerarSlotsManual, fnScraperGoJetManual } from './lib/firebase';
 import { guardProviderSupabase, carregarOcorrenciasSupabase, guardWriteSupabase, criarOcorrenciaSupabase, atualizarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
+import { gpsProviderSupabase, fetchWorkerPos } from './lib/gps-supabase';
+import { usuariosReadSupabase, fetchUsuarios } from './lib/usuarios-supabase';
 import { uploadComRetry } from './lib/uploadUtils';
 import { comprimirImagem, capturarFotoNativa } from './lib/imageUtils';
 import { isAndroidNative } from './lib/gps-native';
@@ -49,15 +51,26 @@ function useWorkerGPS(uid: string | null): WorkerPos | null {
   const [pos, setPos] = useState<WorkerPos | null>(null);
   useEffect(() => {
     if (!uid) return;
+
+    if (gpsProviderSupabase()) {
+      // Supabase: polling a cada 15s
+      let alive = true;
+      const poll = () => {
+        fetchWorkerPos(uid).then(r => { if (alive) setPos(r); });
+      };
+      poll();
+      const id = setInterval(poll, 15_000);
+      return () => { alive = false; clearInterval(id); };
+    }
+
+    // Firestore fallback
     const since = Timestamp.fromMillis(Date.now() - 30 * 60_000);
     const q = query(
       collection(db, 'gps_logistica'),
       where('uid', '==', uid),
       where('criadoEm', '>=', since),
       orderBy('criadoEm', 'desc'),
-      // limit imported from firebase/firestore below — use getDocs with limit inline
     );
-    // onSnapshot com limit(1) — não suportado direto, filtra no resultado
     const unsub = onSnapshot(q, snap => {
       const docs = snap.docs;
       if (docs.length === 0) return;
@@ -75,6 +88,25 @@ function useSlotsWorkersGPS(uids: string[]): Record<string, WorkerPos> {
   const [mapa, setMapa] = useState<Record<string, WorkerPos>>({});
   useEffect(() => {
     if (uids.length === 0) return;
+
+    if (gpsProviderSupabase()) {
+      // Supabase: polling a cada 15s para todos os uids
+      let alive = true;
+      const poll = () => {
+        Promise.all(uids.map(uid => fetchWorkerPos(uid).then(r => r ? [uid, r] as const : null)))
+          .then(results => {
+            if (!alive) return;
+            const next: Record<string, WorkerPos> = {};
+            for (const r of results) { if (r) next[r[0]] = r[1]; }
+            setMapa(next);
+          });
+      };
+      poll();
+      const id = setInterval(poll, 15_000);
+      return () => { alive = false; clearInterval(id); };
+    }
+
+    // Firestore fallback
     const since = Timestamp.fromMillis(Date.now() - 30 * 60_000);
     const unsubs = uids.map(uid => {
       const q = query(
@@ -2621,8 +2653,13 @@ export default function SlotsModule({ usuario, cidade, pais, onFechar }: Props) 
   // ── Equipe — carrega sempre que admin abre o módulo (necessário para dropdown de reatribuição) ──
   useEffect(() => {
     if (!isAdmin) return;
-    getDocs(query(collection(db, 'usuarios'), where('tipoCadastro', '==', 'prestador'), where('statusPrestador', '==', 'ativo'), where('cidade', '==', cidade)))
-      .then(snap => { setEquipe(snap.docs.map(d => ({ id: d.id, ...d.data() }))); });
+    if (usuariosReadSupabase()) {
+      fetchUsuarios({ tipoCadastro: 'prestador', statusPrestador: 'ativo', cidade })
+        .then(users => { setEquipe(users.map(u => ({ ...u, id: u.uid }))); });
+    } else {
+      getDocs(query(collection(db, 'usuarios'), where('tipoCadastro', '==', 'prestador'), where('statusPrestador', '==', 'ativo'), where('cidade', '==', cidade)))
+        .then(snap => { setEquipe(snap.docs.map(d => ({ id: d.id, ...d.data() }))); });
+    }
   }, [isAdmin, cidade]);
 
   // ── Handlers ──

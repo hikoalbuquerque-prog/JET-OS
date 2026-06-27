@@ -18,6 +18,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './lib/firebase';
+import { usuariosReadSupabase, fetchUsuario } from './lib/usuarios-supabase';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
 // ─── i18n (pt/en/es/ru) — padrão objeto T + pick, sem json ─────────────────────
@@ -425,11 +426,19 @@ export function useTelegramVinculado(uid: string) {
 
   useEffect(() => {
     if (!uid) return;
-    getDoc(doc(db, 'usuarios', uid)).then(snap => {
-      const id = snap.data()?.telegramChatId ?? null;
-      setChatId(id);
-      setVinculado(!!id);
-    });
+    if (usuariosReadSupabase()) {
+      fetchUsuario(uid).then(u => {
+        const id = u?.telegramChatId ?? null;
+        setChatId(id);
+        setVinculado(!!id);
+      });
+    } else {
+      getDoc(doc(db, 'usuarios', uid)).then(snap => {
+        const id = snap.data()?.telegramChatId ?? null;
+        setChatId(id);
+        setVinculado(!!id);
+      });
+    }
   }, [uid]);
 
   return { vinculado, chatId };
@@ -458,10 +467,17 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
 
   // Carrega chatId atual + nome real do bot do Firestore
   useEffect(() => {
-    getDoc(doc(db, 'usuarios', usuario.uid)).then(snap => {
-      const id = snap.data()?.telegramChatId;
-      if (id) { setChatIdAtual(id); setEtapa('ok'); }
-    });
+    if (usuariosReadSupabase()) {
+      fetchUsuario(usuario.uid).then(u => {
+        const id = u?.telegramChatId;
+        if (id) { setChatIdAtual(id); setEtapa('ok'); }
+      });
+    } else {
+      getDoc(doc(db, 'usuarios', usuario.uid)).then(snap => {
+        const id = snap.data()?.telegramChatId;
+        if (id) { setChatIdAtual(id); setEtapa('ok'); }
+      });
+    }
     getDoc(doc(db, 'telegram_config', 'global')).then(snap => {
       const username = snap.data()?.botUsername;
       if (username) setNomeBot(username.startsWith('@') ? username : `@${username}`);
@@ -492,8 +508,14 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
       pollRef.current = setInterval(async () => {
         tentativas++;
         try {
-          const snap = await getDoc(doc(db, 'usuarios', usuario.uid));
-          const id = snap.data()?.telegramChatId;
+          let id: string | undefined;
+          if (usuariosReadSupabase()) {
+            const u = await fetchUsuario(usuario.uid);
+            id = u?.telegramChatId;
+          } else {
+            const snap = await getDoc(doc(db, 'usuarios', usuario.uid));
+            id = snap.data()?.telegramChatId;
+          }
           if (id) {
             pararPoll();
             setChatIdAtual(id); setAguardando(false); setEtapa('ok');

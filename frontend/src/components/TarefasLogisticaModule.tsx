@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { logisticaWriteSupabase, criarTurnoLogisticaSupabase } from '../lib/onda-b-supabase';
+import { usuariosReadSupabase, fetchUsuarios } from '../lib/usuarios-supabase';
 import { uploadComRetry } from '../lib/uploadUtils';
 import { comprimirImagem, capturarFotoNativa } from '../lib/imageUtils';
 import { isAndroidNative } from '../lib/gps-native';
@@ -508,10 +509,16 @@ export default function TarefasLogisticaModule({
 
   useEffect(() => {
     if (!isAdminRole(usuario.role)) return;
-    getDocs(query(collection(db,'usuarios'), where('role','in',['logistica','campo','charger','scalt'])))
-      .then(snap => setAgentes(snap.docs.map(d => {
-        const x = d.data(); return { uid: d.id, nome: x.nome||x.email, email: x.email };
-      }))).catch(() => {});
+    if (usuariosReadSupabase()) {
+      fetchUsuarios({ role_in: ['logistica','campo','charger','scalt'] })
+        .then(users => setAgentes(users.map(u => ({ uid: u.uid, nome: u.nome||u.email, email: u.email }))))
+        .catch(() => {});
+    } else {
+      getDocs(query(collection(db,'usuarios'), where('role','in',['logistica','campo','charger','scalt'])))
+        .then(snap => setAgentes(snap.docs.map(d => {
+          const x = d.data(); return { uid: d.id, nome: x.nome||x.email, email: x.email };
+        }))).catch(() => {});
+    }
   }, [usuario.role]);
 
   if (tarefaSel) return (

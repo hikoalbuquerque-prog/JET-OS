@@ -12,6 +12,8 @@ import {
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db } from '../lib/firebase';
 import { logisticaProviderSupabase, carregarTurnosLogisticaSupabase } from '../lib/onda-b-supabase';
+import { gpsProviderSupabase, fetchGpsAtual, fetchGpsHist } from '../lib/gps-supabase';
+import { usuariosReadSupabase, fetchUsuarios } from '../lib/usuarios-supabase';
 import LiveTrackingMap from './LiveTrackingMap';
 import GpsHeatmapPanel from './GpsHeatmapPanel';
 
@@ -862,7 +864,11 @@ function AbaPresenca({cidade}:AbaProps){
     } else {
       u1=onSnapshot(query(collection(db,'turnos_logistica'),where('criadoEm','>=',Timestamp.fromDate(ini)),orderBy('criadoEm','desc'),limit(300)),s=>setTurnos(s.docs.map(d=>({id:d.id,...d.data()} as TurnoLog))));
     }
-    getDocs(collection(db,'usuarios')).then(s=>setClt(s.docs.map(d=>({id:d.id,...d.data()})).filter((f:any)=>['campo','logistica','charger','scalt','promotor'].includes(f.role||''))));
+    if (usuariosReadSupabase()) {
+      fetchUsuarios({ role_in: ['campo','logistica','charger','scalt','promotor'] }).then(users=>setClt(users.map(u=>({...u,id:u.uid}))));
+    } else {
+      getDocs(collection(db,'usuarios')).then(s=>setClt(s.docs.map(d=>({id:d.id,...d.data()})).filter((f:any)=>['campo','logistica','charger','scalt','promotor'].includes(f.role||''))));
+    }
     const u3=onSnapshot(qCidade('slots',cidade,orderBy('criadoEm','desc'),limit(100)),s=>setSlots(s.docs.map(d=>({id:d.id,...d.data()} as Slot)).filter(sl=>sl.dataSlot===hoje())));
     const u4=onSnapshot(collection(db,'slot_aceites'),s=>setAceites(s.docs.map(d=>({id:d.id,...d.data()} as SlotAceite))));
     return()=>{u1();u3();u4();};
@@ -955,6 +961,23 @@ function AbaOperadores({usuario,cidade}:AbaProps){
   const [busca,  setBusca  ]=useState('');
 
   useEffect(()=>{
+    if (gpsProviderSupabase()) {
+      // Supabase: polling GPS a cada 10s + Firestore tarefas (tarefas still in Firestore)
+      let alive = true;
+      const poll = () => {
+        fetchGpsAtual(60).then(pts => {
+          if (!alive) return;
+          const filtered = cidade ? pts.filter(p => !p.cidade || p.cidade === cidade || p.cidade === '') : pts;
+          setWorkers(filtered.map(p => ({ uid: p.uid, nome: p.nome, lat: p.lat, lng: p.lng, atualizadoEm: p.criadoEm, cidade: p.cidade } as GpsWorker)));
+        });
+      };
+      poll();
+      const id = setInterval(poll, 10_000);
+      const u2=onSnapshot(qCidade('tarefas_logistica',cidade,where('status','in',['pendente','em_andamento']),limit(200)),s=>setTarefas(s.docs.map(d=>({id:d.id,...d.data()} as TarefaLogistica))));
+      return()=>{alive=false;clearInterval(id);u2();};
+    }
+
+    // Firestore fallback
     const since=Timestamp.fromMillis(Date.now()-60*60000);
     const u1=onSnapshot(qCidade('gps_logistica',cidade,where('criadoEm','>=',since)),s=>setWorkers(s.docs.map(d=>({uid:d.id,...d.data()} as GpsWorker))));
     const u2=onSnapshot(qCidade('tarefas_logistica',cidade,where('status','in',['pendente','em_andamento']),limit(200)),s=>setTarefas(s.docs.map(d=>({id:d.id,...d.data()} as TarefaLogistica))));
@@ -963,6 +986,13 @@ function AbaOperadores({usuario,cidade}:AbaProps){
 
   useEffect(()=>{
     if(!sel){setHist([]);return;}
+
+    if (gpsProviderSupabase()) {
+      fetchGpsHist(sel.uid, 8).then(pts => setHist(pts)).catch(() => {});
+      return;
+    }
+
+    // Firestore fallback
     const since=Timestamp.fromMillis(Date.now()-8*60*60000);
     getDocs(query(collection(db,'gps_logistica_hist'),where('uid','==',sel.uid),where('criadoEm','>=',since),orderBy('criadoEm','asc'),limit(200))).then(s=>setHist(s.docs.map(d=>d.data()))).catch(()=>{});
   },[sel]);
@@ -1303,7 +1333,11 @@ function AbaDesempenho({cidade}:AbaProps){
   useEffect(()=>{carregar();},[carregar]);
   useEffect(()=>{
     const u=onSnapshot(qCidade('eficiencias_logistica',cidade,orderBy('criadoEm','desc'),limit(300)),s=>setEfics(s.docs.map(d=>({id:d.id,...d.data()} as Eficiencia))));
-    getDocs(collection(db,'usuarios')).then(s=>setOpers(s.docs.map(d=>({uid:d.id,nome:(d.data() as any).nome||d.id})).slice(0,80)));
+    if (usuariosReadSupabase()) {
+      fetchUsuarios().then(users=>setOpers(users.map(u=>({uid:u.uid,nome:u.nome||u.uid})).slice(0,80)));
+    } else {
+      getDocs(collection(db,'usuarios')).then(s=>setOpers(s.docs.map(d=>({uid:d.id,nome:(d.data() as any).nome||d.id})).slice(0,80)));
+    }
     return u;
   },[cidade]);
 
@@ -1485,7 +1519,16 @@ function AbaCLT({cidade}:AbaProps){
   const [form,    setForm   ]=useState<Funcionario>({nome:'',cpf:'',cargo:'CLT',turno:'T1',funcao:'Scout',zona:'',status:'ATIVO',gerente:'',lider:'',telefone:'',dataAdmissao:'',escala:'',diaFolga:''});
   const [salvando,setSalvando]=useState(false);
 
-  useEffect(()=>{const u=onSnapshot(collection(db,'usuarios'),s=>setLista(s.docs.map(d=>({id:d.id,...d.data()})).filter((f:any)=>['campo','logistica','charger','scalt','promotor'].includes(f.role||''))));return u;},[]);
+  useEffect(()=>{
+    if (usuariosReadSupabase()) {
+      let vivo=true;
+      const carregar=()=>fetchUsuarios({ role_in: ['campo','logistica','charger','scalt','promotor'] }).then(users=>{ if(vivo) setLista(users.map(u=>({...u,id:u.uid}))); });
+      carregar();
+      const iv=setInterval(carregar,30000);
+      return()=>{vivo=false;clearInterval(iv);};
+    }
+    const u=onSnapshot(collection(db,'usuarios'),s=>setLista(s.docs.map(d=>({id:d.id,...d.data()})).filter((f:any)=>['campo','logistica','charger','scalt','promotor'].includes(f.role||''))));return u;
+  },[]);
   const listaCidade = cidade ? lista.filter((f:any)=>!f.cidade||f.cidade===cidade) : lista;
   const filtrados=useMemo(()=>listaCidade.filter(f=>(filtroSt==='TODOS'||f.status===filtroSt)&&(!busca||f.nome?.toLowerCase().includes(busca.toLowerCase())||(f.cpf||'').includes(busca))),[listaCidade,busca,filtroSt]);
   const stCor=(s:string)=>s==='ATIVO'?T.green:s==='ATESTADO'?T.yellow:s==='AFASTAMENTO'?T.purple:T.red;
@@ -1871,11 +1914,18 @@ function AbaConfig({cidade,isAdmin}:AbaProps){
     getDoc(doc(db,'config_logistica',cidadeKey)).then(d=>{if(d.exists())setCfg(prev=>({...prev,...(d.data() as ConfigGlobal)}));}).catch(()=>{});
     getDoc(doc(db,'telegram_config','cidades')).then(d=>{if(d.exists()){const data=d.data();const gs:TelegramGrupo[]=Object.entries(data[cidadeKey]?.grupos||{}).map(([tipo,g]:any)=>({...g,cidade:cidadeKey,tipos:[tipo]}));setTgGrupos(gs);}}).catch(()=>{});
     if(isAdmin){
-      getDocs(collection(db,'usuarios')).then(s=>{
-        const users=s.docs.map(d=>({uid:d.id,...d.data()}));
-        setTodosUsers(users as any[]);
-        setGestoresLog((users as any[]).filter(u=>['gestor','supergestor','logistica'].includes((u as any).role)).map(u=>({uid:(u as any).uid,nome:(u as any).nome||'',...(u as any)})));
-      });
+      if (usuariosReadSupabase()) {
+        fetchUsuarios().then(users=>{
+          setTodosUsers(users as any[]);
+          setGestoresLog(users.filter(u=>['gestor','supergestor','logistica'].includes(u.role)).map(u=>({uid:u.uid,nome:u.nome||'',...u})));
+        });
+      } else {
+        getDocs(collection(db,'usuarios')).then(s=>{
+          const users=s.docs.map(d=>({uid:d.id,...d.data()}));
+          setTodosUsers(users as any[]);
+          setGestoresLog((users as any[]).filter(u=>['gestor','supergestor','logistica'].includes((u as any).role)).map(u=>({uid:(u as any).uid,nome:(u as any).nome||'',...(u as any)})));
+        });
+      }
     }
   },[cidade,isAdmin]);
 
