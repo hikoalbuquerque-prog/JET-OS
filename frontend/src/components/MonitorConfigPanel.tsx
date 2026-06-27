@@ -3,8 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 
 const T = {
   nivelLabelM1: { pt: 'M1 — Crítico', en: 'M1 — Critical', es: 'M1 — Crítico', ru: 'M1 — Критический' },
@@ -112,15 +111,13 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
   const [erro, setErro] = useState<string | null>(null);
 
   useEffect(() => {
-    getDoc(doc(db, 'monitor_config', cidade))
-      .then(snap => {
-        if (snap.exists()) {
-          setConfig(snap.data() as MonitorConfig);
-        } else {
-          setConfig(DEFAULT_CONFIG);
-        }
-      })
-      .catch(() => setConfig(DEFAULT_CONFIG));
+    (async () => {
+      try {
+        const { data, error } = await supabase.from('monitor_config').select('*').eq('cidade', cidade).single();
+        if (error || !data) setConfig(DEFAULT_CONFIG);
+        else setConfig({ M1: data.m1, M2: data.m2, M3: data.m3 } as MonitorConfig);
+      } catch { setConfig(DEFAULT_CONFIG); }
+    })();
   }, [cidade]);
 
   function updateNivel(nivel: 'M1' | 'M2' | 'M3', field: keyof MonitorLevelConfig, value: any) {
@@ -134,11 +131,14 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
     setSalvando(true);
     setErro(null);
     try {
-      await setDoc(
-        doc(db, 'monitor_config', cidade),
-        { ...config, atualizadoEm: serverTimestamp() },
-        { merge: true }
-      );
+      const { error } = await supabase.from('monitor_config').upsert({
+        cidade,
+        m1: config.M1,
+        m2: config.M2,
+        m3: config.M3,
+        atualizado_em: new Date().toISOString(),
+      });
+      if (error) throw error;
       setSalvoOk(true);
       setTimeout(() => setSalvoOk(false), 3000);
     } catch (e: any) {

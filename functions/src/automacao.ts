@@ -396,6 +396,7 @@ async function _gerarSlots(cfg: SlotConfigGlobal, statsZonas: Record<string, Zon
 
 // ─── FUNCTION: limpezaSnapshots (todo dia 3h) ─────────────────────────────────
 
+// DESATIVADO — gojet_snapshots migrado para Supabase (upsert por city_id, sem acúmulo).
 export const limpezaSnapshots = onSchedule(
   {
     schedule: '0 3 * * *',
@@ -404,20 +405,7 @@ export const limpezaSnapshots = onSchedule(
     maxInstances: 10,
   },
   async () => {
-    const limite = new Date();
-    limite.setDate(limite.getDate() - 7);
-
-    const snap = await db.collection('gojet_snapshots')
-      .where('criadoEm', '<', limite)
-      .limit(500)
-      .get();
-
-    const batch = db.batch();
-    snap.docs.forEach(d => {
-      if (d.id !== 'latest') batch.delete(d.ref);
-    });
-    await batch.commit();
-    console.log(`[limpeza] ${snap.size} snapshots antigos removidos`);
+    console.log('[limpeza] no-op — snapshots agora em Supabase (upsert, sem cleanup necessário)');
   }
 );
 

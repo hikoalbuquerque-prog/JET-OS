@@ -7,11 +7,10 @@
 //
 // OU copie o conteúdo da função diretamente no automacao.ts existente.
 
-import * as admin from 'firebase-admin';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onCall } from 'firebase-functions/v2/https';
 import axios from 'axios';
-import { supabaseGet, supabaseUpsert, supabaseConfigured } from './lib/supabase-rest';
+import { supabaseGet, supabaseUpsert, supabaseInsert } from './lib/supabase-rest';
 import { getAppSetting } from './config-supabase';
 
 // Se GOJET_PROXY_URL estiver definido, usa Vercel proxy (evita bloqueio Cloudflare no GCP)
@@ -113,7 +112,7 @@ async function coletarCidade(cityId: string, cidadeNome: string): Promise<{
   return { parkings, bikes, cityId, cidade: cidadeNome };
 }
 
-// ── Salva snapshot no Firestore ───────────────────────────────────────────────
+// ── Salva snapshot no Supabase ────────────────────────────────────────────────
 
 async function salvarSnapshot(dados: {
   parkings: any[];
@@ -121,109 +120,17 @@ async function salvarSnapshot(dados: {
   cityId: string;
   cidade: string;
 }): Promise<void> {
-  const db = admin.firestore();
-  const now = admin.firestore.FieldValue.serverTimestamp();
-
-  // Firestore tem limite de 1MB por documento
-  // Se parkings > 3000 ou bikes > 5000, salvar em chunks separados
-  const PARKING_CHUNK = 3000;
-  const BIKE_CHUNK    = 2000;
-
-  const docId = `latest_${dados.cityId}`;
-  const docIdBikes = `bikes_latest_${dados.cityId}`;
-
-  // Snapshot de parkings
-  if (dados.parkings.length <= PARKING_CHUNK) {
-    await db.collection('gojet_snapshots').doc(docId).set({
-      parkings: dados.parkings,
-      cityId:   dados.cityId,
-      cidade:   dados.cidade,
-      total:    dados.parkings.length,
-      savedAt:  now,
-    });
-  } else {
-    // Divide em múltiplos documentos
-    let chunk = 0;
-    for (let i = 0; i < dados.parkings.length; i += PARKING_CHUNK) {
-      await db.collection('gojet_snapshots').doc(`${docId}_chunk${chunk}`).set({
-        parkings: dados.parkings.slice(i, i + PARKING_CHUNK),
-        chunk, totalChunks: Math.ceil(dados.parkings.length / PARKING_CHUNK),
-        cityId: dados.cityId, cidade: dados.cidade, savedAt: now,
-      });
-      chunk++;
-    }
-    // Índice do snapshot
-    await db.collection('gojet_snapshots').doc(docId).set({
-      chunked: true, totalChunks: chunk,
-      cityId: dados.cityId, cidade: dados.cidade,
-      total: dados.parkings.length, savedAt: now,
-    });
-  }
-
-  // Snapshot de bikes
-  if (dados.bikes.length <= BIKE_CHUNK) {
-    await db.collection('gojet_snapshots').doc(docIdBikes).set({
-      bikes:   dados.bikes,
-      cityId:  dados.cityId,
-      cidade:  dados.cidade,
-      total:   dados.bikes.length,
-      savedAt: now,
-    });
-  } else {
-    let chunk = 0;
-    for (let i = 0; i < dados.bikes.length; i += BIKE_CHUNK) {
-      await db.collection('gojet_snapshots').doc(`${docIdBikes}_chunk${chunk}`).set({
-        bikes: dados.bikes.slice(i, i + BIKE_CHUNK),
-        chunk, totalChunks: Math.ceil(dados.bikes.length / BIKE_CHUNK),
-        cityId: dados.cityId, cidade: dados.cidade, savedAt: now,
-      });
-      chunk++;
-    }
-    await db.collection('gojet_snapshots').doc(docIdBikes).set({
-      chunked: true, totalChunks: chunk,
-      cityId: dados.cityId, cidade: dados.cidade,
-      total: dados.bikes.length, savedAt: now,
-    });
-  }
-
-  // Mantém também os snapshots "legacy" (latest / bikes_latest) para compatibilidade
-  // com GoJetOverlay que ainda lê esses documentos
-  await db.collection('gojet_snapshots').doc('latest').set({
-    parkings: dados.parkings.slice(0, PARKING_CHUNK), // até o limite do doc
-    cityId:   dados.cityId,
-    cidade:   dados.cidade,
-    total:    dados.parkings.length,
-    hasMore:  dados.parkings.length > PARKING_CHUNK,
-    savedAt:  now,
-  });
-
-  await db.collection('gojet_snapshots').doc('bikes_latest').set({
-    bikes:   dados.bikes.slice(0, BIKE_CHUNK),
-    cityId:  dados.cityId,
-    cidade:  dados.cidade,
-    total:   dados.bikes.length,
-    hasMore: dados.bikes.length > BIKE_CHUNK,
-    savedAt: now,
-  });
+  await supabaseUpsert('gojet_snapshots', {
+    id: dados.cityId,
+    cidade: dados.cidade,
+    city_id: dados.cityId,
+    parkings: dados.parkings,
+    bikes_total: dados.bikes.length,
+    parkings_total: dados.parkings.length,
+    atualizado_em: new Date().toISOString(),
+  }, 'id');
 
   console.log(`[gojet] Snapshot salvo: ${dados.parkings.length} parkings, ${dados.bikes.length} bikes`);
-
-  // Dual-write to Supabase gojet_snapshots
-  if (supabaseConfigured()) {
-    try {
-      await supabaseUpsert('gojet_snapshots', {
-        id: dados.cityId,
-        cidade: dados.cidade,
-        city_id: dados.cityId,
-        parkings: dados.parkings,
-        bikes_total: dados.bikes.length,
-        parkings_total: dados.parkings.length,
-        atualizado_em: new Date().toISOString(),
-      }, 'id');
-    } catch (e: any) {
-      console.warn('[gojet] Supabase dual-write failed:', e.message);
-    }
-  }
 }
 
 // ── Classificação de bike (server-side, sem dependência do frontend) ──────────
@@ -247,7 +154,6 @@ function distMetrosServer(lat1: number, lng1: number, lat2: number, lng2: number
 
 async function gerarTarefasMonitorAuto(
   dados: { parkings: any[]; bikes: any[]; cityId: string; cidade: string },
-  db: admin.firestore.Firestore
 ): Promise<void> {
   // Lê configuração de monitores para a cidade — Supabase-first
   let monitorCfg: any = null;
@@ -285,7 +191,7 @@ async function gerarTarefasMonitorAuto(
     }
   }
 
-  const now = admin.firestore.FieldValue.serverTimestamp();
+  const nowIso = new Date().toISOString();
   let criadas = 0;
   const MAX_TASKS_PER_RUN = 50; // segurança: evita flood de tarefas
 
@@ -312,39 +218,35 @@ async function gerarTarefasMonitorAuto(
     if (target === 0) continue;
     if ((avail / target) * 100 >= cfg.thresholdPct) continue;
 
-    // Dedup: não criar se já existe tarefa aberta recente (independente de quando foi criada)
-    const existente = await db.collection('tarefas_logistica')
-      .where('parkingId', '==', p.id)
-      .where('status', '==', 'aberto')
-      .where('criadoPor', '==', 'monitor_auto')
-      .limit(1)
-      .get();
-    if (!existente.empty) continue;
+    // Dedup: não criar se já existe tarefa aberta recente
+    const existentes = await supabaseGet<any>('tarefas_logistica',
+      `select=id&parking_id=eq.${encodeURIComponent(p.id)}&status=eq.aberto&criado_por=eq.monitor_auto&limit=1`);
+    if (existentes && existentes.length > 0) continue;
 
     const deficit = target - avail;
     const titulo  = (cfg.titulo || '{mLevel} - {parkingName}')
       .replace('{parkingName}', p.name || p.id)
       .replace('{mLevel}', closest.tipoMonitor);
 
-    await db.collection('tarefas_logistica').add({
+    await supabaseInsert('tarefas_logistica', {
       cidade: dados.cidade,
       tipo: cfg.tipoTarefa || 'redistribuicao',
       titulo,
       descricao: `Ponto ${p.name} (${closest.tipoMonitor}) com ${avail}/${target} disponíveis. Déficit: ${deficit} patinetes.`,
       status: 'aberto',
       prioridade: cfg.prioridade || 'media',
-      parkingId: p.id,
-      parkingNome: p.name,
-      parkingLat: p.latitude,
-      parkingLng: p.longitude,
-      monitorLevel: closest.tipoMonitor,
-      estacaoId: closest.id,
-      availableCount: avail,
-      targetCount: target,
+      parking_id: p.id,
+      parking_nome: p.name,
+      parking_lat: p.latitude,
+      parking_lng: p.longitude,
+      monitor_level: closest.tipoMonitor,
+      estacao_id: closest.id,
+      available_count: avail,
+      target_count: target,
       deficit,
-      criadoPor: 'monitor_auto',
-      criadoEm: now,
-      atualizadoEm: now,
+      criado_por: 'monitor_auto',
+      criado_em: nowIso,
+      atualizado_em: nowIso,
     });
     criadas++;
   }
@@ -366,8 +268,6 @@ export const scraperGoJet = onSchedule(
     maxInstances:   10,
   },
   async () => {
-    const db = admin.firestore();
-
     // Lê cidades configuradas — Supabase-first
     let cidades: Array<{cidade: string; cityId: string}> = [];
     const sbCfg = await supabaseGet<any>('gojet_config', 'select=cidade,city_id&ativo=eq.true');
@@ -389,7 +289,7 @@ export const scraperGoJet = onSchedule(
           const dados = await coletarCidade(cityId, cidade);
           await salvarSnapshot(dados);
           // Gera tarefas de monitor automaticamente (se monitor_config configurado)
-          await gerarTarefasMonitorAuto(dados, db).catch(e =>
+          await gerarTarefasMonitorAuto(dados).catch(e =>
             console.error(`[gojet] Monitor auto erro em ${cidade}:`, e.message)
           );
         } catch (e: any) {

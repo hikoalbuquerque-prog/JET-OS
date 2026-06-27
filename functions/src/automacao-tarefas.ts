@@ -556,32 +556,35 @@ async function encontrarWorkersProximos(
 // Busca histórico da mesma hora do dia anterior para ajuste de alvo
 async function getHistoricoHora(zona: string, cidade: string): Promise<number> {
   try {
-    const ontemInicio = new Date(Date.now() - 24 * 3600 * 1000 - 3600 * 1000);
-    const ontemFim    = new Date(Date.now() - 24 * 3600 * 1000 + 3600 * 1000);
-    const snap = await db.collection('log_slots_auto')
-      .where('zona', '==', zona)
-      .where('cidade', '==', cidade)
-      .where('tipoSlot', '==', 'scout')
-      .get();
-    const relevantes = snap.docs
-      .map(d => d.data())
-      .filter(d => {
-        const t = d.registradoEm?.toMillis?.() ?? 0;
-        return t >= ontemInicio.getTime() && t <= ontemFim.getTime();
-      });
-    if (relevantes.length === 0) return 0;
-    return relevantes.reduce((s, d) => s + (d.bikesAlvo ?? 0), 0) / relevantes.length;
+    const ontemInicio = new Date(Date.now() - 24 * 3600 * 1000 - 3600 * 1000).toISOString();
+    const ontemFim    = new Date(Date.now() - 24 * 3600 * 1000 + 3600 * 1000).toISOString();
+    const rows = await supabaseGet<any>(
+      'log_slots_auto',
+      `select=bikes_alvo&zona=eq.${encodeURIComponent(zona)}&cidade=eq.${encodeURIComponent(cidade)}&tipo_slot=eq.scout&registrado_em=gte.${encodeURIComponent(ontemInicio)}&registrado_em=lte.${encodeURIComponent(ontemFim)}`
+    );
+    if (!rows || rows.length === 0) return 0;
+    return rows.reduce((s: number, d: any) => s + (d.bikes_alvo ?? 0), 0) / rows.length;
   } catch { return 0; }
 }
 
-// Loga decisão no Firestore
+// Loga decisão — Supabase-only
 async function logDecisao(dados: {
   zona: string; cidade: string; tipoSlot: string;
   bikesEncontradas?: number; bikesAlvo?: number; climaStatus?: string;
   regraAplicada: string; slotCriado: boolean; slotId?: string | null; motivo?: string;
 }): Promise<void> {
   try {
-    await db.collection('log_slots_auto').add({ ...dados, registradoEm: admin.firestore.FieldValue.serverTimestamp() });
+    await supabaseInsert('log_slots_auto', {
+      zona: dados.zona, cidade: dados.cidade, tipo_slot: dados.tipoSlot,
+      bikes_encontradas: dados.bikesEncontradas ?? null,
+      bikes_alvo: dados.bikesAlvo ?? null,
+      clima_status: dados.climaStatus ?? null,
+      regra_aplicada: dados.regraAplicada,
+      slot_criado: dados.slotCriado,
+      slot_id: dados.slotId ?? null,
+      motivo: dados.motivo ?? null,
+      registrado_em: new Date().toISOString(),
+    });
   } catch { /* silencioso */ }
 }
 
@@ -1178,36 +1181,25 @@ export const salvarHistoricoParking = scheduler.onSchedule(
   async () => {
     try {
       const hoje = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-      const agora = admin.firestore.Timestamp.now();
+      const agora = new Date().toISOString();
 
-      // Busca todas as cidades ativas
-      const configSnap = await db.collection('gojet_config').get();
-      const cidades = configSnap.docs.filter(d => d.data().ativo !== false).map(d => d.id);
+      // Busca todas as cidades ativas — Supabase-only
+      const cidadesRows = await supabaseGet<any>('gojet_config', 'select=cidade,city_id&ativo=eq.true');
+      if (!cidadesRows || cidadesRows.length === 0) return;
 
       let totalSalvo = 0;
 
-      for (const cidade of cidades) {
+      for (const row of cidadesRows) {
+        const cidade = row.cidade ?? row.city_id;
         try {
-          const snapDoc = await db.collection('gojet_snapshots').doc(`latest_${cidade}`).get();
-          if (!snapDoc.exists) continue;
-          const snapData = snapDoc.data()!;
+          // Lê snapshot do Supabase
+          const snap = await supabaseGetOne<any>('gojet_snapshots', `select=parkings,parkings_total,atualizado_em&id=eq.${encodeURIComponent(row.city_id)}`);
+          if (!snap?.parkings) continue;
 
-          // Lê parkings (suporte a chunked)
-          let parkings: any[] = [];
-          if (snapData.chunked) {
-            const chunks = await Promise.all(
-              Array.from({ length: snapData.totalChunks as number }, (_, i) =>
-                db.collection('gojet_snapshots').doc(`latest_${cidade}_chunk${i}`).get()
-              )
-            );
-            parkings = chunks.flatMap(c => c.exists ? (c.data()!.parkings ?? []) : []);
-          } else {
-            parkings = snapData.parkings ?? [];
-          }
-
+          const parkings: any[] = snap.parkings;
           if (parkings.length === 0) continue;
 
-          // Agrega stats para o histórico (evita salvar lista completa todo dia)
+          // Agrega stats para o histórico
           const monitores   = parkings.filter((p: any) => p.monitor);
           const zerados      = monitores.filter((p: any) => (p.availableCount ?? 0) === 0);
           const totalBikes   = parkings.reduce((s: number, p: any) => s + (p.bikes_count ?? 0), 0);
@@ -1215,15 +1207,15 @@ export const salvarHistoricoParking = scheduler.onSchedule(
           const eficiencia   = monitores.length > 0
             ? Math.round(((monitores.length - zerados.length) / monitores.length) * 100) : 0;
 
-          await db.collection('parking_history').add({
-            cidade, data: hoje, savedAt: agora,
-            pontosTotal: parkings.length,
-            monitoresTotal: monitores.length,
-            monitoresZerados: zerados.length,
-            bikesTotal: totalBikes,
-            bikesDisponiveis: totalAvail,
-            eficienciaPct: eficiencia,
-            snapshotSavedAt: snapData.savedAt ?? null,
+          await supabaseInsert('parking_history', {
+            cidade, data: hoje, saved_at: agora,
+            pontos_total: parkings.length,
+            monitores_total: monitores.length,
+            monitores_zerados: zerados.length,
+            bikes_total: totalBikes,
+            bikes_disponiveis: totalAvail,
+            eficiencia_pct: eficiencia,
+            snapshot_saved_at: snap.atualizado_em ?? null,
           });
 
           totalSalvo++;
@@ -1255,12 +1247,11 @@ export const exportarHistoricoParking = https.onCall(
     desde.setDate(desde.getDate() - dias);
     const desdeStr = desde.toISOString().slice(0, 10);
 
-    const snap = await db.collection('parking_history')
-      .where('cidade', '==', cidade)
-      .where('data', '>=', desdeStr)
-      .orderBy('data', 'asc')
-      .get();
+    const rows = await supabaseGet<any>(
+      'parking_history',
+      `select=*&cidade=eq.${encodeURIComponent(cidade)}&data=gte.${encodeURIComponent(desdeStr)}&order=data.asc`
+    );
 
-    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    return rows ?? [];
   }
 );

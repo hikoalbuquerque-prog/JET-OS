@@ -1,6 +1,5 @@
 // src/streetview/index.ts
 import axios from 'axios';
-import * as admin from 'firebase-admin';
 import { storage } from '../utils';
 
 const GMAPS_KEY       = process.env.GMAPS_KEY       || '';
@@ -16,12 +15,16 @@ const CUSTOS: Record<string, number> = {
 
 async function incrementarContador(fonte: string) {
   try {
-    const ref = admin.firestore().collection('config').doc('sv_stats');
-    await ref.set({
-      [`count_${fonte}`]: admin.firestore.FieldValue.increment(1),
-      [`custo_${fonte}`]: admin.firestore.FieldValue.increment(CUSTOS[fonte] || 0),
-      atualizadoEm: admin.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
+    const { getAppSetting, setAppSetting } = await import('../config-supabase');
+    const current = await getAppSetting<Record<string, number>>('config_sv_stats') ?? {};
+    const countKey = `count_${fonte}`;
+    const custoKey = `custo_${fonte}`;
+    await setAppSetting('config_sv_stats', {
+      ...current,
+      [countKey]: (current[countKey] || 0) + 1,
+      [custoKey]: (current[custoKey] || 0) + (CUSTOS[fonte] || 0),
+      atualizadoEm: new Date().toISOString(),
+    });
   } catch (e) { /* silencioso */ }
 }
 
@@ -280,8 +283,8 @@ export async function fetchFramesParaIA(
  * Retorna contadores e custo estimado do Firestore.
  */
 export async function svGetEstatisticas() {
-  const doc = await admin.firestore().collection('config').doc('sv_stats').get();
-  const data = doc.data() || {};
+  const { getAppSetting } = await import('../config-supabase');
+  const data = await getAppSetting<Record<string, number>>('config_sv_stats') ?? {};
 
   const fontes = Object.keys(CUSTOS);
   const stats: Record<string, { count: number; custo: number }> = {};

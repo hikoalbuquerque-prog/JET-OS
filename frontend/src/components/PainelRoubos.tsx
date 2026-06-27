@@ -5,12 +5,13 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   collection, query, where, orderBy, onSnapshot,
-  doc, getDoc, setDoc, updateDoc, serverTimestamp, limit,
+  doc, updateDoc, serverTimestamp, limit,
 } from 'firebase/firestore';
 import { useTranslation } from 'react-i18next';
 import { db } from '../lib/firebase';
 import { guardProviderSupabase, carregarOcorrenciasSupabase, guardWriteSupabase, atualizarOcorrenciaSupabase } from '../lib/ocorrencias-supabase';
 import { analyticsProviderSupabase, fetchOcorrenciasRegional } from '../lib/analytics-supabase';
+import { supabase } from '../lib/supabase';
 import L from 'leaflet';
 
 // ─── i18n (pt/en/es/ru) — padrão TermosUsoGate/OnboardingWizard, sem chaves json ──
@@ -726,10 +727,12 @@ function ConfigRegioes({
     setSalvando(true); setMsg('');
     try {
       const obj: Record<string, { regiao: string; filial: string }> = {};
-      linhas.filter(l => l.cidade && !l.cidade.startsWith('(')).forEach(l => {
+      const rows = linhas.filter(l => l.cidade && !l.cidade.startsWith('(')).map(l => {
         obj[l.cidade] = { regiao: l.regiao, filial: l.filial };
+        return { cidade: l.cidade, regiao: l.regiao, filial: l.filial };
       });
-      await setDoc(doc(db, 'guard_config', 'regioes'), obj);
+      const { error } = await supabase.from('guard_regioes').upsert(rows);
+      if (error) throw error;
       onSalvo(obj as typeof REGIAO_DEFAULT);
       setMsg(pick(TXT.msgSalvas));
     } catch (e: any) {
@@ -1042,14 +1045,18 @@ export default function PainelRoubos({ visivel, onFechar, mapa, cidade, roleUsua
 
   const podeEditar = ['admin','gestor','supergestor','gestor_seg'].includes(roleUsuario);
 
-  // Carregar config de regiões do Firestore
+  // Carregar config de regiões do Supabase
   useEffect(() => {
-    getDoc(doc(db, 'guard_config', 'regioes')).then(d => {
-      if (d.exists()) {
-        const data = d.data() as Record<string, { regiao: string; filial: string }>;
-        setRegiaoMap({ ...REGIAO_DEFAULT, ...data });
-      }
-    }).catch(() => {});
+    (async () => {
+      try {
+        const { data, error } = await supabase.from('guard_regioes').select('*');
+        if (!error && data && data.length > 0) {
+          const obj: Record<string, { regiao: string; filial: string }> = {};
+          for (const row of data) obj[row.cidade] = { regiao: row.regiao, filial: row.filial };
+          setRegiaoMap({ ...REGIAO_DEFAULT, ...obj });
+        }
+      } catch { /* keep defaults */ }
+    })();
   }, [visivel]);
 
   // Carregar ocorrências — sem filtro de tipo (mostra tudo, filtramos no cliente)

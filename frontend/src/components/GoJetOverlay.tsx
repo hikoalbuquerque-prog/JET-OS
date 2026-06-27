@@ -16,6 +16,7 @@ import { doc, getDoc, getDocs, collection, query, where, addDoc, serverTimestamp
 import { gojetProviderSupabase, buscarCityIdSupabase } from '../lib/gojet-config-supabase';
 import { db } from '../lib/firebase';
 import { fnScraperGoJetManual } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import L from 'leaflet';
 import { classifyBike as classifyBikeShared, BIKE_STATUS_HEX } from '../lib/bike-classify';
 import { colorForParking, PARKING_COLOR_HEX } from '../lib/parking-colors';
@@ -661,10 +662,13 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
   // Carrega configuração de monitor para a cidade atual
   useEffect(() => {
     if (!cidade || !visivel) return;
-    getDoc(doc(db, 'monitor_config', cidade)).then(snap => {
-      if (snap.exists()) setMonitorConfig(snap.data() as MonitorConfig);
-      else setMonitorConfig(DEFAULT_MONITOR_CONFIG);
-    }).catch(() => setMonitorConfig(DEFAULT_MONITOR_CONFIG));
+    (async () => {
+      try {
+        const { data, error } = await supabase.from('monitor_config').select('*').eq('cidade', cidade).single();
+        if (error || !data) setMonitorConfig(DEFAULT_MONITOR_CONFIG);
+        else setMonitorConfig({ M1: data.m1, M2: data.m2, M3: data.m3 } as MonitorConfig);
+      } catch { setMonitorConfig(DEFAULT_MONITOR_CONFIG); }
+    })();
   }, [cidade, visivel]);
 
   // Verifica parkings que violam thresholds dos monitores

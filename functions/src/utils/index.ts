@@ -65,9 +65,12 @@ export async function logEvento(params: {
   meta?: Record<string, unknown>;
 }) {
   try {
-    await db().collection('eventos').add({
-      ...params,
-      criadoEm: admin.firestore.FieldValue.serverTimestamp()
+    const { supabaseInsert } = await import('../lib/supabase-rest');
+    await supabaseInsert('eventos', {
+      tipo: 'audit',
+      titulo: params.descricao,
+      dados: { uid: params.uid, email: params.email, estacaoId: params.estacaoId, meta: params.meta },
+      criado_em: new Date().toISOString(),
     });
   } catch (e) {
     console.error('[logEvento] erro:', e);

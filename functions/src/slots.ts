@@ -34,14 +34,20 @@ interface TelegramTarget {
 
 async function getBotToken(): Promise<string> {
   try {
-    // Supabase-first
+    // Supabase config_telegram (where DashboardManager saves)
+    const supaCfg = await getAppSetting<Record<string, any>>('config_telegram');
+    const cfgToken = String(supaCfg?.bot_token || supaCfg?.botToken || '').trim();
+    if (cfgToken) return cfgToken;
+
+    // Supabase app_settings/telegram (legacy key)
     const supa = await getAppSetting<Record<string, any>>('telegram');
     const supaToken = String(supa?.bot_token || supa?.botToken || '').trim();
     if (supaToken) return supaToken;
 
-    // Fallback Firestore
-    const snap = await db.collection('telegram_config').doc('global').get();
-    return snap.data()?.botToken ?? '';
+    // Supabase telegram_config table
+    const { getTelegramConfigSupa } = await import('./telegram-supabase');
+    const tgCfg = await getTelegramConfigSupa('global');
+    return String(tgCfg?.bot_token || '').trim();
   } catch {
     return '';
   }
@@ -114,55 +120,44 @@ const CARGO_PARA_GRUPO: Record<string, { grupo: string; topico: string }> = {
 };
 
 async function getConfig(): Promise<{ global: ConfigGlobal; cidades: Record<string, CidadeConfig> }> {
-  // Onda G: tenta Supabase telegram_config primeiro, depois Firestore
+  // Supabase telegram_config table
   let supaTgCfg: Record<string, any> | null = null;
   try {
     const { getTelegramConfigSupa } = await import('./telegram-supabase');
     supaTgCfg = await getTelegramConfigSupa('global');
   } catch { /* fallback */ }
 
-  const [supaTelegram, gSnap, cSnap, legSnap] = await Promise.all([
+  const [supaCfgTelegram, supaTelegram] = await Promise.all([
+    getAppSetting<Record<string, any>>('config_telegram'),
     getAppSetting<Record<string, any>>('telegram'),
-    db.collection('telegram_config').doc('global').get(),
-    db.collection('telegram_config').doc('cidades').get(),
-    db.collection('config').doc('telegram').get(),   // onde DashboardManager salva
   ]);
 
-  // Monta config global unificando as fontes
-  const gData  = gSnap.data()  ?? {};
-  const legData= legSnap.data() ?? {};
-
-  // Prioridade: Supabase telegram_config → app_settings/telegram → Firestore telegram_config/global → config/telegram
+  // Prioridade: Supabase telegram_config → app_settings/config_telegram → app_settings/telegram
   const botToken = (
     supaTgCfg?.bot_token ||
-    supaTelegram?.bot_token || supaTelegram?.botToken ||
-    gData.botToken || gData.bot_token ||
-    legData.botToken || legData.bot_token || '') as string;
-  // Chat ID do grupo Guard Reports (usado como fallback para alertas)
+    supaCfgTelegram?.bot_token || supaCfgTelegram?.botToken ||
+    supaTelegram?.bot_token || supaTelegram?.botToken || '') as string;
+
   const guardChatId = (
     supaTgCfg?.guard_chat_id || supaTgCfg?.relatorios_chat_id ||
-    supaTelegram?.relatorios_chat_id || supaTelegram?.relatoriosChatId || supaTelegram?.chat_id ||
-    gData.relatoriosChatId || gData.chat_id ||
-    legData.relatoriosChatId || legData.chat_id || '') as string;
+    supaCfgTelegram?.chat_id || supaCfgTelegram?.relatoriosChatId ||
+    supaTelegram?.relatorios_chat_id || supaTelegram?.relatoriosChatId || supaTelegram?.chat_id || '') as string;
 
   const globalCfg: ConfigGlobal = {
-    ...{ botToken: '', diretoria: [], regionais: [] },
-    ...gData,
-    // Overlay Supabase fields if available
-    ...(supaTgCfg?.diretoria ? { diretoria: supaTgCfg.diretoria } : {}),
-    ...(supaTgCfg?.regionais ? { regionais: supaTgCfg.regionais } : {}),
     botToken,
-    guardChatId,   // campo extra para fallback
+    diretoria: supaTgCfg?.diretoria ?? [],
+    regionais: supaTgCfg?.regionais ?? [],
+    guardChatId,
   };
 
-  // Cidades: Supabase cidades jsonb → Firestore telegram_config/cidades
+  // Cidades from Supabase telegram_config
   const cidadesSupa = (supaTgCfg?.cidades && typeof supaTgCfg.cidades === 'object')
     ? supaTgCfg.cidades as Record<string, CidadeConfig>
-    : null;
+    : {};
 
   return {
     global: globalCfg,
-    cidades: cidadesSupa ?? (cSnap.data() ?? {}) as Record<string, CidadeConfig>,
+    cidades: cidadesSupa,
   };
 }
 

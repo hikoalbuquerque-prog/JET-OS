@@ -6,11 +6,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  collection, query, where, orderBy, onSnapshot,
-  doc, setDoc, getDoc, serverTimestamp,
+  collection, query, orderBy, onSnapshot,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { guardProviderSupabase, carregarOcorrenciasSupabase } from '../lib/ocorrencias-supabase';
+import { supabase } from '../lib/supabase';
 
 // i18n: padrão TermosUsoGate (sem json) — objeto de textos { pt, en, es, ru }
 // selecionado pelo idioma atual. PT é a fonte fiel. O objeto de estilos já usa o
@@ -224,10 +224,13 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
   // Carrega dados salvos + ocorrências do Guard
   useEffect(() => {
     if (!visivel) return;
-    // Carrega config salva
-    getDoc(doc(db, 'guard_config', 'controle_perdas')).then(d => {
-      if (d.exists() && d.data().filiais) setFiliais(d.data().filiais);
-    }).catch(() => {});
+    // Carrega config salva do Supabase
+    (async () => {
+      try {
+        const { data, error } = await supabase.from('guard_controle_perdas').select('*');
+        if (!error && data && data.length > 0) setFiliais(data as FilialDados[]);
+      } catch { /* keep defaults */ }
+    })();
 
     // Escuta ocorrências — Fase 2 / Onda B: leitura do Supabase atrás de flag (read-only).
     if (guardProviderSupabase()) {
@@ -293,7 +296,9 @@ export default function PainelControlePerdasSeg({ visivel, onFechar, roleUsuario
     const novas = filiais.map(f => f.filial === filialNome ? { ...f, status1_24h: s1, status2_7d: s2 } : f);
     setFiliais(novas);
     setEditando(null);
-    await setDoc(doc(db, 'guard_config', 'controle_perdas'), { filiais: novas, atualizadoEm: serverTimestamp() }, { merge: true });
+    await supabase.from('guard_controle_perdas').upsert(
+      novas.map(f => ({ ...f, atualizado_em: new Date().toISOString() }))
+    );
   };
 
   const regioes = [...new Set(filiais.map(f => f.regiao))];

@@ -7,14 +7,9 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { supabase } from '../lib/supabase';
 import {
-  collection, query, where, orderBy, onSnapshot, limit,
-  doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc,
-  serverTimestamp, Timestamp, setDoc,
-} from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import {
-  escalaProviderSupabase, subscribeEscala, criarSlotsEscala, salvarDisponibilidade, fetchDisponibilidades,
+  subscribeEscala, criarSlotsEscala, salvarDisponibilidade, fetchDisponibilidades,
   salvarDisponibilidadeForm, delDisponibilidade, salvarEscalaConfig, addFeriado, delFeriado, fetchEscala,
   fetchPrestadores, fetchPenalidadesList, salvarPenalidade, fetchDemandaGojet, logEscalaAudit,
   aceitarEscala, fetchMetricasEscala,
@@ -457,45 +452,14 @@ function AbaEscala({usuario,cidade}:AbaProps){
   const [metricas,     setMetricas    ]=useState<any>(null);
 
   useEffect(()=>{
-    // Migração: lê a escala do Supabase (polling) quando o flag está ligado.
-    if (escalaProviderSupabase()) {
-      fetchDemandaGojet(cidade).then(setDemanda).catch(()=>{});
-      fetchPrestadores(cidade).then(setPrests).catch(()=>{});
-      fetchMetricasEscala(cidade).then(setMetricas).catch(()=>{});
-      return subscribeEscala(cidade, d => {
-        setSlots(d.slots as any); setAceites(d.aceites as any);
-        setDisps(d.disponibilidades as any); setFeriados(d.feriados as any);
-        if (d.cfg) setCfg(d.cfg as any);
-      });
-    }
-    const hojeDate = new Date(); hojeDate.setHours(0,0,0,0);
-    const limDate  = new Date(hojeDate.getTime()+7*86400000);
-    const hojeStr  = hojeDate.toLocaleDateString('pt-BR');
-
-    console.log('[SlotsTeams] mount, cidade=', JSON.stringify(cidade), 'supabase=', escalaProviderSupabase());
-    const q=cidade?query(collection(db,'slots'),where('cidade','==',cidade),limit(200)):query(collection(db,'slots'),limit(200));
-    const u1=onSnapshot(q,s=>{
-      console.log('[SlotsTeams] onSnapshot docs=', s.size, s.docs.slice(0,2).map(d=>d.id));
-      const mapped = s.docs.map(d=>({id:d.id,...d.data()} as Slot));
-      const filtered = mapped.filter(sl=>{
-        try{
-          let dt: Date;
-          if(sl.turnoInicio && sl.turnoInicio.includes('-')){
-            dt=new Date(sl.turnoInicio.slice(0,10)+'T00:00:00');
-          } else if(sl.dataSlot){
-            const[dd,mm,yy]=sl.dataSlot.split('/').map(Number);dt=new Date(yy,mm-1,dd);
-          } else return false;
-          return dt>=hojeDate&&dt<=limDate;
-        }catch{return false;}
-      });
-      console.log('[SlotsTeams] filtered=', filtered.length, 'of', mapped.length);
-      setSlots(filtered);
-    }, err => console.error('[SlotsTeams] onSnapshot ERROR:', err));
-    const u2=onSnapshot(collection(db,'slot_aceites'),s=>setAceites(s.docs.map(d=>({id:d.id,...d.data()} as SlotAceite))));
-    getDocs(cidade?query(collection(db,'disponibilidades'),where('cidade','==',cidade)):query(collection(db,'disponibilidades'))).then(s=>setDisps(s.docs.map(d=>({id:d.id,...d.data()} as Disponibilidade))));
-    getDocs(collection(db,'feriados')).then(s=>setFeriados(s.docs.map(d=>({id:d.id,...d.data()} as Feriado))));
-    getDoc(doc(db,'escala_config',cidade||'global')).then(d=>{if(d.exists())setCfg(d.data() as EscalaConfig);});
-    return()=>{u1();u2();};
+    fetchDemandaGojet(cidade).then(setDemanda).catch(()=>{});
+    fetchPrestadores(cidade).then(setPrests).catch(()=>{});
+    fetchMetricasEscala(cidade).then(setMetricas).catch(()=>{});
+    return subscribeEscala(cidade, d => {
+      setSlots(d.slots as any); setAceites(d.aceites as any);
+      setDisps(d.disponibilidades as any); setFeriados(d.feriados as any);
+      if (d.cfg) setCfg(d.cfg as any);
+    });
   },[cidade]);
 
   // Gera prévia da escala para os próximos N dias
@@ -564,34 +528,13 @@ function AbaEscala({usuario,cidade}:AbaProps){
   const confirmarEscala = async()=>{
     if(!previa.length){toast(pick(TX.nenhumSlotCriar),'erro');return;}
     setGerando(true);
-    if (escalaProviderSupabase()) {
-      try {
-        const n = await criarSlotsEscala(previa, usuario, cfg);
-        await logEscalaAudit('geracao_escala', { dias: diasAhead, slots: n, demandaBonus: demanda.bonus }, usuario.uid, cidade);
-        toast(`${n} ${pick(TX.slotsCriadosAuto)}`);
-      }
-      catch(e:any){ toast(e?.message||pick(TX.erroAoCriar),'erro'); }
-      setGerando(false); setShowPrevia(false); setPrevia([]); return;
+    try {
+      const n = await criarSlotsEscala(previa, usuario, cfg);
+      await logEscalaAudit('geracao_escala', { dias: diasAhead, slots: n, demandaBonus: demanda.bonus }, usuario.uid, cidade);
+      toast(`${n} ${pick(TX.slotsCriadosAuto)}`);
     }
-    let criados=0;
-    for(const p of previa){
-      await addDoc(collection(db,'slots'),{
-        turno:p.turno, turnoLabel:`${p.turno} — ${p.horaIni} às ${p.horaFim}`,
-        horaIni:p.horaIni, horaFim:p.horaFim,
-        zona:p.zona||'Auto', tipo:p.tipo, qtdPessoas:p.qtdPessoas,
-        status:'Aberto', dataSlot:p.dataSlot, cidade:p.cidade,
-        geradoAuto:true, feriado:p.isFeriado,
-        confirmacaoMin:cfg?.turnosConfig?.[p.turno]?.qtdPadrao||120,
-        reaberturaSemConfMin:90,
-        criadoEm:serverTimestamp(),
-        criadoPorId:usuario.uid, criadoPorNome:usuario.nome,
-      });
-      criados++;
-    }
-    toast(`${criados} ${pick(TX.slotsCriadosAuto)}`);
-    setGerando(false);
-    setShowPrevia(false);
-    setPrevia([]);
+    catch(e:any){ toast(e?.message||pick(TX.erroAoCriar),'erro'); }
+    setGerando(false); setShowPrevia(false); setPrevia([]);
   };
 
   // Stats da semana
@@ -742,16 +685,8 @@ function AbaEscala({usuario,cidade}:AbaProps){
                         <button onClick={async()=>{
                           if(!window.confirm(`Aceitar slot ${sl.turno||''} ${hora}–${horaFim} em ${sl.zona||sl.zonaOrigem||''}?`)) return;
                           try{
-                            if(escalaProviderSupabase()){
-                              const r:any=await aceitarEscala(sl.id);
-                              toast(r?.jaAceito?pick(TX.jaAceitou):pick(TX.aceitoOk));
-                            } else {
-                              await updateDoc(doc(db,'slots',sl.id),{
-                                status:'aceito', aceitoPor:usuario.uid, aceitoPorNome:usuario.nome,
-                                aceitoEm:serverTimestamp(), atualizadoEm:serverTimestamp(),
-                              });
-                              toast(pick(TX.aceitoOk));
-                            }
+                            const r:any=await aceitarEscala(sl.id);
+                            toast(r?.jaAceito?pick(TX.jaAceitou):pick(TX.aceitoOk));
                           }catch(e:any){toast(e?.message||pick(TX.erroGenerico),'erro');}
                         }}
                           style={{...S.btn(T.green),padding:'4px 10px',fontSize:11,marginTop:5,width:'100%'}}>Aceitar</button>
@@ -765,11 +700,11 @@ function AbaEscala({usuario,cidade}:AbaProps){
                           <button onClick={async()=>{
                             if(!window.confirm('Desistir deste slot?')) return;
                             try{
-                              await updateDoc(doc(db,'slots',sl.id),{
-                                status:'aberto', aceitoPor:null, aceitoPorNome:null, aceitoEm:null,
-                                motivoCancelamento:'desistência_prestador', canceladoPor:usuario.uid,
-                                atualizadoEm:serverTimestamp(),
-                              });
+                              const { error } = await supabase.from('slots_escala').update({
+                                status:'aberto', aceito_por:null, aceito_por_nome:null, aceito_em:null,
+                                motivo_cancelamento:'desistência_prestador', cancelado_por:usuario.uid,
+                              }).eq('id',sl.id);
+                              if(error) throw error;
                               toast('Slot liberado');
                             }catch(e:any){toast(e?.message||'Erro','erro');}
                           }} style={{...S.btn(T.red,true),padding:'2px 6px',fontSize:9}}>Desistir</button>
@@ -782,11 +717,11 @@ function AbaEscala({usuario,cidade}:AbaProps){
                             <button onClick={async()=>{
                               if(!window.confirm(`Remover ${sl.aceitoPorNome||'prestador'} deste slot?`)) return;
                               try{
-                                await updateDoc(doc(db,'slots',sl.id),{
-                                  status:'aberto', aceitoPor:null, aceitoPorNome:null, aceitoEm:null,
-                                  motivoCancelamento:'removido_admin', canceladoPor:usuario.uid,
-                                  atualizadoEm:serverTimestamp(),
-                                });
+                                const { error } = await supabase.from('slots_escala').update({
+                                  status:'aberto', aceito_por:null, aceito_por_nome:null, aceito_em:null,
+                                  motivo_cancelamento:'removido_admin', cancelado_por:usuario.uid,
+                                }).eq('id',sl.id);
+                                if(error) throw error;
                                 toast('Prestador removido do slot');
                               }catch(e:any){toast(e?.message||'Erro','erro');}
                             }} style={{...S.btn(T.red,true),padding:'2px 6px',fontSize:9}}>Remover</button>
@@ -871,33 +806,18 @@ function AbaDisponibilidade({usuario,cidade}:AbaProps){
   const [salvandoMinha,setSalvandoMinha]=useState(false);
 
   useEffect(()=>{
-    // Migração: disponibilidades do Supabase (polling) quando o flag está ligado.
-    if (escalaProviderSupabase()) {
-      let vivo=true;
-      const aplicar=(all:Disponibilidade[])=>{
-        if(!vivo)return; setLista(all);
-        if(isCampo){ const meu=all.find(d=>d.uid===usuario.uid)||null; setMinha(meu); if(meu) setMinhaForm({...meu}); }
-      };
-      const run=()=>fetchDisponibilidades(cidade).then(a=>aplicar(a as any)).catch(e=>console.warn('[escala-supa]',e?.message));
-      run(); const t=setInterval(run,10000);
-      return ()=>{vivo=false;clearInterval(t);};
-    }
-    const q=cidade?query(collection(db,'disponibilidades'),where('cidade','==',cidade)):query(collection(db,'disponibilidades'));
-    const u=onSnapshot(q,s=>{
-      const all=s.docs.map(d=>({id:d.id,...d.data()} as Disponibilidade));
-      setLista(all);
-      // self-service: encontra registro do próprio usuário
-      if(isCampo){
-        const meu=all.find(d=>d.uid===usuario.uid)||null;
-        setMinha(meu);
-        if(meu) setMinhaForm({...meu});
-      }
+    let vivo=true;
+    const aplicar=(all:Disponibilidade[])=>{
+      if(!vivo)return; setLista(all);
+      if(isCampo){ const meu=all.find(d=>d.uid===usuario.uid)||null; setMinha(meu); if(meu) setMinhaForm({...meu}); }
+    };
+    const run=()=>fetchDisponibilidades(cidade).then(a=>aplicar(a as any)).catch(e=>console.warn('[escala-supa]',e?.message));
+    run(); const t=setInterval(run,10000);
+    // zonas from supabase
+    supabase.from('slots_escala').select('zona').eq('cidade',cidade||'').limit(50).then(({data})=>{
+      const set=new Set<string>();(data||[]).forEach((r:any)=>{if(r.zona)set.add(r.zona);});setZonas(Array.from(set).sort());
     });
-    // Buscar zonas disponíveis
-    getDocs(cidade?query(collection(db,'slots'),where('cidade','==',cidade),limit(50)):query(collection(db,'slots'),limit(50))).then(s=>{
-      const set=new Set<string>();s.docs.forEach(d=>{const z=d.data().zona;if(z)set.add(z);});setZonas(Array.from(set).sort());
-    });
-    return u;
+    return ()=>{vivo=false;clearInterval(t);};
   },[cidade,isCampo,usuario.uid]);
 
   const salvarMinha=async()=>{
@@ -908,16 +828,9 @@ function AbaDisponibilidade({usuario,cidade}:AbaProps){
       uid:usuario.uid,
       nome:usuario.nome||usuario.email,
       cidade:cidade||'SP',
-      atualizadoEm:serverTimestamp(),
     };
     try{
-      if (escalaProviderSupabase()) {
-        await salvarDisponibilidade(payload);
-      } else if(minha?.id){
-        await updateDoc(doc(db,'disponibilidades',minha.id),payload);
-      }else{
-        await addDoc(collection(db,'disponibilidades'),{...payload,criadoEm:serverTimestamp()});
-      }
+      await salvarDisponibilidade(payload);
       toast(pick(TX.dispSalva));
     }catch(e:any){toast(e.message,'erro');}
     finally{setSalvandoMinha(false);}
@@ -928,13 +841,9 @@ function AbaDisponibilidade({usuario,cidade}:AbaProps){
   const salvar=async()=>{
     if(!form.nome?.trim()||!form.funcao){toast(pick(TX.nomeFuncaoObrig),'erro');return;}
     setSalvando(true);
-    const payload={...form,cidade:cidade||'SP',atualizadoEm:serverTimestamp()};
     try{
-      if (escalaProviderSupabase()) {
-        await salvarDisponibilidadeForm({ ...form, id: editando?.id, cidade: cidade||'SP' });
-        toast(editando?.id?pick(TX.atualizado):pick(TX.cadastrado));
-      } else if(editando?.id){await updateDoc(doc(db,'disponibilidades',editando.id),payload);toast(pick(TX.atualizado));}
-      else{await addDoc(collection(db,'disponibilidades'),{...payload,criadoEm:serverTimestamp()});toast(pick(TX.cadastrado));}
+      await salvarDisponibilidadeForm({ ...form, id: editando?.id, cidade: cidade||'SP' });
+      toast(editando?.id?pick(TX.atualizado):pick(TX.cadastrado));
       setModal(false);
     }catch(e:any){toast(e.message,'erro');}finally{setSalvando(false);}
   };
@@ -1029,7 +938,7 @@ function AbaDisponibilidade({usuario,cidade}:AbaProps){
                 <td style={{...S.td,fontSize:11,color:T.dim}}>{(d.zonasDisponiveis||[]).slice(0,2).join(', ')}{(d.zonasDisponiveis||[]).length>2?'...':''}</td>
                 <td style={S.td}><div style={{display:'flex',gap:4}}>
                   <button onClick={()=>{setEditando(d);setForm({...d});setModal(true);}} style={{...S.btn(T.bluel,true),padding:'3px 8px',fontSize:11}}>✏</button>
-                  <button onClick={async()=>{if(d.id&&window.confirm(`${pick(TX.removerConfirm)} ${d.nome}?`)){ if(escalaProviderSupabase()){await delDisponibilidade(d.id);}else{await deleteDoc(doc(db,'disponibilidades',d.id));} toast(pick(TX.removido));}}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
+                  <button onClick={async()=>{if(d.id&&window.confirm(`${pick(TX.removerConfirm)} ${d.nome}?`)){ await delDisponibilidade(d.id); toast(pick(TX.removido));}}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
                 </div></td>
               </tr>
             ))}
@@ -1095,15 +1004,10 @@ function AbaRanking({cidade}:{cidade:string}){
 
   useEffect(()=>{
     setLoading(true);
-    if (escalaProviderSupabase()) {
-      let vivo=true;
-      const run=()=>fetchPrestadores(cidade).then(p=>{ if(vivo){setPrestadores(p as any);setLoading(false);} }).catch(e=>{console.warn('[escala-supa]',e?.message);setLoading(false);});
-      run(); const t=setInterval(run,15000);
-      return ()=>{vivo=false;clearInterval(t);};
-    }
-    const q=cidade?query(collection(db,'prestadores'),where('cidade','==',cidade),orderBy('pontos','desc'),limit(100)):query(collection(db,'prestadores'),orderBy('pontos','desc'),limit(100));
-    const u=onSnapshot(q,s=>{setPrestadores(s.docs.map(d=>({id:d.id,...d.data()} as Prestador)));setLoading(false);});
-    return u;
+    let vivo=true;
+    const run=()=>fetchPrestadores(cidade).then(p=>{ if(vivo){setPrestadores(p as any);setLoading(false);} }).catch(e=>{console.warn('[escala-supa]',e?.message);setLoading(false);});
+    run(); const t=setInterval(run,15000);
+    return ()=>{vivo=false;clearInterval(t);};
   },[cidade]);
 
   const filtrados=useMemo(()=>prestadores.filter(p=>funcaoFilt==='todos'||p.funcao===funcaoFilt),[prestadores,funcaoFilt]);
@@ -1242,16 +1146,10 @@ function AbaPenalidades({usuario,cidade}:AbaProps){
   const [salvando, setSalvando]=useState(false);
 
   useEffect(()=>{
-    if (escalaProviderSupabase()) {
-      let vivo=true;
-      const run=()=>Promise.all([fetchPenalidadesList(cidade),fetchPrestadores(cidade)]).then(([pen,pr])=>{ if(vivo){setLista(pen as any);setPrests(pr as any);} }).catch(e=>console.warn('[escala-supa]',e?.message));
-      run(); const t=setInterval(run,15000);
-      return ()=>{vivo=false;clearInterval(t);};
-    }
-    const q=cidade?query(collection(db,'penalidades'),where('cidade','==',cidade),orderBy('criadoEm','desc'),limit(200)):query(collection(db,'penalidades'),orderBy('criadoEm','desc'),limit(200));
-    const u=onSnapshot(q,s=>setLista(s.docs.map(d=>({id:d.id,...d.data()} as Penalidade))));
-    getDocs(cidade?query(collection(db,'prestadores'),where('cidade','==',cidade)):query(collection(db,'prestadores'),limit(100))).then(s=>setPrests(s.docs.map(d=>({id:d.id,...(d.data() as any)}))));
-    return u;
+    let vivo=true;
+    const run=()=>Promise.all([fetchPenalidadesList(cidade),fetchPrestadores(cidade)]).then(([pen,pr])=>{ if(vivo){setLista(pen as any);setPrests(pr as any);} }).catch(e=>console.warn('[escala-supa]',e?.message));
+    run(); const t=setInterval(run,15000);
+    return ()=>{vivo=false;clearInterval(t);};
   },[cidade]);
 
   const TIPOS_PEN=[
@@ -1265,20 +1163,7 @@ function AbaPenalidades({usuario,cidade}:AbaProps){
     if(!form.uid||!form.descricao){toast(pick(TX.selPrestDesc),'erro');return;}
     setSalvando(true);
     try{
-      if (escalaProviderSupabase()) {
-        await salvarPenalidade(form, usuario.uid, cidade);
-      } else {
-      await addDoc(collection(db,'penalidades'),{...form,cidade:cidade||'SP',aplicadoPor:usuario.uid,criadoEm:serverTimestamp()});
-      // Deduzir pontos do prestador
-      const pDoc=await getDocs(query(collection(db,'prestadores'),where('uid','==',form.uid),limit(1)));
-      if(!pDoc.empty){
-        await updateDoc(pDoc.docs[0].ref,{
-          pontos:Math.max(0,(pDoc.docs[0].data().pontos||0)-(form.pontosDeducao||0)),
-          totalFaltas:form.tipo==='falta'?(pDoc.docs[0].data().totalFaltas||0)+1:pDoc.docs[0].data().totalFaltas||0,
-          totalAtrasos:form.tipo==='atraso'?(pDoc.docs[0].data().totalAtrasos||0)+1:pDoc.docs[0].data().totalAtrasos||0,
-        });
-      }
-      }
+      await salvarPenalidade(form, usuario.uid, cidade);
       toast(pick(TX.penAplicada));setModal(false);
       setForm({tipo:'falta',pontosDeducao:30,descricao:'',cidade:cidade||'SP'});
     }catch(e:any){toast(e.message,'erro');}finally{setSalvando(false);}
@@ -1368,27 +1253,20 @@ function AbaConfigTeams({cidade}:{cidade:string}){
 
   const recarregarFeriados=()=>fetchEscala(cidade).then(d=>setFeriados(d.feriados as any)).catch(()=>{});
   useEffect(()=>{
-    if (escalaProviderSupabase()) {
-      fetchEscala(cidade).then(d=>{ if(d.cfg) setCfg(prev=>({...prev,...d.cfg})); setFeriados(d.feriados as any); }).catch(e=>console.warn('[escala-supa]',e?.message));
-      return;
-    }
-    getDoc(doc(db,'escala_config',cidade||'global')).then(d=>{if(d.exists())setCfg(prev=>({...prev,...d.data() as EscalaConfig}));});
-    onSnapshot(collection(db,'feriados'),s=>setFeriados(s.docs.map(d=>({id:d.id,...d.data()} as Feriado))));
+    fetchEscala(cidade).then(d=>{ if(d.cfg) setCfg(prev=>({...prev,...d.cfg})); setFeriados(d.feriados as any); }).catch(e=>console.warn('[escala-supa]',e?.message));
   },[cidade]);
 
   const salvar=async()=>{
     setSalvando(true);
     try{
-      if (escalaProviderSupabase()) { await salvarEscalaConfig(cfg, cidade); toast(pick(TX.configSalva)); }
-      else { await setDoc(doc(db,'escala_config',cidade||'global'),{...cfg,atualizadoEm:serverTimestamp()}); toast(pick(TX.configSalva)); }
+      await salvarEscalaConfig(cfg, cidade); toast(pick(TX.configSalva));
     }
     catch(e:any){toast(e.message,'erro');}finally{setSalvando(false);}
   };
 
   const adicionarFeriado=async()=>{
     if(!novoFeriado.data||!novoFeriado.nome){toast(pick(TX.dataNomeObrig),'erro');return;}
-    if (escalaProviderSupabase()) { await addFeriado(novoFeriado, cidade); await recarregarFeriados(); }
-    else { await addDoc(collection(db,'feriados'),{...novoFeriado,cidade:novoFeriado.nacional?null:cidade,criadoEm:serverTimestamp()}); }
+    await addFeriado(novoFeriado, cidade); await recarregarFeriados();
     toast(pick(TX.feriadoAdd));setNovoFeriado({data:'',nome:'',nacional:false});
   };
 
@@ -1471,7 +1349,7 @@ function AbaConfigTeams({cidade}:{cidade:string}){
               <span style={{fontFamily:'monospace',fontSize:11,color:T.dim,flexShrink:0}}>{f.data}</span>
               <span style={{flex:1,fontSize:12,color:T.txt}}>{f.nome}</span>
               {f.nacional&&<span style={S.chip(T.orange)}>{pick(TX.nacional)}</span>}
-              <button onClick={async()=>{if(f.id){ if(escalaProviderSupabase()){await delFeriado(f.id);await recarregarFeriados();}else{await deleteDoc(doc(db,'feriados',f.id));} }}} style={{...S.btn(T.red,true),padding:'2px 6px',fontSize:10}}>🗑</button>
+              <button onClick={async()=>{if(f.id){ await delFeriado(f.id);await recarregarFeriados(); }}} style={{...S.btn(T.red,true),padding:'2px 6px',fontSize:10}}>🗑</button>
             </div>
           ))}
         </div>

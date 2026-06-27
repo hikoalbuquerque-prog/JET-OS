@@ -11,6 +11,7 @@ import {
   Timestamp, writeBatch,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
+import { supabase } from '../lib/supabase';
 import { logisticaWriteSupabase, criarTurnoLogisticaSupabase } from '../lib/onda-b-supabase';
 import { usuariosReadSupabase, fetchUsuarios } from '../lib/usuarios-supabase';
 import { uploadComRetry } from '../lib/uploadUtils';
@@ -1573,12 +1574,8 @@ function CriarTarefa({ usuario, cidade, pais, agentes, parkingInicial, onCriada 
 
   // Carrega prazos automáticos por tipo da config_logistica
   useEffect(() => {
-    getDoc(doc(db, 'config_logistica', cidade || 'global')).then((d: any) => {
-      if (d.exists()) {
-        const data = d.data();
-        if (data.prazoHoras) setPrazoAuto(data.prazoHoras);
-      }
-    }).catch(() => {});
+    supabase.from('config_logistica').select('prazo_horas').eq('cidade', cidade || 'global').maybeSingle()
+      .then(({ data }) => { if (data?.prazo_horas) setPrazoAuto(data.prazo_horas); });
   }, [cidade]);
 
   // Auto-preenche prazo quando muda o tipo de tarefa

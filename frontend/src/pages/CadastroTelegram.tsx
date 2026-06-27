@@ -1,10 +1,8 @@
 // src/pages/CadastroTelegram.tsx
 import { useState } from 'react';
-import { doc, setDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
-import { db } from '@/lib/firebase';
 import { supabase } from '@/lib/supabase';
 
 const T = {
@@ -106,42 +104,15 @@ export default function CadastroTelegram() {
 
       const uid = signUpData.user.id;
 
-      // Salvar dados no Firestore
-      await setDoc(doc(db, 'usuarios', uid), {
-        uid,
+      // Supabase: gravar perfil do usuário
+      const { escreverUsuarioSupabase } = await import('../lib/usuarios-supabase');
+      await escreverUsuarioSupabase(uid, {
         email: formData.email,
         nome: formData.nome,
         role: formData.role,
         ativo: true,
         telegramId: parseInt(formData.telegramId),
         telegramUsername: formData.telegramUsername || null,
-        criadoEm: new Date().toISOString(),
-      });
-
-      // Dual-write Supabase (best-effort)
-      try {
-        const { usuariosWriteSupabase, escreverUsuarioSupabase } = await import('../lib/usuarios-supabase');
-        if (usuariosWriteSupabase()) {
-          await escreverUsuarioSupabase(uid, {
-            email: formData.email,
-            nome: formData.nome,
-            role: formData.role,
-            ativo: true,
-            telegramId: parseInt(formData.telegramId),
-            telegramUsername: formData.telegramUsername || null,
-          });
-        }
-      } catch (e) { console.warn('[supa] cadastro usuario dual-write falhou', e); }
-
-      // Salvar também em prestadores (para geolocalização)
-      await setDoc(doc(db, 'prestadores', uid), {
-        uid,
-        email: formData.email,
-        nome: formData.nome,
-        telegramId: parseInt(formData.telegramId),
-        telegramUsername: formData.telegramUsername || null,
-        ativo: true,
-        criadoEm: new Date().toISOString(),
       });
 
       toast.success(pick(T.signupSuccess));

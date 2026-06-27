@@ -5,23 +5,8 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  collection, query, where, getDocs, addDoc, updateDoc, deleteDoc,
-  doc, serverTimestamp, Timestamp,
-} from 'firebase/firestore';
 import L from 'leaflet';
-import { db } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
-
-// Flag dual-run: localStorage.setItem('jet_estacoes_provider','supabase')
-const estacoesProviderSupabase = (): boolean => {
-  try {
-    const v = localStorage.getItem('jet_estacoes_provider');
-    if (v === 'supabase') return true;
-    if (v === 'firebase') return false;
-  } catch {}
-  return (import.meta.env.VITE_ESTACOES_PROVIDER as string) !== 'firebase';
-};
 
 const T = {
   statusPlanejado: { pt: 'Planejado', en: 'Planned', es: 'Planeado', ru: 'Запланировано' },
@@ -160,10 +145,8 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
       const now = new Date();
       const lista: Evento[] = raw
         .map((x: any) => {
-          const inicio = x.inicio instanceof Date ? x.inicio
-            : (x.inicio as Timestamp)?.toDate?.() ?? new Date(x.inicio ?? 0);
-          const fim = x.fim instanceof Date ? x.fim
-            : (x.fim as Timestamp)?.toDate?.() ?? new Date(x.fim ?? 0);
+          const inicio = x.inicio instanceof Date ? x.inicio : new Date(x.inicio ?? 0);
+          const fim = x.fim instanceof Date ? x.fim : new Date(x.fim ?? 0);
           const status: Evento['status'] = fim < now ? 'encerrado' : inicio <= now ? 'ativo' : 'planejado';
           return {
             id: x[idKey] ?? x.id,
@@ -182,42 +165,28 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
       setEventos(lista);
     };
 
-    if (estacoesProviderSupabase()) {
-      // ── Supabase ──
-      (async () => {
-        try {
-          const { data, error } = await supabase
-            .from('eventos')
-            .select('*')
-            .eq('cidade', cidade);
-          if (error) throw error;
-          processarLista(
-            (data ?? []).map((r: any) => ({
-              ...r,
-              inicio: r.inicio ? new Date(r.inicio) : new Date(0),
-              fim: r.fim ? new Date(r.fim) : new Date(0),
-            })),
-            'firebase_id',
-          );
-        } catch {
-          setErro(pick(T.erroCarregar));
-        } finally {
-          setLoading(false);
-        }
-      })();
-    } else {
-      // ── Firestore (fallback) ──
-      getDocs(query(
-        collection(db, 'eventos'),
-        where('cidade', '==', cidade),
-      )).then(snap => {
+    // ── Supabase ──
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('eventos')
+          .select('*')
+          .eq('cidade', cidade);
+        if (error) throw error;
         processarLista(
-          snap.docs.map(d => ({ ...d.data(), _docId: d.id })),
-          '_docId',
+          (data ?? []).map((r: any) => ({
+            ...r,
+            inicio: r.inicio ? new Date(r.inicio) : new Date(0),
+            fim: r.fim ? new Date(r.fim) : new Date(0),
+          })),
+          'id',
         );
-      }).catch(() => setErro(pick(T.erroCarregar)))
-        .finally(() => setLoading(false));
-    }
+      } catch {
+        setErro(pick(T.erroCarregar));
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [cidade]);
 
   // Pick-from-map: click no mapa para definir coordenadas
@@ -255,38 +224,48 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
     try {
       // Se já existia estação temporária, deleta a anterior
       if (ev.pontoGoJetEstacaoId) {
-        await deleteDoc(doc(db, 'estacoes', ev.pontoGoJetEstacaoId)).catch(() => {});
+        await supabase.from('estacoes').delete().eq('id', ev.pontoGoJetEstacaoId);
       }
 
       // Cria nova estação temporária
-      const estacaoRef = await addDoc(collection(db, 'estacoes'), {
-        tipoMonitor: 'M3',
-        temporario: true,
-        eventoId:   ev.id,
-        eventoNome: ev.nome,
-        eventoFim:  Timestamp.fromDate(ev.fim),
-        lat, lng,
-        targetBikes: target,
-        raio,
-        cidade,
-        nome: ev.nome,
-        ativo: true,
-        criadoEm: serverTimestamp(),
-      });
+      const { data: estacaoData, error: estacaoErr } = await supabase
+        .from('estacoes')
+        .insert({
+          tipo_monitor: 'M3',
+          temporario: true,
+          evento_id: ev.id,
+          evento_nome: ev.nome,
+          evento_fim: ev.fim.toISOString(),
+          lat, lng,
+          target_bikes: target,
+          raio,
+          cidade,
+          nome: ev.nome,
+          ativo: true,
+          criado_em: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+      if (estacaoErr) throw estacaoErr;
+      const estacaoId = estacaoData.id;
 
       // Atualiza o documento do evento com referência ao ponto
-      await updateDoc(doc(db, 'eventos', ev.id), {
-        pontoGoJetEstacaoId: estacaoRef.id,
-        pontoGoJetLat: lat,
-        pontoGoJetLng: lng,
-        pontoGoJetTarget: target,
-        pontoGoJetRaio: raio,
-        atualizadoEm: serverTimestamp(),
-      });
+      const { error: updErr } = await supabase
+        .from('eventos')
+        .update({
+          ponto_gojet_estacao_id: estacaoId,
+          ponto_gojet_lat: lat,
+          ponto_gojet_lng: lng,
+          ponto_gojet_target: target,
+          ponto_gojet_raio: raio,
+          atualizado_em: new Date().toISOString(),
+        })
+        .eq('id', ev.id);
+      if (updErr) throw updErr;
 
       // Atualiza estado local
       setEventos(prev => prev.map(e => e.id === ev.id
-        ? { ...e, pontoGoJetEstacaoId: estacaoRef.id, pontoGoJetLat: lat, pontoGoJetLng: lng, pontoGoJetTarget: target, pontoGoJetRaio: raio }
+        ? { ...e, pontoGoJetEstacaoId: estacaoId, pontoGoJetLat: lat, pontoGoJetLng: lng, pontoGoJetTarget: target, pontoGoJetRaio: raio }
         : e
       ));
       setEditandoId(null);
@@ -306,12 +285,12 @@ export function EventoGoJetPanel({ cidade, parkings, mapa, onFechar, onEstacaoCr
     if (!ev.pontoGoJetEstacaoId) return;
     setSalvando(true);
     try {
-      await deleteDoc(doc(db, 'estacoes', ev.pontoGoJetEstacaoId));
-      await updateDoc(doc(db, 'eventos', ev.id), {
-        pontoGoJetEstacaoId: null,
-        pontoGoJetLat: null, pontoGoJetLng: null,
-        pontoGoJetTarget: null, pontoGoJetRaio: null,
-      });
+      await supabase.from('estacoes').delete().eq('id', ev.pontoGoJetEstacaoId);
+      await supabase.from('eventos').update({
+        ponto_gojet_estacao_id: null,
+        ponto_gojet_lat: null, ponto_gojet_lng: null,
+        ponto_gojet_target: null, ponto_gojet_raio: null,
+      }).eq('id', ev.id);
       setEventos(prev => prev.map(e => e.id === ev.id
         ? { ...e, pontoGoJetEstacaoId: undefined, pontoGoJetLat: undefined, pontoGoJetLng: undefined }
         : e

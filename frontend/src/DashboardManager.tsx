@@ -2834,35 +2834,28 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
   const [salvando,    setSalvando]    = useState(false);
   const [reportLang,  setReportLang]  = useState('pt');
 
-  // Carregar config salva no Firestore
+  // Carregar config salva no Supabase (app_settings)
   useEffect(() => {
-    // Tenta carregar de config/telegram primeiro, depois telegram_config/global
-    import('firebase/firestore').then(({ getDoc, doc: fDoc }) => {
-      getDoc(fDoc(db, 'config', 'telegram')).then(snap => {
-        if (snap.exists()) {
-          const d = snap.data();
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from('app_settings')
+          .select('valor')
+          .eq('chave', 'config_telegram')
+          .single();
+        if (data?.valor) {
+          const d = data.valor as Record<string, any>;
           const token  = d.bot_token || d.botToken || '';
           const chatId = d.chat_id   || d.relatoriosChatId || d.chatId || '';
-          if (token || chatId) { setConfig({ token, chatId }); return; }
+          if (token || chatId) setConfig({ token, chatId });
         }
-        // Fallback: telegram_config/global
-        return getDoc(fDoc(db, 'telegram_config', 'global')).then(snap2 => {
-          if (snap2.exists()) {
-            const d = snap2.data();
-            setConfig({
-              token:  d.botToken || d.bot_token || '',
-              chatId: d.relatoriosChatId || d.chat_id || d.chatId || '',
-            });
-          }
-        });
-      }).catch(() => {});
-    });
+      } catch {}
+    })();
   }, []);
 
   const salvarConfig = async () => {
     setSalvando(true);
     try {
-      const { setDoc, doc: fDoc } = await import('firebase/firestore');
       const token  = config.token.trim();
       const chatId = config.chatId.trim();
 
@@ -2871,20 +2864,19 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
         setSalvando(false); return;
       }
 
-      // Salva nos dois caminhos que a Cloud Function verifica
       const payload = {
         bot_token:        token,
         chat_id:          chatId,
-        botToken:         token,          // alias novo
-        relatoriosChatId: chatId,         // alias novo
+        botToken:         token,
+        relatoriosChatId: chatId,
         tipo:             'telegram',
         updatedAt:        new Date().toISOString(),
       };
 
-      await Promise.all([
-        setDoc(fDoc(db, 'config', 'telegram'), payload, { merge: true }),
-        setDoc(fDoc(db, 'telegram_config', 'global'), payload, { merge: true }),
-      ]);
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({ chave: 'config_telegram', valor: payload, atualizado_em: new Date().toISOString() });
+      if (error) throw error;
 
       setResultado({ ok:true, msg: pick(T.configSalva) });
     } catch(e:any) {

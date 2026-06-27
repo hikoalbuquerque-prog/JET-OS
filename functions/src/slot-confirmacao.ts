@@ -10,12 +10,8 @@
 // Coleção: config_logistica/{cidade} → confirmacaoMin, reaberturaSemConfMin
 
 import * as functions from 'firebase-functions/v2';
-import * as admin from 'firebase-admin';
-import { supabaseGet, supabaseGetOne } from './lib/supabase-rest';
+import { supabaseGet, supabaseGetOne, supabaseUpdate, supabaseInsert } from './lib/supabase-rest';
 import { getAppSetting } from './config-supabase';
-
-if (!admin.apps.length) admin.initializeApp();
-const db = admin.firestore();
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -28,7 +24,7 @@ interface Slot {
 
 interface SlotAceite {
   id: string; slotId: string; nome: string; cnpj: string; status: string;
-  telegramChatId?: string; aceitoEm?: admin.firestore.Timestamp;
+  telegramChatId?: string; aceitoEm?: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -160,10 +156,10 @@ async function processarSlot(slot: Slot, agora: Date): Promise<void> {
     for (const aceite of pendentes) {
       await enviarLembrete(aceite, slot, minAteInicio, 'confirmacao', tgCfg);
       // Marcar que o primeiro lembrete foi enviado
-      await db.doc(`slot_aceites/${aceite.id}`).update({
-        lembreteEnviadoEm: admin.firestore.FieldValue.serverTimestamp(),
+      await supabaseUpdate('slot_aceites', {
+        lembrete_enviado_em: new Date().toISOString(),
         fase: 1,
-      });
+      }, `id=eq.${encodeURIComponent(aceite.id)}`);
     }
     console.log(`[slot-conf] Fase 1 — slot ${slot.id}: ${pendentes.length} lembretes`);
   }
@@ -173,7 +169,7 @@ async function processarSlot(slot: Slot, agora: Date): Promise<void> {
     const ainda_pendentes = pendentes.filter(a => (a as any).fase !== 2);
     for (const aceite of ainda_pendentes) {
       await enviarLembrete(aceite, slot, minAteInicio, 'reconfirmacao', tgCfg);
-      await db.doc(`slot_aceites/${aceite.id}`).update({ fase: 2 });
+      await supabaseUpdate('slot_aceites', { fase: 2 }, `id=eq.${encodeURIComponent(aceite.id)}`);
     }
     console.log(`[slot-conf] Fase 2 — slot ${slot.id}: ${ainda_pendentes.length} reconfirmações`);
   }
@@ -183,20 +179,24 @@ async function processarSlot(slot: Slot, agora: Date): Promise<void> {
     const nao_confirmaram = pendentes;
     if (nao_confirmaram.length > 0) {
       // Reabre as vagas (marca como disponível novamente)
+      const agora = new Date().toISOString();
       for (const aceite of nao_confirmaram) {
-        await db.doc(`slot_aceites/${aceite.id}`).update({
+        await supabaseUpdate('slot_aceites', {
           status: 'Desistiu',
-          motivoDesistencia: 'Sem confirmação antes do turno',
-          desistiuEm: admin.firestore.FieldValue.serverTimestamp(),
-        });
+          motivo_desistencia: 'Sem confirmação antes do turno',
+          desistiu_em: agora,
+        }, `id=eq.${encodeURIComponent(aceite.id)}`);
       }
 
       // Reagenda o slot como aberto novamente (incrementa vagas)
       const vagasReabertas = nao_confirmaram.length;
-      await db.doc(`slots/${slot.id}`).update({
-        vagasReabertas: admin.firestore.FieldValue.increment(vagasReabertas),
-        ultimaReabertura: admin.firestore.FieldValue.serverTimestamp(),
-      });
+      // RPC increment not available via REST — read current value and set
+      const currentSlot = await supabaseGetOne<any>('slots', `select=vagas_reabertas&id=eq.${encodeURIComponent(slot.id)}`);
+      const currentVagas = (currentSlot?.vagas_reabertas ?? 0) + vagasReabertas;
+      await supabaseUpdate('slots', {
+        vagas_reabertas: currentVagas,
+        ultima_reabertura: agora,
+      }, `id=eq.${encodeURIComponent(slot.id)}`);
 
       // Alerta urgente para equipe do mesmo cargo na cidade
       if (tgCfg) {
@@ -204,14 +204,14 @@ async function processarSlot(slot: Slot, agora: Date): Promise<void> {
         await enviarTelegram(tgCfg.token, tgCfg.chatId, msgUrgente, tgCfg.threadId);
       }
 
-      // Log no Firestore para auditoria
-      await db.collection('slot_alertas').add({
-        slotId: slot.id,
+      // Log para auditoria — Supabase-only
+      await supabaseInsert('slot_alertas', {
+        slot_id: slot.id,
         cidade: slot.cidade,
         tipo: 'reabertura_sem_confirmacao',
-        vagasReabertas,
-        aceiteIds: nao_confirmaram.map(a => a.id),
-        criadoEm: admin.firestore.FieldValue.serverTimestamp(),
+        vagas_reabertas: vagasReabertas,
+        aceite_ids: nao_confirmaram.map(a => a.id),
+        criado_em: agora,
       });
 
       console.log(`[slot-conf] Fase 3 — slot ${slot.id}: ${vagasReabertas} vagas reabertas`);
@@ -260,15 +260,15 @@ async function enviarLembrete(
     await enviarTelegram(tgCfg.token, tgCfg.chatId, msg, tgCfg.threadId);
   }
 
-  // Salvar log do lembrete
-  await db.collection('slot_lembretes').add({
-    slotId: slot.id,
-    aceiteId: aceite.id,
+  // Salvar log do lembrete — Supabase-only
+  await supabaseInsert('slot_lembretes', {
+    slot_id: slot.id,
+    aceite_id: aceite.id,
     nome: aceite.nome,
     cnpj: aceite.cnpj,
     fase: isReconf ? 2 : 1,
-    minRestantes,
-    enviadoEm: admin.firestore.FieldValue.serverTimestamp(),
+    min_restantes: minRestantes,
+    enviado_em: new Date().toISOString(),
     cidade: slot.cidade,
   });
 }

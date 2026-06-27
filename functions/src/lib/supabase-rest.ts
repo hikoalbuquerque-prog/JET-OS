@@ -76,6 +76,36 @@ export async function supabaseUpsert(
 }
 
 /**
+ * PATCH update com filtro PostgREST. Retorna true se OK.
+ * @param table   Nome da tabela
+ * @param data    Campos a atualizar
+ * @param filter  Filtro PostgREST (ex: 'id=eq.abc123')
+ */
+export async function supabaseUpdate(
+  table: string,
+  data: Record<string, any>,
+  filter: string,
+): Promise<boolean> {
+  const url = SB_URL();
+  const key = SB_KEY();
+  if (!url || !key) return false;
+  try {
+    const resp = await fetch(`${url}/rest/v1/${table}?${filter}`, {
+      method: 'PATCH',
+      headers: {
+        ...headers(),
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify(data),
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * POST insert (sem upsert). Retorna true se OK.
  */
 export async function supabaseInsert(
