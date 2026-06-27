@@ -190,7 +190,7 @@ export * from './auth';           // getUsuario, criarSlotAuth, listarSlotsAuth,
 export * from './automacao';      // limpezaSnapshots, notificarOcorrencia, notificarTarefa, etc.
 export * from './automacao-gojet-scraper'; // scraperGoJet (paginação completa, multi-cidade), scraperGoJetManual
 export * from './gps-alertas';    // verificarAtrasos, verificarChegadaPonto
-export * from './gps-ingest';     // ingestGps — upload nativo de GPS (app fechado)
+// gps-ingest REMOVIDO — GPS nativo agora usa Edge Function Supabase (ingest-gps)
 export * from './automacao-tarefas'; // gerarTarefasGoJetFn, gerarTarefasAgendado, etc.
 export * from './relatorios';     // enviarRelatorioManual, relatorioGuardSemanal, relatorioPerdasDiario, relatorioPerdasSemanal
 export * from './notificacoes-prestador'; // notificarGestorNovaSolicitacao
