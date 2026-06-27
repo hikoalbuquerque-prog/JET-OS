@@ -1512,13 +1512,13 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
     (window as any)._croquiClick = async (id: string) => {
       const est = estacoes.find(x => x.id === id);
       if (!est) return;
-      if (!confirm(`Gerar croqui para ${est.codigo}?\nIsso pode levar ~30 segundos.`)) return;
-      showToast('Gerando croqui...', 'info');
+      if (!confirm(t('popup.croquiConfirm', { codigo: est.codigo }))) return;
+      showToast(t('popup.croquiGenerating'), 'info');
       try {
         const res = await fnGerarCroqui()({ estacaoId: id });
         const d = (res.data || res) as unknown as { ok: boolean; pdfUrl: string };
         if (d.ok && d.pdfUrl) {
-          showToast('Croqui gerado!', 'success');
+          showToast(t('popup.croquiDone'), 'success');
           window.open(d.pdfUrl, '_blank');
         }
       } catch(e: unknown) {
@@ -1670,20 +1670,20 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
     (window as any)._delClick = async (id: string) => {
       const e = estacoes.find(x => x.id === id);
       if (!e) return;
-      if (!confirm('Excluir estacao ' + e.codigo + '?')) return;
+      if (!confirm(t('popup.deleteConfirm', { codigo: e.codigo }))) return;
       try {
         const { doc, deleteDoc } = await import('firebase/firestore');
         await deleteDoc(doc(db, 'estacoes', id));
-        // Remove do estado local imediatamente
+        supabase.from('estacoes').delete().or(`id.eq.${id},firebase_id.eq.${id}`).then(() => {}).catch(() => {});
         setEstacoes(prev => prev.filter((x: any) => x.id !== id));
         leafletRef.current?.closePopup();
-        showToast('Estacao excluida', 'success');
-      } catch { showToast('Erro ao excluir', 'error'); }
+        showToast(t('popup.deleted'), 'success');
+      } catch { showToast(t('popup.deleteError'), 'error'); }
     };
     (window as any)._iaClick = async (id: string) => {
       const e = estacoes.find(x => x.id === id);
       if (!e) return;
-      showToast('Analisando...', 'info');
+      showToast(t('popup.analyzing'), 'info');
       const r = await fnAnalisarCalcada()({ lat: e.lat, lng: e.lng, codigo: e.codigo });
       const d = (r.data || r) as { ok: boolean; resultado?: { aprovado: boolean; larguraEstimada: string }; error?: string };
       if (d.ok && d.resultado) {
