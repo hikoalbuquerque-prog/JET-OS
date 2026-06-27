@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin';
 import { onRequest, onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getAppSetting } from './config-supabase';
+import { supabaseGetOne, supabaseUpdate } from './lib/supabase-rest';
 
 // functions/src/slots.ts
 // Cloud Functions para módulo Slots + Logística + Telegram
@@ -362,28 +363,24 @@ export const notificarOcorrencia = onCall(async (request) => {
       throw new HttpsError('invalid-argument', 'ocorrenciaId obrigatório');
     }
 
-    const ocSnap = await db.collection('ocorrencias').doc(ocorrenciaId).get();
-    if (!ocSnap.exists) {
+    const oc = await supabaseGetOne<any>('ocorrencias', `select=*&id=eq.${encodeURIComponent(ocorrenciaId)}`);
+    if (!oc) {
       throw new HttpsError('not-found', 'Ocorrência não encontrada');
     }
-
-    const oc = ocSnap.data()!;
     const { global: globalCfg, cidades } = await getConfig();
     if (!globalCfg.botToken) return { enviado: false, motivo: 'bot_token_ausente' };
 
-    const cidadeRaw = oc.cidade || (oc as any).cidade_inicial || '';
+    const cidadeRaw = oc.cidade || '';
     const cidadeKey = cidadeParaChave(cidadeRaw);
     const cidadeCfg = cidades[cidadeKey];
 
     const tipoLabel: Record<string, string> = {
-      // Keys módulo Slots (lowercase)
       roubo:                  '🚨 ROUBO',
       vandalismo:             '🔨 Vandalismo',
       patinete_danificado:    '🛴 Patinete danificado',
       ponto_bloqueado:        '🚧 Ponto bloqueado',
       usuario_infrator:       '⚠️ Usuário infrator',
       outro:                  '📝 Ocorrência',
-      // Keys Guard (capitalizadas)
       Roubo:                  '🚨 ROUBO',
       Tentativa:              '🟠 Tentativa de roubo',
       Vandalismo:             '🟡 Vandalismo',
@@ -391,14 +388,13 @@ export const notificarOcorrencia = onCall(async (request) => {
       Outro:                  '📝 Ocorrência',
     };
 
-    // Urgente: roubos/tentativas, procurados, OU quando status muda para Recuperado
     const statusFinal = statusAtualizado || oc.status;
     const isRecuperado = statusFinal === 'Recuperado' && statusAtualizado;
     const urgente = ['Roubo','roubo','Tentativa','tentativa'].includes(oc.tipo)
       || !!oc.procurando || isRecuperado;
     const tipoEmoji = tipoLabel[oc.tipo] ?? '📝 Ocorrência';
 
-    const assetInfo = [oc.asset_id, oc.ativo_tipo, oc.patineteId]
+    const assetInfo = [oc.asset_id, oc.ativo_tipo]
       .filter(Boolean).join(' · ');
 
     const texto = [
@@ -406,11 +402,11 @@ export const notificarOcorrencia = onCall(async (request) => {
       '',
       `${tipoEmoji}`,
       '',
-      `👤 *${oc.registradoPorNome || 'Guard'}*${oc.turno ? ' · ' + oc.turno : ''}`,
-      `🏙 ${cidadeRaw}${oc.bairro_inicial ? ' / ' + oc.bairro_inicial : ''}`,
+      `👤 *${oc.registrado_por_nome || 'Guard'}*${oc.turno ? ' · ' + oc.turno : ''}`,
+      `🏙 ${cidadeRaw}${oc.bairro ? ' / ' + oc.bairro : ''}`,
       assetInfo ? `🛴 ${assetInfo}` : '',
-      oc.procurando && oc.procurando !== 'false'
-        ? `\n🔍 *PROCURANDO:* ${typeof oc.procurando === 'string' ? oc.procurando : 'Em aberto'}`
+      oc.procurando
+        ? `\n🔍 *PROCURANDO*`
         : '',
       oc.bo_numero ? `📋 BO: ${oc.bo_numero}` : '',
       '',
@@ -452,11 +448,10 @@ export const notificarOcorrencia = onCall(async (request) => {
       console.warn('[notificar] Sem destino configurado para', cidadeRaw);
     }
 
-    // Marca como enviado
-    await db.collection('ocorrencias').doc(ocorrenciaId).update({
-      telegramEnviado: true,
-      atualizadoEm: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    await supabaseUpdate('ocorrencias', {
+      telegram_enviado: true,
+      atualizado_em: new Date().toISOString(),
+    }, `id=eq.${encodeURIComponent(ocorrenciaId)}`);
 
     return { enviado: true, urgente };
   });
@@ -474,12 +469,10 @@ export const notificarTarefa = onCall(async (request) => {
       throw new HttpsError('invalid-argument', 'tarefaId e evento obrigatórios');
     }
 
-    const tSnap = await db.collection('tarefas').doc(tarefaId).get();
-    if (!tSnap.exists) {
+    const t = await supabaseGetOne<any>('tarefas', `select=*&id=eq.${encodeURIComponent(tarefaId)}`);
+    if (!t) {
       throw new HttpsError('not-found', 'Tarefa não encontrada');
     }
-
-    const t = tSnap.data()!;
     const { global: globalCfg, cidades } = await getConfig();
     if (!globalCfg.botToken) return { enviado: false };
 
@@ -495,10 +488,10 @@ export const notificarTarefa = onCall(async (request) => {
 
     const texto = `${eventoLabel[evento] ?? '📋 Tarefa atualizada'}\n\n`
       + `📋 ${t.titulo}\n`
-      + `👤 ${t.assigneeNome ?? 'Sem operador'}\n`
+      + `👤 ${t.assignee_nome ?? 'Sem operador'}\n`
       + `🏙 ${t.cidade}\n`
-      + (t.motivoRejeicao ? `💬 Motivo: ${t.motivoRejeicao}\n` : '')
-      + (t.estacao ? `📍 ${t.estacao.nome}\n` : '');
+      + (t.motivo_rejeicao ? `💬 Motivo: ${t.motivo_rejeicao}\n` : '')
+      + (t.estacao?.nome ? `📍 ${t.estacao.nome}\n` : '');
 
     // Conclui/rejeita: notifica líder e gerente
     if (evento === 'concluida' || evento === 'rejeitada') {
