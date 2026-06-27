@@ -3,6 +3,7 @@
 // Convertido de trigger Firestore para função exportável chamada inline.
 
 import { supaAdmin } from './lib/supabase-admin';
+import { enviarPushParaRole } from './web-push';
 
 const ROLES_GESTORES = ['admin', 'gestor', 'supergestor', 'gestor_log'];
 
@@ -52,6 +53,9 @@ export async function notificarGestorNovaSolicitacao(solicitacao: {
     });
 
     await Promise.all(envios);
+
+    enviarPushParaRole(ROLES_GESTORES, '📋 Nova solicitação', `${nome} — ${cargo} (${cidade})`).catch(() => {});
+
     console.log(`[notificarGestorNovaSolicitacao] Notificação enviada para ${envios.length} gestores`);
   } catch (e) {
     console.error('[notificarGestorNovaSolicitacao] Erro geral:', e);

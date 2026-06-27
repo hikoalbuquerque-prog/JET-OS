@@ -54,6 +54,7 @@ const scheduler = __importStar(require("firebase-functions/v2/scheduler"));
 // firestore trigger removido — notificarTurnoFn agora é chamada diretamente
 const config_supabase_1 = require("./config-supabase");
 const supabase_rest_1 = require("./lib/supabase-rest");
+const web_push_1 = require("./web-push");
 const crypto_1 = require("crypto");
 function classificarPonto(p) {
     const avail = p.availableCount ?? 0;
@@ -999,6 +1000,7 @@ async function notificarTurnoFn(turno) {
             .map(u => u.telegram_chat_id)
             .filter(Boolean);
         await Promise.allSettled(chatIds.map(chatId => sendTelegramLocal(botToken, chatId, msg)));
+        (0, web_push_1.enviarPushParaRole)(['admin', 'gestor', 'gestor_log', 'supergestor'], `${emoji} Turno`, `${nome} — ${acao === 'entrada' ? 'Entrada' : 'Saída'} (${cidade})`, cidade).catch(() => { });
         v2_1.logger.info(`[notificarTurno] ${acao} de ${nome} (${cidade}) notificado para ${chatIds.length} gestores`);
     }
     catch (e) {

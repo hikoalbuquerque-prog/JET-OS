@@ -5,6 +5,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.notificarGestorNovaSolicitacao = notificarGestorNovaSolicitacao;
 const supabase_admin_1 = require("./lib/supabase-admin");
+const web_push_1 = require("./web-push");
 const ROLES_GESTORES = ['admin', 'gestor', 'supergestor', 'gestor_log'];
 async function notificarGestorNovaSolicitacao(solicitacao) {
     try {
@@ -45,6 +46,7 @@ async function notificarGestorNovaSolicitacao(solicitacao) {
             }
         });
         await Promise.all(envios);
+        (0, web_push_1.enviarPushParaRole)(ROLES_GESTORES, '📋 Nova solicitação', `${nome} — ${cargo} (${cidade})`).catch(() => { });
         console.log(`[notificarGestorNovaSolicitacao] Notificação enviada para ${envios.length} gestores`);
     }
     catch (e) {

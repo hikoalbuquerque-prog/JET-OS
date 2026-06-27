@@ -5,6 +5,7 @@ const https_1 = require("firebase-functions/v2/https");
 const crypto_1 = require("crypto");
 const supabase_admin_1 = require("./lib/supabase-admin");
 const supabase_rest_1 = require("./lib/supabase-rest");
+const web_push_1 = require("./web-push");
 // functions/src/telegram-vinculo.ts
 // Cloud Functions para vincular Telegram ao usuário JET OS
 // Migrado para Supabase (telegram_vinculos, usuarios, telegram_config).
@@ -234,6 +235,7 @@ exports.notificarAprovacaoPrestador = (0, https_1.onCall)({ region: 'southameric
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: chatId, text: texto, parse_mode: 'HTML' }),
     });
+    (0, web_push_1.enviarPushParaUsuario)(uid, aprovado ? '🎉 Cadastro aprovado' : '❌ Cadastro não aprovado', aprovado ? 'Você já pode acessar o JET OS!' : motivo ?? '').catch(() => { });
     return { enviado: true };
 });
 // ─── FUNCTION: notificarStatusNF (onCall — chamado pelo app) ────────────────
@@ -268,6 +270,9 @@ exports.notificarStatusNF = (0, https_1.onCall)({ region: 'southamerica-east1', 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: chatId, text: texto, parse_mode: 'HTML' }),
     });
+    const pushTitulo = status === 'nf_aprovada' ? '✅ NF aprovada' : status === 'rejeitada' ? '❌ NF rejeitada' : '💰 Pagamento realizado';
+    const pushCorpo = status === 'pago' ? `R$ ${valorTotal?.toFixed(2) ?? '—'} (${semana ?? ''})` : motivo ?? `R$ ${valorTotal?.toFixed(2) ?? '—'}`;
+    (0, web_push_1.enviarPushParaUsuario)(uid, pushTitulo, pushCorpo).catch(() => { });
     return { enviado: true };
 });
 // ─── FUNCTION: notificarTarefaAtribuida (onCall — chamado pelo app ao atribuir) ─
@@ -301,6 +306,7 @@ exports.notificarTarefaAtribuida = (0, https_1.onCall)({ region: 'southamerica-e
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chat_id: chatId, text: texto, parse_mode: 'HTML' }),
     });
+    (0, web_push_1.enviarPushParaUsuario)(assigneeUid, '📦 Nova tarefa', `${kindLabel[kind] ?? kind}: ${titulo}`, { url: tarefaId ? `/?tarefa=${tarefaId}` : '/' }).catch(() => { });
     return { enviado: true };
 });
 // ─── ADICIONAR AO index.ts ──────────────────────────────────────────────────

@@ -18,6 +18,7 @@ import * as scheduler from 'firebase-functions/v2/scheduler';
 // firestore trigger removido — notificarTurnoFn agora é chamada diretamente
 import { getAppSetting } from './config-supabase';
 import { supabaseGet, supabaseGetOne, supabaseInsert, supabaseUpdate } from './lib/supabase-rest';
+import { enviarPushParaRole } from './web-push';
 import { randomUUID } from 'crypto';
 
 // db removed — all Firestore ops migrated to Supabase
@@ -1122,6 +1123,7 @@ export async function notificarTurnoFn(turno: { nome: string; acao: string; func
         sendTelegramLocal(botToken, chatId, msg)
       ));
 
+      enviarPushParaRole(['admin', 'gestor', 'gestor_log', 'supergestor'], `${emoji} Turno`, `${nome} — ${acao === 'entrada' ? 'Entrada' : 'Saída'} (${cidade})`, cidade).catch(() => {});
       logger.info(`[notificarTurno] ${acao} de ${nome} (${cidade}) notificado para ${chatIds.length} gestores`);
     } catch (e) {
       logger.error('[notificarTurno] erro:', e);

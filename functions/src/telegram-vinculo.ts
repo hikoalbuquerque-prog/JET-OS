@@ -2,6 +2,7 @@ import { onRequest, onCall, HttpsError } from 'firebase-functions/v2/https';
 import { randomBytes } from 'crypto';
 import { supaAdmin } from './lib/supabase-admin';
 import { supabaseGet, supabaseGetOne, supabaseInsert, supabaseUpdate } from './lib/supabase-rest';
+import { enviarPushParaUsuario } from './web-push';
 
 // functions/src/telegram-vinculo.ts
 // Cloud Functions para vincular Telegram ao usuário JET OS
@@ -268,6 +269,8 @@ export const notificarAprovacaoPrestador = onCall({ region: 'southamerica-east1'
     body: JSON.stringify({ chat_id: chatId, text: texto, parse_mode: 'HTML' }),
   });
 
+  enviarPushParaUsuario(uid, aprovado ? '🎉 Cadastro aprovado' : '❌ Cadastro não aprovado', aprovado ? 'Você já pode acessar o JET OS!' : motivo ?? '').catch(() => {});
+
   return { enviado: true };
 });
 
@@ -312,6 +315,10 @@ export const notificarStatusNF = onCall({ region: 'southamerica-east1', maxInsta
     body: JSON.stringify({ chat_id: chatId, text: texto, parse_mode: 'HTML' }),
   });
 
+  const pushTitulo = status === 'nf_aprovada' ? '✅ NF aprovada' : status === 'rejeitada' ? '❌ NF rejeitada' : '💰 Pagamento realizado';
+  const pushCorpo = status === 'pago' ? `R$ ${valorTotal?.toFixed(2) ?? '—'} (${semana ?? ''})` : motivo ?? `R$ ${valorTotal?.toFixed(2) ?? '—'}`;
+  enviarPushParaUsuario(uid, pushTitulo, pushCorpo).catch(() => {});
+
   return { enviado: true };
 });
 
@@ -352,6 +359,8 @@ export const notificarTarefaAtribuida = onCall({ region: 'southamerica-east1', m
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, text: texto, parse_mode: 'HTML' }),
   });
+
+  enviarPushParaUsuario(assigneeUid, '📦 Nova tarefa', `${kindLabel[kind] ?? kind}: ${titulo}`, { url: tarefaId ? `/?tarefa=${tarefaId}` : '/' }).catch(() => {});
 
   return { enviado: true };
 });
