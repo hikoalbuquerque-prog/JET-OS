@@ -2437,27 +2437,37 @@ Durante a migração, a sessão Supabase JS não persiste (login feito antes do 
 | 0042 | `ocorrencias_anon_write.sql` | Escrita anon em ocorrências |
 | 0043 | `estacoes_anon_update.sql` | Update anon em estações |
 
-### ▶️ PENDÊNCIAS CONSOLIDADAS (25/06/2026)
+### ▶️ PENDÊNCIAS CONSOLIDADAS (26/06/2026 — atualizado)
 
-#### 🔴 Crítico
-1. **Fix sessão Supabase** — deslogar/logar de novo, ou investigar `setSession`. Sem sessão, toda RLS depende de policies anon (buraco de segurança).
-2. **Restringir policies anon** (0041-0043) — após fix da sessão, reverter para `to authenticated`.
-3. **Ocorrências Guard** — testar criação/edição após fix RLS.
+#### ✅ Resolvidos nesta sessão (26/06)
+1. ~~Fix sessão Supabase~~ — centralizado em useAuth.ts com error handling + visibilitychange recovery (`8398fca`)
+2. ~~Policies anon (0041-0043)~~ — já revertidas pela migration 0052 (aplicada)
+3. ~~Deploy frontend hosting~~ — ✅ https://jet-os-1.web.app
+4. ~~Deploy Cloud Functions~~ — ✅ todas deployadas (exceto verificarChegadaPonto — cota CPU, re-tentar)
+5. ~~Migrations 0057-0061~~ — ✅ aplicadas (GPS views, seed config, tarefas firebase_id, telegram columns, storage bucket)
+6. ~~Migração Ondas D-H~~ — ✅ 36 arquivos, GPS/usuarios/config/telegram/mirrors (`24e7cbb`)
+7. ~~5 últimos reads Firestore~~ — ✅ LocaisOperacionais, MapaHelpers, EventoGoJetPanel, ShiftNotifications, SlotsDashboard (`8398fca`)
+8. ~~maxInstances:10~~ — ✅ ~50 Cloud Functions (`d0f5f48`)
+9. ~~HEIC→JPEG uploads~~ — ✅ 4 componentes migrados para imageUtils (`d0f5f48`)
+10. ~~Console.log debug~~ — ✅ já limpos
+11. ~~gerarSlotsAgendado~~ — ✅ no-op (`299af4a`)
+12. ~~Firebase Storage→Supabase Storage~~ — ✅ código + migration 0061 + backfill 554 fotos (`96cf74f`)
+13. ~~Backfill config~~ — ✅ telegram copiado; controle_perdas e clima não existiam no Firestore
 
-#### 🟠 Importante
-4. **Build APK release** (signed) — com GPS flip + Curitiba + auth flip.
-5. **Delete `ingestGps` Firebase** — após confirmar GPS Supabase funciona em campo.
-6. **Deploy frontend** (hosting) — `npm run build && firebase deploy --only hosting`.
+#### 🟠 Pendentes (operacionais / validação em campo)
+1. **Deploy `verificarChegadaPonto`** — cota CPU Cloud Run; re-tentar em ~1h
+2. **Build APK release** (signed) — com GPS flip + Curitiba + auth flip
+3. **Delete `ingestGps` Firebase** — após confirmar GPS Supabase funciona em campo
+4. **Ocorrências Guard** — testar criação/edição no app após deploy
 
 #### 🔐 Segurança
-7. **Rotacionar service_role key** — exposta em scripts (`insert-curitiba.mjs`, `update-fotos.mjs`). Regenerar no dashboard Supabase e atualizar secrets.
-8. **Rotacionar keystore password** — se exposta em logs/scripts.
+5. **Rotacionar service_role key** — exposta em scripts. Regenerar no dashboard Supabase e atualizar secrets.
+6. **Rotacionar keystore password** — se exposta em logs/scripts.
 
-#### 🟡 Cleanup
-9. **Remover console.log de debug** — `[TelaMapa]`, `[Medir]`, `[upload] session:` nos arquivos `TelaMapa.tsx` e `uploadUtils.ts`.
-10. **Desabilitar Firebase Auth** — após confirmar tudo funciona com Supabase auth.
-11. **Desligar Cloud Functions Firebase** — após validação completa.
-12. **Desligar Firestore** — após validação completa + migração de dados residuais.
+#### 🟡 Cleanup (pós-validação)
+7. **Desabilitar Firebase Auth** — após confirmar tudo funciona com Supabase auth.
+8. **Desligar Cloud Functions Firebase** — após validação completa.
+9. **Desligar Firestore** — após validação completa + confirmação que todos os flags estão em Supabase.
 
 ---
 
