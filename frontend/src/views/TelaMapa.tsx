@@ -360,6 +360,7 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
   const [svBatchRunning, setSvBatchRunning] = useState(false);
   const [medirFila, setMedirFila] = useState<{lista: any[]; idx: number} | null>(null);
   const [showToolsFab, setShowToolsFab] = useState(false);
+  const [showCamadasFab, setShowCamadasFab] = useState(false);
   const [zonaEditando,  setZonaEditando]  = useState<Record<string,unknown> | null>(null);
   const [zonaDrawing,   setZonaDrawing]   = useState(false);
   const [zonaForm,      setZonaForm]      = useState<{coords: [number,number][]} | null>(null);
@@ -2363,179 +2364,72 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         position: 'fixed', right: 16, bottom: 100, zIndex: 1000,
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
       }}>
-        {/* FAB Locais Logísticos — principal */}
-        {isGestor && (
+        {/* ═══ 1. FERRAMENTAS (🛠) — Locais + POIs + SV tools ═══ */}
+        {isGestor && showToolsFab && (
           <>
-            {/* Sub-botões expandidos quando showLocaisOp=true */}
-            {showLocaisOp && (
-              <>
-                {/* Add pin no mapa */}
-                <button onClick={() => setModoAddLocal(m => !m)}
-                  title={modoAddLocal ? t('fab.cancelAction') : t('fab.addLocalMap')} aria-label={modoAddLocal ? t('fab.cancelAction') : t('fab.addLocalMap')}
-                  style={{ width:40, height:40, borderRadius:10, border:'none', cursor:'pointer',
-                    background: modoAddLocal?'rgba(239,68,68,.9)':'rgba(52,211,153,.9)',
-                    color:'#fff', fontSize:18, display:'flex', alignItems:'center',
-                    justifyContent:'center', boxShadow:'0 2px 8px rgba(0,0,0,.4)', transition:'all .15s' }}>
-                  {modoAddLocal ? '✕' : '📍'}
-                </button>
-                {/* Abrir painel financeiro */}
-                <button onClick={() => financeiro ? setFinanceiro(false) : openPanel(setFinanceiro)} title={t('fab.financial')} aria-label={t('fab.financial')}
-                  style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
-                    border:`2px solid ${financeiro?'rgba(74,222,128,.5)':'rgba(255,255,255,.2)'}`,
-                    background: financeiro?'rgba(74,222,128,.2)':'rgba(13,18,30,.85)',
-                    backdropFilter:'blur(8px)',
-                    color: financeiro?'#4ade80':'rgba(255,255,255,.6)',
-                    fontSize:14, display:'flex', alignItems:'center', justifyContent:'center',
-                    boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>
-                  💳
-                </button>
-              </>
-            )}
-            {/* Botão principal 🏭 — toggle locais no mapa */}
-            <button
-              onClick={() => {
+            {/* Locais sub-group */}
+            <button onClick={() => setModoAddLocal(m => !m)}
+              title={modoAddLocal ? t('fab.cancelAction') : t('fab.addLocalMap')} aria-label={modoAddLocal ? t('fab.cancelAction') : t('fab.addLocalMap')}
+              style={{ width:40, height:40, borderRadius:10, border:'none', cursor:'pointer',
+                background: modoAddLocal?'rgba(239,68,68,.9)':'rgba(52,211,153,.9)',
+                color:'#fff', fontSize:18, display:'flex', alignItems:'center',
+                justifyContent:'center', boxShadow:'0 2px 8px rgba(0,0,0,.4)', transition:'all .15s' }}>
+              {modoAddLocal ? '✕' : '📍'}
+            </button>
+            <button onClick={() => financeiro ? setFinanceiro(false) : openPanel(setFinanceiro)} title={t('fab.financial')} aria-label={t('fab.financial')}
+              style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+                border:`2px solid ${financeiro?'rgba(74,222,128,.5)':'rgba(255,255,255,.2)'}`,
+                background: financeiro?'rgba(74,222,128,.2)':'rgba(13,18,30,.85)',
+                backdropFilter:'blur(8px)', color: financeiro?'#4ade80':'rgba(255,255,255,.6)',
+                fontSize:14, display:'flex', alignItems:'center', justifyContent:'center',
+                boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>💳</button>
+            <button onClick={() => {
                 setShowLocaisOp(v => !v);
                 if (showLocaisOp) { setFinanceiro(false); setModoAddLocal(false); }
-              }}
-              title={t('fab.locais')} aria-label={t('fab.locais')}
+              }} title={t('fab.locais')} aria-label={t('fab.locais')}
               style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
-                border:`2px solid ${showLocaisOp?'rgba(52,211,153,.5)':'rgba(255,255,255,.15)'}`,
+                border:`2px solid ${showLocaisOp?'rgba(52,211,153,.5)':'rgba(255,255,255,.2)'}`,
                 background: showLocaisOp?'rgba(52,211,153,.2)':'rgba(13,18,30,.85)',
-                backdropFilter:'blur(8px)',
-                color: showLocaisOp?'#34d399':'rgba(255,255,255,.5)',
+                backdropFilter:'blur(8px)', color: showLocaisOp?'#34d399':'rgba(255,255,255,.5)',
                 fontSize:18, display:'flex', alignItems:'center', justifyContent:'center',
-                boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>
-              🏭
-            </button>
-          </>
-        )}
-
-        {/* FAB POIs — expande 3 sub-botões */}
-        {showPOIsFab && (
-          <>
-
-            {/* POIs Google — DESATIVADO */}
-            {false && (
-            <button title={t('fab.poisGoogle')} aria-label={t('fab.poisGoogle')}
-              onClick={async () => {
-                if (poiGoogleDados.length > 0) { setShowPoiFilterPanel(v => !v); return; }
-                const map = leafletRef.current; if (!map) return;
-                const c = map.getCenter();
-                const zoom = map.getZoom();
-                const raioKm = zoom >= 14 ? 2 : zoom >= 12 ? 4 : 6;
-                setPoiLoading(true);
-                try {
-                  // DESATIVADO: POIs Google
-                  // const res = await fnBuscarPOIs()({ lat: c.lat, lng: c.lng, raio: raioKm, useGrid: zoom < 13 }) as any;
-                  setPoiGoogleDados([]);
-                  // DESATIVADO: POIs Google
-                  // if (!resultado.length) showToast('Nenhum POI Google encontrado nesta área', 'info');
-                  // else { showToast(`${resultado.length} POIs Google encontrados`, 'success'); setShowPoiFilterPanel(true); }
-                } catch(e:any) { showToast('Erro POIs Google: ' + (e as any).message, 'error'); }
-                setPoiLoading(false);
-              }}
-              style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
-                border:`2px solid ${poiGoogleDados.length>0?'rgba(251,191,36,.4)':'rgba(255,255,255,.15)'}`,
-                background: poiGoogleDados.length>0 ? 'rgba(251,191,36,.2)' : 'rgba(13,18,30,.85)',
-                backdropFilter:'blur(8px)', color: poiGoogleDados.length>0 ? '#fbbf24' : 'rgba(255,255,255,.5)',
-                fontSize:15, display:'flex', alignItems:'center', justifyContent:'center',
-                boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>
-              {poiLoading ? '⏳' : '🗺'}
-            </button>
-            )}
-
-            {/* Pt. Candidatos FAB */}
+                boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>🏭</button>
+            {/* POIs */}
             <button title={t('fab.candidates')} aria-label={t('fab.candidates')}
               onClick={() => candidatosModulo ? setCandidatosModulo(false) : openPanel(setCandidatosModulo)}
               style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
-                border:`2px solid ${candidatosModulo?'rgba(251,191,36,.4)':'rgba(255,255,255,.15)'}`,
+                border:`2px solid ${candidatosModulo?'rgba(251,191,36,.4)':'rgba(255,255,255,.2)'}`,
                 background: candidatosModulo ? 'rgba(251,191,36,.2)' : 'rgba(13,18,30,.85)',
                 backdropFilter:'blur(8px)', color: candidatosModulo ? '#fbbf24' : 'rgba(255,255,255,.5)',
                 fontSize:16, display:'flex', alignItems:'center', justifyContent:'center',
-                boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>
-              🎯
-            </button>
-            {/* POIs OSM */}
+                boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>🎯</button>
             <button title={t('fab.poisOsm')} aria-label={t('fab.poisOsm')}
               onClick={async () => {
                 if (showPOILayer) {
-                  // Desligar OSM
-                  setShowPOILayer(false);
-                  setPoiLayerData([]);
-                  setPoiTiposAtivos(null);
-                  setShowPoiFilterPanel(false);
-                  if (osmMoveHandlerRef.current) {
-                    leafletRef.current?.off('moveend', osmMoveHandlerRef.current);
-                    osmMoveHandlerRef.current = null;
-                  }
+                  setShowPOILayer(false); setPoiLayerData([]); setPoiTiposAtivos(null); setShowPoiFilterPanel(false);
+                  if (osmMoveHandlerRef.current) { leafletRef.current?.off('moveend', osmMoveHandlerRef.current); osmMoveHandlerRef.current = null; }
                   return;
                 }
-                const novoEstado = true;
-                setShowPOILayer(novoEstado);
+                setShowPOILayer(true);
                 const map = leafletRef.current; if (!map) return;
-                if (novoEstado) {
-                  let osmDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-                  const buscarOSM = () => {
-                    if (osmDebounceTimer) clearTimeout(osmDebounceTimer);
-                    osmDebounceTimer = setTimeout(async () => {
-                      const c = map.getCenter(); const zoom = map.getZoom();
-                      const raioKm = zoom >= 14 ? 2 : zoom >= 12 ? 4 : 6;
-                      setPoiLoading(true);
-                      try {
-                        // DESATIVADO: POIs Google
-                        // const res = await fnBuscarPOIs()({ lat: c.lat, lng: c.lng, raio: raioKm, useGrid: zoom < 13 }) as any;
-                        setPoiLayerData([]);
-                      } catch(e:any) { showToast('Erro POIs: ' + e.message, 'error'); }
-                      finally { setPoiLoading(false); }
-                    }, 1500);
-                  };
-                  if (osmMoveHandlerRef.current) map.off('moveend', osmMoveHandlerRef.current);
-                  osmMoveHandlerRef.current = buscarOSM;
-                  map.on('moveend', buscarOSM);
-                  buscarOSM();
-                } else {
-                  if (osmMoveHandlerRef.current) { map.off('moveend', osmMoveHandlerRef.current); osmMoveHandlerRef.current = null; }
-                  setPoiLayerData([]);
-                }
+                let osmDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+                const buscarOSM = () => {
+                  if (osmDebounceTimer) clearTimeout(osmDebounceTimer);
+                  osmDebounceTimer = setTimeout(async () => {
+                    setPoiLoading(true);
+                    try { setPoiLayerData([]); } catch(e:any) { showToast('Erro POIs: ' + e.message, 'error'); }
+                    finally { setPoiLoading(false); }
+                  }, 1500);
+                };
+                if (osmMoveHandlerRef.current) map.off('moveend', osmMoveHandlerRef.current);
+                osmMoveHandlerRef.current = buscarOSM; map.on('moveend', buscarOSM); buscarOSM();
               }}
               style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
-                border:`2px solid ${showPOILayer?'rgba(16,185,129,.4)':'rgba(255,255,255,.15)'}`,
+                border:`2px solid ${showPOILayer?'rgba(16,185,129,.4)':'rgba(255,255,255,.2)'}`,
                 background: showPOILayer ? 'rgba(16,185,129,.2)' : 'rgba(13,18,30,.85)',
                 backdropFilter:'blur(8px)', color: showPOILayer ? '#10b981' : 'rgba(255,255,255,.5)',
                 fontSize:15, display:'flex', alignItems:'center', justifyContent:'center',
-                boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>
-              📍
-            </button>
-          </>
-        )}
-
-        {/* FAB POIs — só gestor/campo */}
-        {isGestor && <button onClick={() => setShowPOIsFab(v => !v)} title={t('fab.pois')} aria-label={t('fab.pois')}
-          style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
-            border:`2px solid ${showPOIsFab||showPOILayer||poiGoogleDados.length>0?'rgba(16,185,129,.5)':'rgba(255,255,255,.15)'}`,
-            background: showPOIsFab||showPOILayer||poiGoogleDados.length>0 ? 'rgba(16,185,129,.2)' : 'rgba(13,18,30,.85)',
-            backdropFilter:'blur(8px)',
-            color: showPOIsFab||showPOILayer||poiGoogleDados.length>0 ? '#10b981' : 'rgba(255,255,255,.5)',
-            fontSize:16, display:'flex', alignItems:'center', justifyContent:'center',
-            boxShadow:'0 2px 8px rgba(0,0,0,.4)',
-          }}>
-          {showPOIsFab ? '✕' : '🔍'}
-        </button>}
-
-        {/* Satélite */}
-        <button onClick={() => {
-          const map = leafletRef.current; if (!map) return;
-          if ((map as any)._satLayer) { map.removeLayer((map as any)._satLayer); (map as any)._satLayer = null; setSatOn(false); }
-          else { const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{ attribution:'© Esri', maxZoom:19 }); sat.addTo(map); (map as any)._satLayer = sat; setSatOn(true); }
-        }} title={t('fab.satelite')} aria-label={t('fab.satelite')} style={{ width: 40, height: 40, borderRadius: 10, border: `2px solid ${satOn?'#fbbf24':'rgba(255,255,255,.15)'}`, cursor: 'pointer',
-          background: satOn ? 'rgba(251,191,36,.2)' : 'rgba(13,18,30,.85)', backdropFilter: 'blur(8px)',
-          color: satOn ? '#fbbf24' : 'rgba(255,255,255,.5)', fontSize: 16,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,.4)',
-        }}>🛰</button>
-
-        {/* Ferramentas de estação (expandível) */}
-        {isGestor && showToolsFab && (
-          <>
+                boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>📍</button>
+            {/* SV tools */}
             <button onClick={() => { (window as any)._svMedirCombo?.(); setShowToolsFab(false); }}
               title={t('fab.svCombo')} aria-label={t('fab.svCombo')}
               style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
@@ -2561,7 +2455,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                 boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>📐</button>
           </>
         )}
-        {isGestor && <button onClick={() => setShowToolsFab(v => !v)}
+        {isGestor && <button onClick={() => { setShowToolsFab(v => !v); if (showToolsFab) { setModoAddLocal(false); } }}
           title={t('fab.tools')} aria-label={t('fab.tools')}
           style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
             border:`2px solid ${showToolsFab?'rgba(59,130,246,.5)':'rgba(255,255,255,.15)'}`,
@@ -2573,7 +2467,74 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
           {showToolsFab ? '✕' : '🛠'}
         </button>}
 
-        {/* GoJet — sub-botões expandem ao ativar layer */}
+        {/* ═══ 2. CAMADAS (🗺) — Satélite, Ciclovias, Zonas, Raio ═══ */}
+        {showCamadasFab && (
+          <>
+            <button onClick={() => {
+              const map = leafletRef.current; if (!map) return;
+              if ((map as any)._satLayer) { map.removeLayer((map as any)._satLayer); (map as any)._satLayer = null; setSatOn(false); }
+              else { const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{ attribution:'© Esri', maxZoom:19 }); sat.addTo(map); (map as any)._satLayer = sat; setSatOn(true); }
+            }} title={t('fab.satelite')} aria-label={t('fab.satelite')} style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+              border:`2px solid ${satOn?'#fbbf24':'rgba(255,255,255,.2)'}`,
+              background: satOn ? 'rgba(251,191,36,.2)' : 'rgba(13,18,30,.85)', backdropFilter:'blur(8px)',
+              color: satOn ? '#fbbf24' : 'rgba(255,255,255,.5)', fontSize:16,
+              display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>🛰</button>
+            {cidade && <button onClick={() => setCicloviasOn(v => !v)} title={t('fab.cycleways')} aria-label={t('fab.cycleways')}
+              style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+                border:`2px solid ${cicloviasOn?'#00e676':'rgba(255,255,255,.2)'}`,
+                background: cicloviasOn ? 'rgba(0,230,118,.2)' : 'rgba(13,18,30,.85)', backdropFilter:'blur(8px)',
+                color: cicloviasOn ? '#00e676' : 'rgba(255,255,255,.5)', fontSize:16,
+                display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>🚲</button>}
+            {cidade && (isGestorApp || isCampo || isLogisticaApp) && (
+              <button onClick={() => setPoligonosOn(v => !v)} title={t('fab.zones')} aria-label={t('fab.zones')}
+                style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+                  border:`2px solid ${poligonosOn?'#60a5fa':'rgba(255,255,255,.2)'}`,
+                  background: poligonosOn ? 'rgba(96,165,250,.2)' : 'rgba(13,18,30,.85)', backdropFilter:'blur(8px)',
+                  color: poligonosOn ? '#60a5fa' : 'rgba(255,255,255,.5)', fontSize:16,
+                  display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>⬡</button>
+            )}
+            {isGestor && poligonosOn && (
+              <>
+                <button onClick={() => zonasModulo ? setZonasModulo(false) : openPanel(setZonasModulo)} title={t('fab.manageZones')} aria-label={t('fab.manageZones')}
+                  style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+                    border:`2px solid ${zonasModulo?'#c084fc':'rgba(255,255,255,.2)'}`,
+                    background: zonasModulo?'rgba(192,132,252,.2)':'rgba(13,18,30,.85)',
+                    backdropFilter:'blur(8px)', color: zonasModulo?'#c084fc':'rgba(255,255,255,.5)', fontSize:16,
+                    display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>⬡</button>
+                <button onClick={() => setZonaEditor(v => !v)} title={t('fab.drawZone')} aria-label={t('fab.drawZone')}
+                  style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+                    border:`2px solid ${zonaEditor?'#c084fc':'rgba(255,255,255,.2)'}`,
+                    background: zonaEditor?'rgba(192,132,252,.25)':'rgba(13,18,30,.85)',
+                    backdropFilter:'blur(8px)', color: zonaEditor?'#c084fc':'rgba(255,255,255,.5)', fontSize:16,
+                    display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>✏</button>
+              </>
+            )}
+            <button onClick={() => setRaioAtivo(v => !v)} title={t('fab.radius').replace('{n}', String(raioMetros))} aria-label={t('fab.radius').replace('{n}', String(raioMetros))}
+              style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+                border:`2px solid ${raioAtivo?'#a78bfa':'rgba(255,255,255,.2)'}`,
+                background: raioAtivo ? 'rgba(167,139,250,.2)' : 'rgba(13,18,30,.85)', backdropFilter:'blur(8px)',
+                color: raioAtivo ? '#a78bfa' : 'rgba(255,255,255,.5)', fontSize:13, fontWeight:700,
+                display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>{raioMetros}m</button>
+            {raioAtivo && (
+              <input type="range" min="50" max="500" step="25" value={raioMetros}
+                onChange={e => setRaioMetros(Number(e.target.value))}
+                style={{ width:40, accentColor:'#a78bfa', cursor:'pointer', writingMode:'vertical-lr' as any, direction:'rtl' as any, height:80 }}/>
+            )}
+          </>
+        )}
+        <button onClick={() => setShowCamadasFab(v => !v)}
+          title="Camadas" aria-label="Camadas"
+          style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+            border:`2px solid ${showCamadasFab||satOn||cicloviasOn||poligonosOn?'rgba(251,191,36,.5)':'rgba(255,255,255,.15)'}`,
+            background: showCamadasFab||satOn||cicloviasOn||poligonosOn ? 'rgba(251,191,36,.2)' : 'rgba(13,18,30,.85)',
+            backdropFilter:'blur(8px)',
+            color: showCamadasFab||satOn||cicloviasOn||poligonosOn ? '#fbbf24' : 'rgba(255,255,255,.5)',
+            fontSize:14, display:'flex', alignItems:'center', justifyContent:'center',
+            boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>
+          {showCamadasFab ? '✕' : '🗺'}
+        </button>
+
+        {/* ═══ 3. GOJET (🛴) — já agrupado ═══ */}
         {(isGestorApp || isCampo || isLogisticaApp) && showGoJetLayer && isGestor && (
           <>
             <button title={t('fab.gojetAnalytics')} aria-label={t('fab.gojetAnalytics')} onClick={() => gojetAnalytics ? setGojetAnalytics(false) : openPanel(setGojetAnalytics)}
@@ -2609,38 +2570,18 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
               boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>🛴</button>
         )}
 
-        {/* Turno — registro entrada/saída */}
+        {/* ═══ 4. TURNO (⏱) — standalone ═══ */}
         {(usuario?.role === 'campo' || usuario?.role === 'logistica' || usuario?.role === 'motorista' || isGestorApp) && (
           <button title={t('fab.turno')} aria-label={t('fab.turno')} onClick={() => turnoRegistro ? setTurnoRegistro(false) : openPanel(setTurnoRegistro)}
-            style={{ width: 40, height: 40, borderRadius: 10, cursor: 'pointer',
-              border: `2px solid ${turnoRegistro ? 'rgba(34,197,94,.5)' : 'rgba(255,255,255,.15)'}`,
+            style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
+              border:`2px solid ${turnoRegistro ? 'rgba(34,197,94,.5)' : 'rgba(255,255,255,.15)'}`,
               background: turnoRegistro ? 'rgba(34,197,94,.2)' : 'rgba(13,18,30,.85)',
-              backdropFilter: 'blur(8px)',
-              color: turnoRegistro ? '#22c55e' : 'rgba(255,255,255,.5)',
-              fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 2px 8px rgba(0,0,0,.4)',
-            }}>⏱</button>
+              backdropFilter:'blur(8px)', color: turnoRegistro ? '#22c55e' : 'rgba(255,255,255,.5)',
+              fontSize:16, display:'flex', alignItems:'center', justifyContent:'center',
+              boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>⏱</button>
         )}
 
-        {/* Ciclovias */}
-        {cidade && (
-          <button onClick={() => setCicloviasOn(v => !v)} title={t('fab.cycleways')} aria-label={t('fab.cycleways')}
-            style={{ width: 40, height: 40, borderRadius: 10, border: `2px solid ${cicloviasOn?'#00e676':'rgba(255,255,255,.15)'}`, cursor: 'pointer',
-              background: cicloviasOn ? 'rgba(0,230,118,.2)' : 'rgba(13,18,30,.85)', backdropFilter: 'blur(8px)',
-              color: cicloviasOn ? '#00e676' : 'rgba(255,255,255,.5)', fontSize: 16,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,.4)',
-            }}>🚲</button>
-        )}
-        {/* Zonas — guard visualiza, gestor edita (botões edição abaixo são isGestor) */}
-        {cidade && (isGestorApp || isCampo || isLogisticaApp) && (
-          <button onClick={() => setPoligonosOn(v => !v)} title={t('fab.zones')} aria-label={t('fab.zones')}
-            style={{ width: 40, height: 40, borderRadius: 10, border: `2px solid ${poligonosOn?'#60a5fa':'rgba(255,255,255,.15)'}`, cursor: 'pointer',
-              background: poligonosOn ? 'rgba(96,165,250,.2)' : 'rgba(13,18,30,.85)', backdropFilter: 'blur(8px)',
-              color: poligonosOn ? '#60a5fa' : 'rgba(255,255,255,.5)', fontSize: 16,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,.4)',
-            }}>⬡</button>
-        )}
-        {/* Nova cidade expansão */}
+        {/* ═══ Expansão cidade (contextual) ═══ */}
         {isGestor && cidadesExpShow && (
           <button onClick={() => setCidadeExpModal({ latLng: leafletRef.current ? (() => { const c = leafletRef.current!.getCenter(); return {lat:c.lat,lng:c.lng}; })() : {lat:0,lng:0} })}
             title={t('fab.addExpCity')} aria-label={t('fab.addExpCity')}
@@ -2648,46 +2589,6 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
               cursor:'pointer', background:'rgba(99,102,241,.15)', backdropFilter:'blur(8px)',
               color:'#818cf8', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center',
               boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>🌍</button>
-        )}
-
-        {/* Gerir zonas — abre ZonasManager com edição de vértices */}
-        {isGestor && poligonosOn && (
-          <>
-            <button onClick={() => zonasModulo ? setZonasModulo(false) : openPanel(setZonasModulo)} title={t('fab.manageZones')} aria-label={t('fab.manageZones')}
-              style={{ width:40, height:40, borderRadius:10,
-                border:`2px solid ${zonasModulo?'#c084fc':'rgba(255,255,255,.15)'}`,
-                cursor:'pointer',
-                background: zonasModulo?'rgba(192,132,252,.2)':'rgba(13,18,30,.85)',
-                backdropFilter:'blur(8px)',
-                color: zonasModulo?'#c084fc':'rgba(255,255,255,.5)', fontSize:16,
-                display:'flex', alignItems:'center', justifyContent:'center',
-                boxShadow:'0 2px 8px rgba(0,0,0,.4)',
-              }}>⬡</button>
-            <button onClick={() => setZonaEditor(v => !v)} title={t('fab.drawZone')} aria-label={t('fab.drawZone')}
-              style={{ width:40, height:40, borderRadius:10,
-                border:`2px solid ${zonaEditor?'#c084fc':'rgba(255,255,255,.15)'}`,
-                cursor:'pointer',
-                background: zonaEditor?'rgba(192,132,252,.25)':'rgba(13,18,30,.85)',
-                backdropFilter:'blur(8px)',
-                color: zonaEditor?'#c084fc':'rgba(255,255,255,.5)', fontSize:16,
-                display:'flex', alignItems:'center', justifyContent:'center',
-                boxShadow:'0 2px 8px rgba(0,0,0,.4)',
-              }}>✏</button>
-          </>
-        )}
-
-        {/* Raio */}
-        <button onClick={() => setRaioAtivo(v => !v)} title={t('fab.radius').replace('{n}', String(raioMetros))} aria-label={t('fab.radius').replace('{n}', String(raioMetros))}
-          style={{ width: 40, height: 40, borderRadius: 10, border: `2px solid ${raioAtivo?'#a78bfa':'rgba(255,255,255,.15)'}`, cursor: 'pointer',
-            background: raioAtivo ? 'rgba(167,139,250,.2)' : 'rgba(13,18,30,.85)', backdropFilter: 'blur(8px)',
-            color: raioAtivo ? '#a78bfa' : 'rgba(255,255,255,.5)', fontSize: 13, fontWeight: 700,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,.4)',
-          }}>{raioMetros}m</button>
-        {raioAtivo && (
-          <input type="range" min="50" max="500" step="25" value={raioMetros}
-            onChange={e => setRaioMetros(Number(e.target.value))}
-            style={{ width: 40, accentColor: '#a78bfa', cursor: 'pointer', writingMode: 'vertical-lr' as any, direction: 'rtl' as any, height: 80 }}
-          />
         )}
         {/* Guard FAB — gestor_seg tem destaque maior */}
         {(isGestorApp || isCampo || isLogisticaApp) && (

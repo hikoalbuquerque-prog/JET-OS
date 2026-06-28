@@ -300,6 +300,7 @@ export default function GoJetDashboard({ visivel, onFechar, cidade }: Props) {
   const [filtroP,  setFiltroP ] = useState<keyof typeof COR_PONTO|'todos'>('todos');
   const [filtroB,  setFiltroB ] = useState<BikeStatus|'todos'>('todos');
   const [sortP,    setSortP   ] = useState<'status'|'nome'|'avail'>('status');
+  const [sortDirP, setSortDirP] = useState<'asc'|'desc'>('asc');
   const [zonas,    setZonas   ] = useState<ZonePolygon[]>([]);
   const [eficiencia, setEficiencia] = useState<any[]>([]);
   const [lowBat,   setLowBat  ] = useState<any[]>([]);
@@ -439,12 +440,13 @@ export default function GoJetDashboard({ visivel, onFechar, cidade }: Props) {
     let list = parkings;
     if (filtroP !== 'todos') list = byStatus[filtroP] || [];
     if (busca) list = list.filter(p => p.name?.toLowerCase().includes(busca.toLowerCase()));
+    const dir = sortDirP === 'asc' ? 1 : -1;
     return [...list].sort((a, b) => {
-      if (sortP === 'nome') return (a.name||'').localeCompare(b.name||'');
-      if (sortP === 'avail') return (b.availableCount??0) - (a.availableCount??0);
-      return SORT_ORDER_PONTO.indexOf(classifyParking(a)) - SORT_ORDER_PONTO.indexOf(classifyParking(b));
+      if (sortP === 'nome') return dir * (a.name||'').localeCompare(b.name||'');
+      if (sortP === 'avail') return dir * ((b.availableCount??0) - (a.availableCount??0));
+      return dir * (SORT_ORDER_PONTO.indexOf(classifyParking(a)) - SORT_ORDER_PONTO.indexOf(classifyParking(b)));
     });
-  }, [parkings, filtroP, busca, sortP]);
+  }, [parkings, filtroP, busca, sortP, sortDirP]);
 
   const bikesFilt = useMemo(() => {
     let list = bikes;
@@ -771,8 +773,8 @@ export default function GoJetDashboard({ visivel, onFechar, cidade }: Props) {
                 })}
                 <div style={{ marginLeft:'auto', display:'flex', gap:4 }}>
                   {(['status','nome','avail'] as const).map(s => (
-                    <button key={s} onClick={() => setSortP(s)} style={{ padding:'5px 8px', borderRadius:7, border:'none', background:sortP===s?'rgba(26,111,212,.3)':'rgba(255,255,255,.06)', color:sortP===s?'#307FE2':T.dim, fontSize:10, cursor:'pointer' }}>
-                      {s==='status'?`🔴 ${t('sortStatus')}`:s==='nome'?t('sortAZ'):`📊 ${t('sortQty')}`}
+                    <button key={s} onClick={() => { if (sortP === s) setSortDirP(d => d === 'asc' ? 'desc' : 'asc'); else { setSortP(s); setSortDirP('asc'); } }} style={{ padding:'5px 8px', borderRadius:7, border:'none', background:sortP===s?'rgba(26,111,212,.3)':'rgba(255,255,255,.06)', color:sortP===s?'#307FE2':T.dim, fontSize:10, cursor:'pointer' }}>
+                      {(s==='status'?`🔴 ${t('sortStatus')}`:s==='nome'?t('sortAZ'):`📊 ${t('sortQty')}`) + (sortP===s ? (sortDirP==='asc'?' ▲':' ▼') : '')}
                     </button>
                   ))}
                 </div>

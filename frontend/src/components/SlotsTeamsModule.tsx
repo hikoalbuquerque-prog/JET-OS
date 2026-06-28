@@ -131,7 +131,7 @@ const S = {
   lbl:{ display:'block' as const, fontSize:10, fontWeight:600, color:'rgba(255,255,255,.35)', marginBottom:4, textTransform:'uppercase' as const, letterSpacing:'0.6px' },
   btn:(c?:string,ghost=false):React.CSSProperties=>({ padding:'8px 14px', borderRadius:8, border:ghost?`1px solid ${T.bdr}`:'none', background:ghost?'transparent':(c||T.blueg), color:ghost?T.dim:'#fff', fontWeight:600, fontSize:12, cursor:'pointer', transition:'all .15s' }),
   btnG:(g:string):React.CSSProperties=>({ padding:'8px 14px', borderRadius:8, border:'none', background:g, color:'#fff', fontWeight:700, fontSize:12, cursor:'pointer' }),
-  chip:(c:string):React.CSSProperties=>({ display:'inline-block', padding:'2px 8px', borderRadius:20, background:c+'18', color:c, fontSize:10, fontWeight:700, border:`1px solid ${c}33` }),
+  chip:(c:string):React.CSSProperties=>({ display:'inline-block', padding:'6px 10px', borderRadius:20, background:c+'18', color:c, fontSize:10, fontWeight:700, border:`1px solid ${c}33` }),
   sec:{ fontSize:10, fontWeight:700, color:T.dim, textTransform:'uppercase' as const, letterSpacing:'1px', marginBottom:10 } as React.CSSProperties,
   table:{ width:'100%', borderCollapse:'collapse' as const },
   th:{ padding:'8px 10px', fontSize:10, fontWeight:700, letterSpacing:'0.6px', textTransform:'uppercase' as const, color:T.dim, borderBottom:`1px solid ${T.bdr}`, textAlign:'left' as const, whiteSpace:'nowrap' as const },
@@ -770,7 +770,7 @@ function AbaEscala({usuario,cidade}:AbaProps){
                             toast(r?.jaAceito?pick(TX.jaAceitou):pick(TX.aceitoOk));
                           }catch(e:any){toast(e?.message||pick(TX.erroGenerico),'erro');}
                         }}
-                          style={{...S.btn(T.green),padding:'4px 10px',fontSize:11,marginTop:5,width:'100%'}}>Aceitar</button>
+                          style={{...S.btn(T.green),padding:'8px 12px',fontSize:11,marginTop:5,width:'100%'}}>Aceitar</button>
                       )}
                       {conflito&&sl.status==='aberto'&&(
                         <div style={{fontSize:10,marginTop:4,color:T.red}}>⚠ Conflito de horário</div>
@@ -788,7 +788,7 @@ function AbaEscala({usuario,cidade}:AbaProps){
                               if(error) throw error;
                               toast('Slot liberado');
                             }catch(e:any){toast(e?.message||'Erro','erro');}
-                          }} style={{...S.btn(T.red,true),padding:'2px 6px',fontSize:9}}>Desistir</button>
+                          }} style={{...S.btn(T.red,true),padding:'6px 10px',fontSize:9}}>Desistir</button>
                         </div>
                       )}
                       {sl.aceitoPor&&!jaAceitou&&(
@@ -805,7 +805,7 @@ function AbaEscala({usuario,cidade}:AbaProps){
                                 if(error) throw error;
                                 toast('Prestador removido do slot');
                               }catch(e:any){toast(e?.message||'Erro','erro');}
-                            }} style={{...S.btn(T.red,true),padding:'2px 6px',fontSize:9}}>Remover</button>
+                            }} style={{...S.btn(T.red,true),padding:'6px 10px',fontSize:9}}>Remover</button>
                           )}
                         </div>
                       )}
@@ -816,7 +816,7 @@ function AbaEscala({usuario,cidade}:AbaProps){
                             if(!motivo) return;
                             try{await cancelarSlotEscala(sl.id,usuario.uid,motivo);toast('Slot cancelado');}
                             catch(e:any){toast(e?.message||'Erro','erro');}
-                          }} style={{...S.btn(T.red,true),padding:'2px 6px',fontSize:9}}>Cancelar</button>
+                          }} style={{...S.btn(T.red,true),padding:'6px 10px',fontSize:9}}>Cancelar</button>
                           <button onClick={async()=>{
                             const novaQtd=await promptDialog('Override de vagas', {placeholder:'Nova quantidade', defaultValue:String(sl.qtdPessoas||1)});
                             if(!novaQtd) return;
@@ -824,7 +824,7 @@ function AbaEscala({usuario,cidade}:AbaProps){
                             if(!motivo) return;
                             try{await overrideSlotEscala(sl.id,{qtdPessoas:Number(novaQtd)},usuario.uid,motivo);toast('Override aplicado');}
                             catch(e:any){toast(e?.message||'Erro','erro');}
-                          }} style={{...S.btn(T.orange,true),padding:'2px 6px',fontSize:9}}>Override</button>
+                          }} style={{...S.btn(T.orange,true),padding:'6px 10px',fontSize:9}}>Override</button>
                         </div>
                       )}
                     </div>
@@ -1036,8 +1036,8 @@ function AbaDisponibilidade({usuario,cidade}:AbaProps){
                 <td style={{...S.td,fontSize:11}}>{(d.turnosDisponiveis||[]).join(', ')}</td>
                 <td style={{...S.td,fontSize:11,color:T.dim}}>{(d.zonasDisponiveis||[]).slice(0,2).join(', ')}{(d.zonasDisponiveis||[]).length>2?'...':''}</td>
                 <td style={S.td}><div style={{display:'flex',gap:4}}>
-                  <button onClick={()=>{setEditando(d);setForm({...d});setModal(true);}} style={{...S.btn(T.bluel,true),padding:'3px 8px',fontSize:11}}>✏</button>
-                  <button onClick={async()=>{if(d.id&&await confirmDialog(pick(TX.removerConfirm), `${pick(TX.removerConfirm)} ${d.nome}?`, {variant:'danger'})){ await delDisponibilidade(d.id); toast(pick(TX.removido));}}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
+                  <button onClick={()=>{setEditando(d);setForm({...d});setModal(true);}} style={{...S.btn(T.bluel,true),padding:'6px 10px',fontSize:11}}>✏</button>
+                  <button onClick={async()=>{if(d.id&&await confirmDialog(pick(TX.removerConfirm), `${pick(TX.removerConfirm)} ${d.nome}?`, {variant:'danger'})){ await delDisponibilidade(d.id); toast(pick(TX.removido));}}} style={{...S.btn(T.red,true),padding:'6px 10px',fontSize:11}}>🗑</button>
                 </div></td>
               </tr>
             ))}
@@ -1471,7 +1471,7 @@ function AbaConfigTeams({cidade}:{cidade:string}){
             <div style={{flex:1}}><label style={S.lbl}>{pick(TX.horaInicio)}</label><input type="time" value={f.horaIni} onChange={e=>updFaixa(i,'horaIni',e.target.value)} style={S.inp}/></div>
             <div style={{flex:1}}><label style={S.lbl}>{pick(TX.horaFim)}</label><input type="time" value={f.horaFim} onChange={e=>updFaixa(i,'horaFim',e.target.value)} style={S.inp}/></div>
             <div style={{fontSize:10,color:T.dim,fontFamily:'monospace',minWidth:90}}>{f.horaIni}-{f.horaFim}</div>
-            <button onClick={()=>rmFaixa(i)} style={{...S.btn(T.red,true),padding:'4px 8px',fontSize:10}}>{pick(TX.remover)}</button>
+            <button onClick={()=>rmFaixa(i)} style={{...S.btn(T.red,true),padding:'6px 10px',fontSize:10}}>{pick(TX.remover)}</button>
           </div>
         ))}
         <button onClick={addFaixa} style={{...S.btnG(T.blueg),fontSize:11}}>{pick(TX.addFaixa)}</button>
@@ -1654,7 +1654,7 @@ function AbaConfigTeams({cidade}:{cidade:string}){
               <span style={{fontFamily:'monospace',fontSize:11,color:T.dim,flexShrink:0}}>{f.data}</span>
               <span style={{flex:1,fontSize:12,color:T.txt}}>{f.nome}</span>
               {f.nacional&&<span style={S.chip(T.orange)}>{pick(TX.nacional)}</span>}
-              <button onClick={async()=>{if(f.id){ await delFeriado(f.id);await recarregarFeriados(); }}} style={{...S.btn(T.red,true),padding:'2px 6px',fontSize:10}}>🗑</button>
+              <button onClick={async()=>{if(f.id){ await delFeriado(f.id);await recarregarFeriados(); }}} style={{...S.btn(T.red,true),padding:'6px 10px',fontSize:10}}>🗑</button>
             </div>
           ))}
         </div>

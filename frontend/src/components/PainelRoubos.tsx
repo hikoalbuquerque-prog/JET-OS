@@ -1031,6 +1031,7 @@ export default function PainelRoubos({ visivel, onFechar, mapa, cidade, roleUsua
   const [loading,      setLoading     ] = useState(true);
   const [regiaoMap,    setRegiaoMap   ] = useState<typeof REGIAO_DEFAULT>(REGIAO_DEFAULT);
   const [sortDash,     setSortDash    ] = useState<'total'|'regiao'|'filial'>('regiao');
+  const [sortDirDash,  setSortDirDash ] = useState<'asc'|'desc'>('asc');
   const layerRef = React.useRef<L.LayerGroup | null>(null);
 
   const { i18n } = useTranslation();
@@ -1114,10 +1115,11 @@ export default function PainelRoubos({ visivel, onFechar, mapa, cidade, roleUsua
       else r.total++;
     }
     const rows = Object.values(mapa);
-    if (sortDash === 'total') return rows.sort((a, b) => b.total - a.total);
-    if (sortDash === 'filial') return rows.sort((a, b) => a.filial.localeCompare(b.filial));
-    return rows.sort((a, b) => a.regiao.localeCompare(b.regiao) || a.filial.localeCompare(b.filial));
-  }, [filtradas, regiaoMap, sortDash]);
+    const d = sortDirDash === 'asc' ? 1 : -1;
+    if (sortDash === 'total') return rows.sort((a, b) => d * (b.total - a.total));
+    if (sortDash === 'filial') return rows.sort((a, b) => d * a.filial.localeCompare(b.filial));
+    return rows.sort((a, b) => d * (a.regiao.localeCompare(b.regiao) || a.filial.localeCompare(b.filial)));
+  }, [filtradas, regiaoMap, sortDash, sortDirDash]);
 
   // ── Migração #3: dashboard via RPC do Supabase (dual-run, flag VITE_ANALYTICS_PROVIDER) ──
   // A RPC retorna `total` = todas as ocorrências; o cliente usa `total` = não-recuperados.
@@ -1142,10 +1144,11 @@ export default function PainelRoubos({ visivel, onFechar, mapa, cidade, roleUsua
   const rowsToShow = useMemo((): RegionalRow[] => {
     if (!(supabaseAnalytics && supaRows.length)) return dashboardRows;
     const rows = [...supaRows];
-    if (sortDash === 'total') return rows.sort((a, b) => b.total - a.total);
-    if (sortDash === 'filial') return rows.sort((a, b) => a.filial.localeCompare(b.filial));
-    return rows.sort((a, b) => a.regiao.localeCompare(b.regiao) || a.filial.localeCompare(b.filial));
-  }, [supabaseAnalytics, supaRows, dashboardRows, sortDash]);
+    const d = sortDirDash === 'asc' ? 1 : -1;
+    if (sortDash === 'total') return rows.sort((a, b) => d * (b.total - a.total));
+    if (sortDash === 'filial') return rows.sort((a, b) => d * a.filial.localeCompare(b.filial));
+    return rows.sort((a, b) => d * (a.regiao.localeCompare(b.regiao) || a.filial.localeCompare(b.filial)));
+  }, [supabaseAnalytics, supaRows, dashboardRows, sortDash, sortDirDash]);
 
   const totalGeral = rowsToShow.reduce((s, r) => s + r.total + r.recuperados, 0);
   const totalPatinetes = rowsToShow.reduce((s, r) => s + r.patinetes, 0);
@@ -1283,8 +1286,8 @@ export default function PainelRoubos({ visivel, onFechar, mapa, cidade, roleUsua
                 </div>
                 <div style={{ display: 'flex', gap: 4 }}>
                   {([['regiao', pick(TXT.sortRegiao)],['filial', pick(TXT.sortAZ)],['total', pick(TXT.sortTotal)]] as const).map(([k,l]) => (
-                    <button key={k} onClick={() => setSortDash(k as 'total'|'regiao'|'filial')}
-                      style={{ ...S.btn(T.blue, sortDash !== k), padding: '3px 8px', fontSize: 10 }}>{l}</button>
+                    <button key={k} onClick={() => { const key = k as 'total'|'regiao'|'filial'; if (sortDash === key) setSortDirDash(d => d === 'asc' ? 'desc' : 'asc'); else { setSortDash(key); setSortDirDash('asc'); } }}
+                      style={{ ...S.btn(T.blue, sortDash !== k), padding: '3px 8px', fontSize: 10 }}>{l}{sortDash === k ? (sortDirDash === 'asc' ? ' ▲' : ' ▼') : ''}</button>
                   ))}
                 </div>
               </div>

@@ -286,7 +286,7 @@ Deno.serve(async (req) => {
     for (let i = 0; i < rows.length; i += 200) {
       const batch = rows.slice(i, i + 200);
       const { error } = await admin.from("slots_escala").upsert(batch, {
-        onConflict: "cidade,data_slot,turno,tipo",
+        onConflict: "cidade,data_slot,turno,tipo,zona",
         ignoreDuplicates: false,
       });
       if (error) {
