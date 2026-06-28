@@ -921,7 +921,9 @@
     "svCombo": "SV + Measure combo (generate SV then measure)",
     "svBatch": "Batch SV generation",
     "medirBatch": "Batch measure",
-    "turno": "Shift Registration"
+    "turno": "Shift Registration",
+    "camadas": "Map layers",
+    "shifts": "Shifts"
   },
   "sv": {
     "generating": "Generating Street View...",

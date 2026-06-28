@@ -921,7 +921,9 @@
     "svCombo": "SV + Medir combo (generar SV y medir)",
     "svBatch": "Generar SV en lote",
     "medirBatch": "Medir en lote",
-    "turno": "Registro de Turno"
+    "turno": "Registro de Turno",
+    "camadas": "Capas del mapa",
+    "shifts": "Turnos"
   },
   "sv": {
     "generating": "Generando Street View...",

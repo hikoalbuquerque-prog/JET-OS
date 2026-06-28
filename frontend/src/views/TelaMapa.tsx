@@ -2523,7 +2523,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
           </>
         )}
         <button onClick={() => setShowCamadasFab(v => !v)}
-          title="Camadas" aria-label="Camadas"
+          title={t('fab.camadas')} aria-label={t('fab.camadas')}
           style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
             border:`2px solid ${showCamadasFab||satOn||cicloviasOn||poligonosOn?'rgba(251,191,36,.5)':'rgba(255,255,255,.15)'}`,
             background: showCamadasFab||satOn||cicloviasOn||poligonosOn ? 'rgba(251,191,36,.2)' : 'rgba(13,18,30,.85)',
@@ -2551,7 +2551,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                 backdropFilter:'blur(8px)', color: gojetDash?'#60a5fa':'rgba(255,255,255,.5)',
                 fontSize:16, display:'flex', alignItems:'center', justifyContent:'center',
                 boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>📊</button>
-            <button title="Turnos (gestor)" aria-label="Turnos" onClick={() => shiftPanel ? setShiftPanel(false) : openPanel(setShiftPanel)}
+            <button title={t('fab.shifts')} aria-label={t('fab.shifts')} onClick={() => shiftPanel ? setShiftPanel(false) : openPanel(setShiftPanel)}
               style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
                 border:`2px solid ${shiftPanel?'rgba(34,197,94,.5)':'rgba(255,255,255,.2)'}`,
                 background: shiftPanel?'rgba(34,197,94,.2)':'rgba(13,18,30,.85)',
