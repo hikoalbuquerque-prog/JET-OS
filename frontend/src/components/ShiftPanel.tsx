@@ -3,6 +3,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { SkeletonPulseStyle, SkeletonTable } from './ui/Skeleton';
 import { supabase } from '../lib/supabase';
 
 type Lang = 'pt' | 'en' | 'es' | 'ru';
@@ -159,7 +160,7 @@ export default function ShiftPanel({ visivel, onFechar, cidade }: Props) {
         {/* Tabela de workers */}
         <div style={{ flex:1, overflowY:'auto', padding:'0 16px 16px' }}>
           {stats.workers.length === 0 ? (
-            <div style={{ textAlign:'center', padding:40, color:T.dim }}>{loading ? '...' : t('semRegistros')}</div>
+            <div style={{ textAlign:'center', padding:40, color:T.dim }}>{loading ? <div style={{padding:16}}><SkeletonPulseStyle /><SkeletonTable rows={5} cols={3} /></div> : t('semRegistros')}</div>
           ) : (
             <div style={{ overflowX:'auto', background:T.card, borderRadius:12, border:`1px solid ${T.bdr}` }}>
               <table style={{ width:'100%', borderCollapse:'collapse', minWidth:600 }}>

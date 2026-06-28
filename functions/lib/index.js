@@ -12,39 +12,15 @@ var __createBinding = (this && this.__createBinding) || (Object.create ? (functi
     if (k2 === undefined) k2 = k;
     o[k2] = m[k];
 }));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __exportStar = (this && this.__exportStar) || function(m, exports) {
     for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.revogarAcesso = exports.aprovarSolicitacaoFn = exports.relatorioGuardManualFn = exports.relatorioGuardDiarioFn = exports.gerarStreetViewFn = exports.gerarCroquisLoteFn = exports.gerarCroquiFn = exports.healthCheck = exports.registrarLogAcesso = exports.getUsuarioFn = void 0;
-const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const v2_1 = require("firebase-functions/v2");
 const supabase_rest_1 = require("./lib/supabase-rest");
-admin.initializeApp();
 // maxInstances global: limita a CPU reservada por função no Cloud Run. Sem isso
 // cada função pode escalar muito e o total estoura a cota regional de CPU em
 // southamerica-east1 (erro "Quota exceeded for total allowable CPU") em deploys
@@ -210,8 +186,10 @@ __exportStar(require("./buscar-pois-osm"), exports); // buscarPOIsOSMFn — Over
 __exportStar(require("./slots-telegram"), exports); // resumoSlotsTelegram, confirmarSlotsCascata, enviarResumoManual
 __exportStar(require("./web-push"), exports); // registrarPushSubscription, enviarPushParaUsuario/Role
 // ══════════════════════════════════════════════════════════════════
-// REVOGAR ACESSO — desativa usuário no Auth + Firestore
+// REVOGAR ACESSO — desativa usuário no Supabase Auth + tabela
 // ══════════════════════════════════════════════════════════════════
+const SB_URL = () => process.env.SUPABASE_URL ?? '';
+const SB_SERVICE = () => process.env.SUPABASE_SERVICE_ROLE ?? '';
 exports.revogarAcesso = (0, https_1.onCall)({ region: 'southamerica-east1', maxInstances: 10, cors: true }, async (request) => {
     const callerUid = request.auth?.uid;
     if (!callerUid)
@@ -226,7 +204,20 @@ exports.revogarAcesso = (0, https_1.onCall)({ region: 'southamerica-east1', maxI
         throw new Error('uid obrigatório');
     if (uid === callerUid)
         throw new Error('Não pode revogar o próprio acesso');
-    await admin.auth().updateUser(uid, { disabled: true });
+    // Ban user in Supabase Auth (effectively disable)
+    const res = await fetch(`${SB_URL()}/auth/v1/admin/users/${uid}`, {
+        method: 'PUT',
+        headers: {
+            apikey: SB_SERVICE(),
+            Authorization: `Bearer ${SB_SERVICE()}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ban_duration: '876600h' }),
+    });
+    if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`Erro ao banir usuário: ${res.status} ${txt}`);
+    }
     await (0, supabase_rest_1.supabaseUpdate)('usuarios', {
         ativo: false,
         role: 'desativado',

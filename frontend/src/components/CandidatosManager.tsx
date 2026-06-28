@@ -4,6 +4,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { SkeletonPulseStyle, SkeletonCard } from './ui/Skeleton';
 
 // ── i18n (padrão TermosUsoGate, sem json) ────────────────────────
 const T = {
@@ -409,6 +410,9 @@ export function CandidatosManager({
 
           {/* Lista */}
           <div style={{flex:1,overflowY:'auto'}}>
+            {candidatos.length===0 && loading && (
+              <div style={{padding:16}}><SkeletonPulseStyle /><SkeletonCard lines={3} /><div style={{marginTop:8}}><SkeletonCard lines={3} /></div><div style={{marginTop:8}}><SkeletonCard lines={3} /></div></div>
+            )}
             {candidatos.length===0 && !loading && (
               <div style={{padding:24,textAlign:'center',color:'#7a8ba8',fontSize:12}}>
                 {pick(T.estadoVazio)}

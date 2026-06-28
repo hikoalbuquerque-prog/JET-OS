@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { SkeletonPulseStyle, SkeletonTable } from './ui/Skeleton';
 import { carregarOcorrenciasSupabase, atualizarOcorrenciaSupabase } from '../lib/ocorrencias-supabase';
 import { analyticsProviderSupabase, fetchOcorrenciasRegional } from '../lib/analytics-supabase';
 import { supabase } from '../lib/supabase';
@@ -1250,7 +1251,7 @@ export default function PainelRoubos({ visivel, onFechar, mapa, cidade, roleUsua
       {/* Body com scroll */}
       <div style={S.body}>
         {loading ? (
-          <div style={{ color: T.dim, textAlign: 'center', padding: 60 }}>{pick(TXT.carregandoFull)}</div>
+          <div style={{padding:16}}><SkeletonPulseStyle /><SkeletonTable rows={5} cols={3} /></div>
         ) : aba === 'config' ? null : aba === 'dashboard' ? (
 
           /* ── DASHBOARD ──────────────────────────────────────────── */

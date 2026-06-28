@@ -140,6 +140,7 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
   const [estacaoEdit,   setEstacaoEdit]   = useState<Estacao | null>(null);
   const [hoverPin,      setHoverPin]      = useState<{e:Estacao;x:number;y:number}|null>(null);
   const [cidadeModal,   setCidadeModal]   = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mapMode,       setMapMode]       = useState<'dark'|'light'>('dark');
 
   const [buscaCidade,   setBuscaCidade]   = useState('');
@@ -1986,6 +1987,19 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
           </span>
         )}
         <span style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', display: 'none' } as React.CSSProperties}>{usuario.nome.split(' ')[0]}</span>
+        {/* Hamburger button — visible only on mobile via CSS */}
+        <button
+          className="jet-mobile-menu-btn"
+          onClick={() => setMobileMenuOpen(v => !v)}
+          style={{ display: 'none', alignItems: 'center', justifyContent: 'center',
+            background: mobileMenuOpen ? 'rgba(96,165,250,.15)' : 'rgba(255,255,255,.06)',
+            border: `1px solid ${mobileMenuOpen ? 'rgba(96,165,250,.3)' : 'rgba(255,255,255,.1)'}`,
+            borderRadius: 8, color: mobileMenuOpen ? '#60a5fa' : 'rgba(255,255,255,.5)',
+            padding: '4px 10px', fontSize: 16, cursor: 'pointer', flexShrink: 0 }}
+          aria-label="Menu"
+        >☰</button>
+        {/* Desktop-only header buttons — hidden on mobile */}
+        <div className="jet-header-desktop" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' as const }}>
         {isGestorApp && (
                   <button onClick={() => usuariosModulo ? setUsuariosModulo(false) : openPanel(setUsuariosModulo)} style={{
                     background: usuariosModulo ? 'rgba(96,165,250,.15)' : 'rgba(255,255,255,.06)',
@@ -2015,7 +2029,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         {/* Sino de notificações */}
         <div style={{ position:'relative', flexShrink:0 }}>
           <button onClick={() => showNotif ? setShowNotif(false) : openPanel(setShowNotif)}
-            style={{ width:30, height:30, borderRadius:'50%', cursor:'pointer',
+            style={{ width:36, height:36, borderRadius:'50%', cursor:'pointer',
               background: showNotif?'rgba(251,191,36,.2)':'rgba(255,255,255,.06)',
               border:`1px solid ${showNotif?'rgba(251,191,36,.4)':'rgba(255,255,255,.08)'}`,
               color: showNotif?'#fbbf24':'rgba(255,255,255,.5)',
@@ -2041,7 +2055,57 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
           }} aria-label="Perfil">👤</button>
         )}
         <button onClick={onLogout} aria-label="Sair" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.3)', fontSize: 18, cursor: 'pointer', flexShrink: 0 }}>⏻</button>
+        </div>{/* end jet-header-desktop */}
       </div>
+      {/* Mobile dropdown menu */}
+      {mobileMenuOpen && (
+        <div style={{
+          background: 'rgba(13,18,30,.98)', borderTop: '1px solid rgba(255,255,255,.06)',
+          padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 6,
+        }}>
+          {isGestorApp && (
+            <button onClick={() => { setMobileMenuOpen(false); usuariosModulo ? setUsuariosModulo(false) : openPanel(setUsuariosModulo); }} style={{
+              background: usuariosModulo ? 'rgba(96,165,250,.15)' : 'rgba(255,255,255,.06)',
+              border: `1px solid ${usuariosModulo ? 'rgba(96,165,250,.3)' : 'rgba(255,255,255,.1)'}`,
+              borderRadius: 8, color: usuariosModulo ? '#60a5fa' : 'rgba(255,255,255,.5)',
+              padding: '8px 12px', fontSize: 13, cursor: 'pointer', textAlign: 'left'
+            }}>👥 Usuários</button>
+          )}
+          {usuario.role === 'admin' && (
+            <button onClick={() => { setMobileMenuOpen(false); painelConfig ? setPainelConfig(false) : openPanel(setPainelConfig); }} style={{
+              background: painelConfig ? 'rgba(99,102,241,.15)' : 'rgba(255,255,255,.06)',
+              border: `1px solid ${painelConfig ? 'rgba(99,102,241,.4)' : 'rgba(255,255,255,.1)'}`,
+              borderRadius: 8, color: painelConfig ? '#818cf8' : 'rgba(255,255,255,.5)',
+              padding: '8px 12px', fontSize: 13, cursor: 'pointer', textAlign: 'left'
+            }}>⚙️ Configurações</button>
+          )}
+          <button onClick={() => { setMobileMenuOpen(false); guiaModulo ? setGuiaModulo(false) : openPanel(setGuiaModulo); }} style={{
+            background: guiaModulo ? 'rgba(99,102,241,.15)' : 'rgba(255,255,255,.06)',
+            border: `1px solid ${guiaModulo ? 'rgba(99,102,241,.4)' : 'rgba(255,255,255,.1)'}`,
+            borderRadius: 8, color: guiaModulo ? '#818cf8' : 'rgba(255,255,255,.5)',
+            padding: '8px 12px', fontSize: 13, cursor: 'pointer', textAlign: 'left', fontWeight: 600
+          }}>📖 {t('nav.guide')}</button>
+          <div style={{ padding: '4px 0' }}><LangSelector /></div>
+          <button onClick={() => { setMobileMenuOpen(false); showNotif ? setShowNotif(false) : openPanel(setShowNotif); }} style={{
+            background: showNotif ? 'rgba(251,191,36,.2)' : 'rgba(255,255,255,.06)',
+            border: `1px solid ${showNotif ? 'rgba(251,191,36,.4)' : 'rgba(255,255,255,.08)'}`,
+            borderRadius: 8, color: showNotif ? '#fbbf24' : 'rgba(255,255,255,.5)',
+            padding: '8px 12px', fontSize: 13, cursor: 'pointer', textAlign: 'left'
+          }}>🔔 Notificações{notifList.filter((n:any) => !n.lida).length > 0 && ` (${Math.min(notifList.filter((n:any) => !n.lida).length, 9)})`}</button>
+          {usuario.tipoCadastro === 'prestador' && (
+            <button onClick={() => { setMobileMenuOpen(false); openPanel(setShowPerfilPrestador); }} style={{
+              background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)',
+              borderRadius: 8, color: 'rgba(255,255,255,.6)',
+              padding: '8px 12px', fontSize: 13, cursor: 'pointer', textAlign: 'left'
+            }}>👤 Perfil</button>
+          )}
+          <button onClick={() => { setMobileMenuOpen(false); onLogout(); }} style={{
+            background: 'none', border: '1px solid rgba(255,255,255,.08)',
+            borderRadius: 8, color: 'rgba(255,255,255,.3)',
+            padding: '8px 12px', fontSize: 13, cursor: 'pointer', textAlign: 'left'
+          }}>⏻ Sair</button>
+        </div>
+      )}
       {/* KPIs para gestor/admin */}
       {isGestorApp && (
         <div style={{ padding:'3px 12px', background:'rgba(0,0,0,.25)',

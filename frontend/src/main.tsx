@@ -14,7 +14,7 @@ style.textContent = [
   ':focus-visible { outline: 2px solid #307FE2; outline-offset: 2px; }',
   'table tr:nth-child(even) td { background: rgba(255,255,255,.02); }',
   'table tr:hover td { background: rgba(255,255,255,.04); }',
-  '@media (max-width: 640px) { .jet-header-desktop { display: none !important; } .jet-fab-group { bottom: 70px !important; } }',
+  '@media (max-width: 640px) { .jet-header-desktop { display: none !important; } .jet-fab-group { bottom: 70px !important; } .jet-mobile-menu-btn { display: flex !important; } }',
   '.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }',
 ].join('\n');
 document.head.appendChild(style);

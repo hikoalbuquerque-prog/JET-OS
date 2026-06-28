@@ -1,37 +1,4 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getUsuario = getUsuario;
 exports.solicitarAcesso = solicitarAcesso;
@@ -39,9 +6,26 @@ exports.aprovarSolicitacao = aprovarSolicitacao;
 exports.listarSolicitacoesPendentes = listarSolicitacoesPendentes;
 exports.listarUsuarios = listarUsuarios;
 // functions/src/auth/index.ts
-const admin = __importStar(require("firebase-admin"));
 const utils_1 = require("../utils");
 const supabase_rest_1 = require("../lib/supabase-rest");
+const SB_URL = () => process.env.SUPABASE_URL ?? '';
+const SB_KEY = () => process.env.SUPABASE_SERVICE_ROLE ?? '';
+async function sbAdminRequest(method, path, body) {
+    const res = await fetch(`${SB_URL()}/auth/v1/admin/${path}`, {
+        method,
+        headers: {
+            apikey: SB_KEY(),
+            Authorization: `Bearer ${SB_KEY()}`,
+            'Content-Type': 'application/json',
+        },
+        body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        throw new Error(`Supabase Auth ${method} ${path}: ${res.status} ${txt}`);
+    }
+    return res.json();
+}
 const notificacoes_prestador_1 = require("../notificacoes-prestador");
 // ── GET USUÁRIO ──────────────────────────────────────────────────
 async function getUsuario(uid) {
@@ -105,21 +89,30 @@ async function aprovarSolicitacao(solicitacaoId, uid, email, roleOverride) {
     else if (sol.role_desejado && rolesPermitidos.includes(sol.role_desejado)) {
         roleFinal = sol.role_desejado;
     }
-    // Cria ou busca usuário no Firebase Auth
-    let userRecord;
+    // Cria ou busca usuário no Supabase Auth
+    let userId;
     try {
-        userRecord = await admin.auth().getUserByEmail(sol.email);
+        const existing = await sbAdminRequest('GET', `users?filter=${encodeURIComponent(sol.email)}`);
+        const found = existing?.users?.find((u) => u.email === sol.email);
+        if (found) {
+            userId = found.id;
+        }
+        else {
+            const created = await sbAdminRequest('POST', 'users', {
+                email: sol.email,
+                password: Math.random().toString(36).slice(-10) + 'A1!',
+                email_confirm: true,
+                user_metadata: { nome: sol.nome },
+            });
+            userId = created.id;
+        }
     }
-    catch {
-        userRecord = await admin.auth().createUser({
-            email: sol.email,
-            password: Math.random().toString(36).slice(-10) + 'A1!',
-            displayName: sol.nome
-        });
+    catch (e) {
+        console.error('[aprovar] Erro ao criar usuário Supabase Auth:', e);
+        return (0, utils_1.erroResponse)('Erro ao criar usuário no Auth.');
     }
-    // Cria / sobrescreve perfil no Supabase com role correto
     await (0, supabase_rest_1.supabaseUpsert)('usuarios', {
-        uid: userRecord.uid,
+        uid: userId,
         email: sol.email,
         nome: sol.nome,
         role: roleFinal,
@@ -128,30 +121,18 @@ async function aprovarSolicitacao(solicitacaoId, uid, email, roleOverride) {
         criado_em: new Date().toISOString(),
         ultimo_acesso: null
     });
-    // Envia email de reset de senha para o novo usuário definir a senha
+    // Envia link de recovery (reset de senha) via Supabase Auth
     try {
-        const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY || '';
-        if (FIREBASE_WEB_API_KEY) {
-            const axios = (await Promise.resolve().then(() => __importStar(require('axios')))).default;
-            await axios.post('https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=' + FIREBASE_WEB_API_KEY, {
-                requestType: 'PASSWORD_RESET',
-                email: sol.email,
-                continueUrl: 'https://jet-os-7.web.app'
-            });
-            console.log('[aprovar] Email de reset enviado para ' + sol.email);
-        }
-        else {
-            const link = await admin.auth().generatePasswordResetLink(sol.email, {
-                url: 'https://jet-os-7.web.app'
-            });
-            console.log('[aprovar] Link de reset para ' + sol.email + ': ' + link);
-        }
+        const linkData = await sbAdminRequest('POST', 'generate_link', {
+            type: 'recovery',
+            email: sol.email,
+            options: { redirect_to: 'https://jet-os-1.web.app' },
+        });
+        console.log('[aprovar] Link de recovery gerado para ' + sol.email + ': ' + (linkData?.action_link || 'ok'));
     }
     catch (e) {
-        console.error('[aprovar] Erro ao enviar email:', e);
-        // Não falha a aprovação por causa do email
+        console.error('[aprovar] Erro ao gerar link de recovery:', e);
     }
-    // Atualiza solicitação
     await (0, supabase_rest_1.supabaseUpdate)('solicitacoes_prestadores', {
         status: 'APROVADA',
         resolvido_em: new Date().toISOString(),
@@ -165,7 +146,7 @@ async function aprovarSolicitacao(solicitacaoId, uid, email, roleOverride) {
         descricao: 'Solicitação aprovada como [' + roleFinal + ']: ' + sol.email
     });
     return (0, utils_1.okResponse)({
-        uid: userRecord.uid,
+        uid: userId,
         role: roleFinal,
         mensagem: 'Usuário criado como ' + roleFinal + '.'
     });

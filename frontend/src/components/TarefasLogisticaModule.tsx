@@ -5,6 +5,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { SkeletonPulseStyle, SkeletonTable } from './ui/Skeleton';
 import { supabase } from '../lib/supabase';
 import { fetchUsuarios } from '../lib/usuarios-supabase';
 import { uploadComRetry } from '../lib/uploadUtils';
@@ -2299,12 +2300,7 @@ function Historico({ tarefas, agentes }: {
 // ─── Micro-componentes ────────────────────────────────────────────────────────
 
 function Loading() {
-  const { i18n } = useTranslation();
-  const lang = (((i18n.language || 'pt').slice(0, 2)) as Lang);
-  const pick = (o: Tr) => o[lang] ?? o.pt;
-  return <div style={{ padding: 20, color: 'rgba(255,255,255,.3)', textAlign: 'center', fontSize: 12 }}>
-    {pick(T.carregando)}
-  </div>;
+  return <div style={{padding:16}}><SkeletonPulseStyle /><SkeletonTable rows={5} cols={3} /></div>;
 }
 
 function Empty({ msg }: { msg: string }) {
