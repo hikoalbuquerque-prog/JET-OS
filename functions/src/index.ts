@@ -1,13 +1,10 @@
 // functions/src/index.ts — JET OS V2 — versão consolidada
 // Firebase Functions v2 — região: southamerica-east1
 
-import * as admin from 'firebase-admin';
 import { onRequest, onCall } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { supabaseGetOne, supabaseInsert, supabaseUpdate } from './lib/supabase-rest';
-
-admin.initializeApp();
 // maxInstances global: limita a CPU reservada por função no Cloud Run. Sem isso
 // cada função pode escalar muito e o total estoura a cota regional de CPU em
 // southamerica-east1 (erro "Quota exceeded for total allowable CPU") em deploys
@@ -198,8 +195,11 @@ export * from './slots-telegram';     // resumoSlotsTelegram, confirmarSlotsCasc
 export * from './web-push';          // registrarPushSubscription, enviarPushParaUsuario/Role
 
 // ══════════════════════════════════════════════════════════════════
-// REVOGAR ACESSO — desativa usuário no Auth + Firestore
+// REVOGAR ACESSO — desativa usuário no Supabase Auth + tabela
 // ══════════════════════════════════════════════════════════════════
+
+const SB_URL = () => process.env.SUPABASE_URL ?? '';
+const SB_SERVICE = () => process.env.SUPABASE_SERVICE_ROLE ?? '';
 
 export const revogarAcesso = onCall(
   { region: 'southamerica-east1', maxInstances: 10, cors: true },
@@ -217,7 +217,21 @@ export const revogarAcesso = onCall(
     if (!uid) throw new Error('uid obrigatório');
     if (uid === callerUid) throw new Error('Não pode revogar o próprio acesso');
 
-    await admin.auth().updateUser(uid, { disabled: true });
+    // Ban user in Supabase Auth (effectively disable)
+    const res = await fetch(`${SB_URL()}/auth/v1/admin/users/${uid}`, {
+      method: 'PUT',
+      headers: {
+        apikey: SB_SERVICE(),
+        Authorization: `Bearer ${SB_SERVICE()}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ ban_duration: '876600h' }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Erro ao banir usuário: ${res.status} ${txt}`);
+    }
+
     await supabaseUpdate('usuarios', {
       ativo: false,
       role: 'desativado',

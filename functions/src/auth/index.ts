@@ -1,7 +1,26 @@
 // functions/src/auth/index.ts
-import * as admin from 'firebase-admin';
 import { erroResponse, okResponse, logEvento } from '../utils';
 import { supabaseGet, supabaseGetOne, supabaseInsert, supabaseUpdate, supabaseUpsert } from '../lib/supabase-rest';
+
+const SB_URL = () => process.env.SUPABASE_URL ?? '';
+const SB_KEY = () => process.env.SUPABASE_SERVICE_ROLE ?? '';
+
+async function sbAdminRequest(method: string, path: string, body?: any) {
+  const res = await fetch(`${SB_URL()}/auth/v1/admin/${path}`, {
+    method,
+    headers: {
+      apikey: SB_KEY(),
+      Authorization: `Bearer ${SB_KEY()}`,
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Supabase Auth ${method} ${path}: ${res.status} ${txt}`);
+  }
+  return res.json();
+}
 import { notificarGestorNovaSolicitacao } from '../notificacoes-prestador';
 
 // ── GET USUÁRIO ──────────────────────────────────────────────────
@@ -82,21 +101,29 @@ export async function aprovarSolicitacao(
     roleFinal = sol.role_desejado;
   }
 
-  // Cria ou busca usuário no Firebase Auth
-  let userRecord: admin.auth.UserRecord;
+  // Cria ou busca usuário no Supabase Auth
+  let userId: string;
   try {
-    userRecord = await admin.auth().getUserByEmail(sol.email);
-  } catch {
-    userRecord = await admin.auth().createUser({
-      email:       sol.email,
-      password:    Math.random().toString(36).slice(-10) + 'A1!',
-      displayName: sol.nome
-    });
+    const existing = await sbAdminRequest('GET', `users?filter=${encodeURIComponent(sol.email)}`);
+    const found = existing?.users?.find((u: any) => u.email === sol.email);
+    if (found) {
+      userId = found.id;
+    } else {
+      const created = await sbAdminRequest('POST', 'users', {
+        email: sol.email,
+        password: Math.random().toString(36).slice(-10) + 'A1!',
+        email_confirm: true,
+        user_metadata: { nome: sol.nome },
+      });
+      userId = created.id;
+    }
+  } catch (e) {
+    console.error('[aprovar] Erro ao criar usuário Supabase Auth:', e);
+    return erroResponse('Erro ao criar usuário no Auth.');
   }
 
-  // Cria / sobrescreve perfil no Supabase com role correto
   await supabaseUpsert('usuarios', {
-    uid:           userRecord.uid,
+    uid:           userId,
     email:         sol.email,
     nome:          sol.nome,
     role:          roleFinal,
@@ -106,32 +133,18 @@ export async function aprovarSolicitacao(
     ultimo_acesso: null
   });
 
-  // Envia email de reset de senha para o novo usuário definir a senha
+  // Envia link de recovery (reset de senha) via Supabase Auth
   try {
-    const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY || '';
-    if (FIREBASE_WEB_API_KEY) {
-      const axios = (await import('axios')).default;
-      await axios.post(
-        'https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=' + FIREBASE_WEB_API_KEY,
-        {
-          requestType: 'PASSWORD_RESET',
-          email:        sol.email,
-          continueUrl:  'https://jet-os-7.web.app'
-        }
-      );
-      console.log('[aprovar] Email de reset enviado para ' + sol.email);
-    } else {
-      const link = await admin.auth().generatePasswordResetLink(sol.email, {
-        url: 'https://jet-os-7.web.app'
-      });
-      console.log('[aprovar] Link de reset para ' + sol.email + ': ' + link);
-    }
+    const linkData = await sbAdminRequest('POST', 'generate_link', {
+      type: 'recovery',
+      email: sol.email,
+      options: { redirect_to: 'https://jet-os-1.web.app' },
+    });
+    console.log('[aprovar] Link de recovery gerado para ' + sol.email + ': ' + (linkData?.action_link || 'ok'));
   } catch (e) {
-    console.error('[aprovar] Erro ao enviar email:', e);
-    // Não falha a aprovação por causa do email
+    console.error('[aprovar] Erro ao gerar link de recovery:', e);
   }
 
-  // Atualiza solicitação
   await supabaseUpdate('solicitacoes_prestadores', {
     status:         'APROVADA',
     resolvido_em:   new Date().toISOString(),
@@ -147,7 +160,7 @@ export async function aprovarSolicitacao(
   });
 
   return okResponse({
-    uid:      userRecord.uid,
+    uid:      userId,
     role:     roleFinal,
     mensagem: 'Usuário criado como ' + roleFinal + '.'
   });
