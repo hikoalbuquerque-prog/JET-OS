@@ -358,6 +358,10 @@ const TX = {
   cargosTit:        { pt:'👷 Cargos',               en:'👷 Roles',             es:'👷 Cargos',             ru:'👷 Должности' },
   zonasAtivasTit:   { pt:'📍 Zonas Ativas',         en:'📍 Active Zones',      es:'📍 Zonas Activas',     ru:'📍 Активные зоны' },
   addZona:          { pt:'+ Zona',                 en:'+ Zone',               es:'+ Zona',               ru:'+ Зона' },
+  syncZonas:        { pt:'🔄 Sincronizar do GoJet', en:'🔄 Sync from GoJet',   es:'🔄 Sincronizar de GoJet', ru:'🔄 Синхронизация из GoJet' },
+  syncZonasOk:      { pt:'zonas descobertas',      en:'zones discovered',     es:'zonas descubiertas',   ru:'зон обнаружено' },
+  syncZonasNone:    { pt:'Nenhuma zona encontrada', en:'No zones found',       es:'Ninguna zona encontrada', ru:'Зоны не найдены' },
+  syncZonasNeedId:  { pt:'Preencha o GoJet City ID primeiro', en:'Fill GoJet City ID first', es:'Complete el GoJet City ID primero', ru:'Сначала заполните GoJet City ID' },
   addCargo:         { pt:'+ Cargo',                en:'+ Role',               es:'+ Cargo',              ru:'+ Должность' },
 };
 
@@ -1357,6 +1361,29 @@ function AbaConfigTeams({cidade}:{cidade:string}){
   const [perfilTab,setPerfilTab]=useState<string>('alta');
   const [novaZona,setNovaZona]=useState('');
   const [novoCargo,setNovoCargo]=useState('');
+  const [syncingZonas,setSyncingZonas]=useState(false);
+
+  const ZONA_MAP:Record<string,string>={'🟥':'Z1 - Vermelha','⬛':'Z2 - Preta','🟧':'Z3 - Laranja','🟦':'Z4 - Azul','🟩':'Z5 - Verde','🟨':'Z6 - Amarela','🏁':'Zona Interlagos'};
+  const RE_ZONA=/^([🟥⬛🟧🟦🟩🟨🏁])/u;
+
+  const syncZonasGojet=async()=>{
+    const cityId=cfg.gojetCityId?.trim();
+    if(!cityId){alert(pick(TX.syncZonasNeedId));return;}
+    setSyncingZonas(true);
+    try{
+      const {data}=await supabase.from('parkings').select('nome').eq('city_id',cityId);
+      const found=new Set<string>();
+      for(const p of data??[]){
+        const m=(p.nome??'').match(RE_ZONA);
+        if(m&&ZONA_MAP[m[1]]) found.add(ZONA_MAP[m[1]]);
+      }
+      if(found.size===0){alert(pick(TX.syncZonasNone));return;}
+      const merged=new Set([...(cfg.zonasAtivas||[]),...found]);
+      setCfg(c=>({...c,zonasAtivas:[...merged]}));
+      alert(`${found.size} ${pick(TX.syncZonasOk)}`);
+    }catch(e){console.error('syncZonas',e);}
+    finally{setSyncingZonas(false);}
+  };
 
   const cargos = cfg.cargos?.length ? cfg.cargos : DEFAULT_CARGOS;
   const zonas = cfg.zonasAtivas ?? [];
@@ -1518,45 +1545,7 @@ function AbaConfigTeams({cidade}:{cidade:string}){
         </div>
       </div>
 
-      {/* 4. Zonas Ativas */}
-      <div style={{...S.card(T.green),marginBottom:14}}>
-        <div style={S.sec}>{pick(TX.zonasAtivasTit)}</div>
-        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
-          {zonas.map((z,i)=>(
-            <span key={z} style={{...S.chip(T.green),display:'flex',alignItems:'center',gap:4}}>
-              {z}
-              <button onClick={()=>setCfg(c=>({...c,zonasAtivas:c.zonasAtivas.filter((_,j)=>j!==i)}))}
-                style={{background:'none',border:'none',color:T.red,cursor:'pointer',fontSize:10,fontWeight:700,padding:0}}>x</button>
-            </span>
-          ))}
-        </div>
-        <div style={{display:'flex',gap:6}}>
-          <input value={novaZona} onChange={e=>setNovaZona(e.target.value)} placeholder="Z1 - Vermelha" style={{...S.inp,flex:1,marginBottom:0}}/>
-          <button onClick={()=>{if(novaZona.trim()){setCfg(c=>({...c,zonasAtivas:[...(c.zonasAtivas||[]),novaZona.trim()]}));setNovaZona('');}}}
-            style={{...S.btnG(T.blueg),flexShrink:0}}>{pick(TX.addZona)}</button>
-        </div>
-      </div>
-
-      {/* 5. Cargos */}
-      <div style={{...S.card(T.purple),marginBottom:14}}>
-        <div style={S.sec}>{pick(TX.cargosTit)}</div>
-        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
-          {cargos.map((c,i)=>(
-            <span key={c} style={{...S.chip(T.purple),display:'flex',alignItems:'center',gap:4}}>
-              {c}
-              <button onClick={()=>setCfg(prev=>({...prev,cargos:prev.cargos.filter((_,j)=>j!==i)}))}
-                style={{background:'none',border:'none',color:T.red,cursor:'pointer',fontSize:10,fontWeight:700,padding:0}}>x</button>
-            </span>
-          ))}
-        </div>
-        <div style={{display:'flex',gap:6}}>
-          <input value={novoCargo} onChange={e=>setNovoCargo(e.target.value)} placeholder="Cargo" style={{...S.inp,flex:1,marginBottom:0}}/>
-          <button onClick={()=>{if(novoCargo.trim()){setCfg(c=>({...c,cargos:[...(c.cargos||[]),novoCargo.trim()]}));setNovoCargo('');}}}
-            style={{...S.btnG(T.blueg),flexShrink:0}}>{pick(TX.addCargo)}</button>
-        </div>
-      </div>
-
-      {/* 6. GoJet & Ajustes */}
+      {/* 4. GoJet & Ajustes (moved up — configure link first to auto-discover zones) */}
       <div style={{...S.card(T.orange),marginBottom:14}}>
         <div style={S.sec}>{pick(TX.gojetTit)}</div>
         <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',fontSize:12,color:T.txt,marginBottom:10}}>
@@ -1564,7 +1553,16 @@ function AbaConfigTeams({cidade}:{cidade:string}){
           {pick(TX.gojetAjuste)}
         </label>
         <div style={S.g2}>
-          <div><label style={S.lbl}>{pick(TX.gojetCityId)}</label><input value={cfg.gojetCityId||''} onChange={e=>setCfg(c=>({...c,gojetCityId:e.target.value||null}))} style={S.inp}/></div>
+          <div>
+            <label style={S.lbl}>{pick(TX.gojetCityId)}</label>
+            <div style={{display:'flex',gap:6}}>
+              <input value={cfg.gojetCityId||''} onChange={e=>setCfg(c=>({...c,gojetCityId:e.target.value||null}))} style={{...S.inp,flex:1,marginBottom:0}}/>
+              <button onClick={syncZonasGojet} disabled={syncingZonas}
+                style={{...S.btnG(T.blueg),flexShrink:0,opacity:syncingZonas?0.6:1}}>
+                {syncingZonas?'...':pick(TX.syncZonas)}
+              </button>
+            </div>
+          </div>
           <div>
             <label style={S.lbl}>{pick(TX.feriadoPerfil)}</label>
             <select value={cfg.feriadoPerfil||'baixa'} onChange={e=>setCfg(c=>({...c,feriadoPerfil:e.target.value}))} style={S.inp}>
@@ -1589,6 +1587,44 @@ function AbaConfigTeams({cidade}:{cidade:string}){
       </div>
 
       {/* Penalidades */}
+      {/* 5. Zonas Ativas */}
+      <div style={{...S.card(T.green),marginBottom:14}}>
+        <div style={S.sec}>{pick(TX.zonasAtivasTit)}</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
+          {zonas.map((z,i)=>(
+            <span key={z} style={{...S.chip(T.green),display:'flex',alignItems:'center',gap:4}}>
+              {z}
+              <button onClick={()=>setCfg(c=>({...c,zonasAtivas:c.zonasAtivas.filter((_,j)=>j!==i)}))}
+                style={{background:'none',border:'none',color:T.red,cursor:'pointer',fontSize:10,fontWeight:700,padding:0}}>x</button>
+            </span>
+          ))}
+        </div>
+        <div style={{display:'flex',gap:6}}>
+          <input value={novaZona} onChange={e=>setNovaZona(e.target.value)} placeholder="Z1 - Vermelha" style={{...S.inp,flex:1,marginBottom:0}}/>
+          <button onClick={()=>{if(novaZona.trim()){setCfg(c=>({...c,zonasAtivas:[...(c.zonasAtivas||[]),novaZona.trim()]}));setNovaZona('');}}}
+            style={{...S.btnG(T.blueg),flexShrink:0}}>{pick(TX.addZona)}</button>
+        </div>
+      </div>
+
+      {/* 6. Cargos */}
+      <div style={{...S.card(T.purple),marginBottom:14}}>
+        <div style={S.sec}>{pick(TX.cargosTit)}</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
+          {cargos.map((c,i)=>(
+            <span key={c} style={{...S.chip(T.purple),display:'flex',alignItems:'center',gap:4}}>
+              {c}
+              <button onClick={()=>setCfg(prev=>({...prev,cargos:prev.cargos.filter((_,j)=>j!==i)}))}
+                style={{background:'none',border:'none',color:T.red,cursor:'pointer',fontSize:10,fontWeight:700,padding:0}}>x</button>
+            </span>
+          ))}
+        </div>
+        <div style={{display:'flex',gap:6}}>
+          <input value={novoCargo} onChange={e=>setNovoCargo(e.target.value)} placeholder="Cargo" style={{...S.inp,flex:1,marginBottom:0}}/>
+          <button onClick={()=>{if(novoCargo.trim()){setCfg(c=>({...c,cargos:[...(c.cargos||[]),novoCargo.trim()]}));setNovoCargo('');}}}
+            style={{...S.btnG(T.blueg),flexShrink:0}}>{pick(TX.addCargo)}</button>
+        </div>
+      </div>
+
       <div style={{...S.card(T.red),marginBottom:14}}>
         <div style={S.sec}>{pick(TX.penalidadesTit)}</div>
         <div style={S.g2}>

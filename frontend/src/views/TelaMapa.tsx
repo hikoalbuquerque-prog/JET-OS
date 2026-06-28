@@ -26,6 +26,7 @@ import { FotoMedidas } from '../components/FotoMedidas';
 import { CandidatosManager } from '../components/CandidatosManager';
 import LocaisFinanceiro, { LocalOperacionalModal, useLocaisOperacionais, TIPO_LOCAL_META } from '../components/LocaisFinanceiro';
 import { GoJetOverlay } from '../components/GoJetOverlay';
+import { buscarCityIdSupabase } from '../lib/gojet-config-supabase';
 import GoJetDashboard from '../components/GoJetDashboard';
 import GestorLogisticaPanel from '../components/GestorLogisticaPanel';
 import PagamentosModule from '../components/PagamentosModule';
@@ -188,6 +189,14 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
   const [showGoJetLayer, setShowGoJetLayer]    = useState(false);
   const [gojetDash,       setGojetDash      ]   = useState(false);
   const [gojetAnalytics,  setGojetAnalytics ]   = useState(false);
+
+  useEffect(() => {
+    if (!cidade) return;
+    buscarCityIdSupabase(cidade).then(cid => {
+      if (cid) setShowGoJetLayer(true);
+    }).catch(() => {});
+  }, [cidade]);
+
   const [turnoRegistro,   setTurnoRegistro  ]   = useState(false);
   const [gestorLogistica, setGestorLogistica]   = useState(false);
   const [pagamentosOpen,  setPagamentosOpen]    = useState(false);
