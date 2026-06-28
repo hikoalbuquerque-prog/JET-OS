@@ -39,6 +39,16 @@ const mapCfg = (r: any) => r && ({
   respeitarPreferencias: r.respeitar_preferencias, respeitarFeriados: r.respeitar_feriados,
   nivelMinimoUrgente: r.nivel_minimo_urgente, bonus: r.bonus ?? {}, penalidades: r.penalidades ?? {},
   tetoVagas: r.teto_vagas ?? 10,
+  faixas: r.faixas ?? [],
+  perfis: r.perfis ?? {},
+  mapaDias: r.mapa_dias ?? {},
+  overridesData: r.overrides_data ?? {},
+  zonasAtivas: r.zonas_ativas ?? [],
+  gojetCityId: r.gojet_city_id ?? null,
+  gojetAjuste: r.gojet_ajuste ?? false,
+  feriadoPerfil: r.feriado_perfil ?? 'baixa',
+  tetoVagasZona: r.teto_vagas_zona ?? 10,
+  cargos: r.cargos ?? ['Charger','Scalt','Motorista','Promotor','Fiscal'],
 });
 
 // Lê tudo que a AbaEscala precisa.
@@ -162,7 +172,7 @@ export async function criarSlotsEscala(previa: any[], usuario: { uid: string; no
     criado_por_id: usuario.uid, criado_por_nome: usuario.nome,
   }));
   // idempotente: upsert por (cidade,data,turno,tipo) — não duplica re-gerando.
-  const { error } = await supabase.from('slots_escala').upsert(rows, { onConflict: 'cidade,data_slot,turno,tipo' });
+  const { error } = await supabase.from('slots_escala').upsert(rows, { onConflict: 'cidade,data_slot,turno,tipo,zona' });
   if (error) throw new Error('criarSlotsEscala: ' + error.message);
   return rows.length;
 }
@@ -246,6 +256,16 @@ export async function salvarEscalaConfig(cfg: any, cidade?: string) {
     turnos_config: cfg.turnosConfig ?? {}, respeitar_preferencias: cfg.respeitarPreferencias ?? true,
     respeitar_feriados: cfg.respeitarFeriados ?? true, nivel_minimo_urgente: cfg.nivelMinimoUrgente ?? 0,
     bonus: cfg.bonus ?? {}, penalidades: cfg.penalidades ?? {}, teto_vagas: cfg.tetoVagas ?? 10,
+    faixas: cfg.faixas ?? [],
+    perfis: cfg.perfis ?? {},
+    mapa_dias: cfg.mapaDias ?? {},
+    overrides_data: cfg.overridesData ?? {},
+    zonas_ativas: cfg.zonasAtivas ?? [],
+    gojet_city_id: cfg.gojetCityId ?? null,
+    gojet_ajuste: cfg.gojetAjuste ?? false,
+    feriado_perfil: cfg.feriadoPerfil ?? 'baixa',
+    teto_vagas_zona: cfg.tetoVagasZona ?? 10,
+    cargos: cfg.cargos ?? ['Charger','Scalt','Motorista','Promotor','Fiscal'],
   };
   const { error } = await supabase.from('escala_config').upsert(row, { onConflict: 'cidade' });
   if (error) throw new Error('salvarEscalaConfig: ' + error.message);

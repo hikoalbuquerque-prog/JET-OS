@@ -61,6 +61,7 @@ interface Penalidade {
   cidade: string; criadoEm?: any; aplicadoPor?: string;
 }
 
+interface FaixaHoraria { id: string; horaIni: string; horaFim: string; }
 interface EscalaConfig {
   id?: string; cidade: string;
   diasAntecedencia: number; // quantos dias antes gerar escala automatica
@@ -83,6 +84,17 @@ interface EscalaConfig {
     atraso30: number;
     cancelamentoTardio: number;
   };
+  // Novo modelo unificado (migration 0074)
+  faixas: FaixaHoraria[];
+  perfis: Record<string, Record<string, Record<string, number>>>; // {alta:{_default:{Charger:2,...},...},...}
+  mapaDias: Record<string, string>; // {"0":"baixa",...,"6":"alta"}
+  overridesData: Record<string, any>;
+  zonasAtivas: string[];
+  gojetCityId: string | null;
+  gojetAjuste: boolean;
+  feriadoPerfil: string;
+  tetoVagasZona: number;
+  cargos: string[];
 }
 
 interface Feriado {
@@ -323,6 +335,30 @@ const TX = {
   addBtn:           { pt:'+ Add',                 en:'+ Add',                es:'+ Add',                ru:'+ Доб.' },
   dataNomeObrig:    { pt:'Data e nome obrigatórios', en:'Date and name are required', es:'Fecha y nombre obligatorios', ru:'Дата и название обязательны' },
   feriadoAdd:       { pt:'Feriado adicionado',    en:'Holiday added',        es:'Feriado agregado',     ru:'Праздник добавлен' },
+  // Novo modelo unificado
+  faixasTit:        { pt:'⏰ Faixas Horárias',    en:'⏰ Time Slots',         es:'⏰ Franjas Horarias',   ru:'⏰ Временные слоты' },
+  faixaVazia:       { pt:'Modo Manual (sem geração automática)', en:'Manual Mode (no auto-generation)', es:'Modo Manual (sin generación automática)', ru:'Ручной режим (без авто-генерации)' },
+  addFaixa:         { pt:'+ Faixa',               en:'+ Slot',               es:'+ Franja',             ru:'+ Слот' },
+  remover:          { pt:'Remover',                en:'Remove',               es:'Eliminar',             ru:'Удалить' },
+  perfisTit:        { pt:'📊 Perfis de Demanda',   en:'📊 Demand Profiles',   es:'📊 Perfiles de Demanda', ru:'📊 Профили спроса' },
+  perfilDefault:    { pt:'_default (todas as zonas)', en:'_default (all zones)', es:'_default (todas las zonas)', ru:'_default (все зоны)' },
+  mapaDiasTit:      { pt:'📅 Mapa de Dias',        en:'📅 Day Mapping',       es:'📅 Mapa de Días',      ru:'📅 Карта дней' },
+  dom:              { pt:'Dom', en:'Sun', es:'Dom', ru:'Вс' },
+  seg:              { pt:'Seg', en:'Mon', es:'Lun', ru:'Пн' },
+  ter:              { pt:'Ter', en:'Tue', es:'Mar', ru:'Вт' },
+  qua:              { pt:'Qua', en:'Wed', es:'Mié', ru:'Ср' },
+  qui:              { pt:'Qui', en:'Thu', es:'Jue', ru:'Чт' },
+  sex:              { pt:'Sex', en:'Fri', es:'Vie', ru:'Пт' },
+  sab:              { pt:'Sáb', en:'Sat', es:'Sáb', ru:'Сб' },
+  gojetTit:         { pt:'🚀 GoJet & Ajustes',     en:'🚀 GoJet & Adjustments', es:'🚀 GoJet & Ajustes', ru:'🚀 GoJet и настройки' },
+  gojetAjuste:      { pt:'Usar dados GoJet ao vivo', en:'Use live GoJet data', es:'Usar datos GoJet en vivo', ru:'Использовать данные GoJet' },
+  gojetCityId:      { pt:'GoJet City ID',          en:'GoJet City ID',        es:'GoJet City ID',        ru:'GoJet City ID' },
+  feriadoPerfil:    { pt:'Perfil em feriados',     en:'Holiday profile',      es:'Perfil en feriados',   ru:'Профиль в праздники' },
+  tetoVagasZona:    { pt:'Teto vagas/zona',        en:'Max slots/zone',       es:'Techo vagas/zona',     ru:'Макс. слотов/зона' },
+  cargosTit:        { pt:'👷 Cargos',               en:'👷 Roles',             es:'👷 Cargos',             ru:'👷 Должности' },
+  zonasAtivasTit:   { pt:'📍 Zonas Ativas',         en:'📍 Active Zones',      es:'📍 Zonas Activas',     ru:'📍 Активные зоны' },
+  addZona:          { pt:'+ Zona',                 en:'+ Zone',               es:'+ Zona',               ru:'+ Зона' },
+  addCargo:         { pt:'+ Cargo',                en:'+ Role',               es:'+ Cargo',              ru:'+ Должность' },
 };
 
 // Mapeia rótulos de nível (calculados por pontos) para o idioma atual.
@@ -463,67 +499,102 @@ function AbaEscala({usuario,cidade}:AbaProps){
     });
   },[cidade]);
 
+  // Resolve perfil do dia: override por data > feriado > mapa_dias
+  const resolvePerfilDia = useCallback((dataD: Date, dataStr: string, isFer: boolean): string => {
+    const isoCheck = dataD.toISOString().slice(0,10);
+    if (cfg?.overridesData?.[isoCheck]) return cfg.overridesData[isoCheck];
+    if (isFer) return cfg?.feriadoPerfil ?? 'baixa';
+    const dow = String(dataD.getDay());
+    return cfg?.mapaDias?.[dow] ?? 'media';
+  },[cfg]);
+
+  // Vagas do perfil para zona×cargo (zone-specific > _default)
+  const vagasDoPerfil = useCallback((perfilNome: string, zona: string, cargo: string): number => {
+    const perfil = cfg?.perfis?.[perfilNome];
+    if (!perfil) return 0;
+    return perfil[zona]?.[cargo] ?? perfil._default?.[cargo] ?? 0;
+  },[cfg]);
+
   // Gera prévia da escala para os próximos N dias
   const gerarPrevia = useCallback(()=>{
     const gerado: any[] = [];
     const hoje = new Date(); hoje.setHours(0,0,0,0);
-    const teto = cfg?.tetoVagas || 10; // guardrail (Fase 2)
-    const pontosMap: Record<string,number> = Object.fromEntries(prests.map((p:any)=>[p.uid, p.pontos||0])); // Fase 3
+    const teto = cfg?.tetoVagasZona ?? cfg?.tetoVagas ?? 10;
+    const pontosMap: Record<string,number> = Object.fromEntries(prests.map((p:any)=>[p.uid, p.pontos||0]));
+
+    // Use new model (faixas+perfis) if configured, else legacy (turnosConfig)
+    const usarNovoModelo = (cfg?.faixas?.length ?? 0) > 0 && Object.keys(cfg?.perfis ?? {}).length > 0;
+    const faixas = usarNovoModelo ? cfg!.faixas : TURNOS.map(t => ({ id: t, horaIni: cfg?.turnosConfig?.[t]?.horaIni || '07:00', horaFim: cfg?.turnosConfig?.[t]?.horaFim || '15:00' }));
+    const cargos = usarNovoModelo ? (cfg?.cargos ?? FUNCOES_TODAS) : FUNCOES_TODAS;
+    const zonas = usarNovoModelo ? (cfg?.zonasAtivas ?? ['Auto']) : ['Auto'];
 
     for(let d=1;d<=diasAhead;d++){
       const dataD = new Date(hoje.getTime()+d*86400000);
       const dataStr = dataD.toLocaleDateString('pt-BR');
       const diaSem  = dataD.getDay();
-
       const isFeriado = feriados.some(f=>f.data===dataStr||(f.nacional&&f.data.slice(0,5)===dataStr.slice(0,5)));
 
-      for(const turno of TURNOS){
-        for(const funcao of FUNCOES_TODAS){
-          // Encontra disponíveis para este dia/turno/função
-          const disponiveis = disponibilidades.filter(dp=>
-            dp.funcao===funcao&&
-            dp.diasSemana.includes(diaSem)&&
-            dp.turnosDisponiveis.includes(turno)&&
-            (!cidade||dp.cidade===cidade)
-          );
+      for(const faixa of faixas){
+        const turnoId = faixa.id;
+        const horaIni = faixa.horaIni;
+        const horaFim = faixa.horaFim;
 
-          if(disponiveis.length===0) continue;
+        for(const zona of zonas){
+          for(const funcao of cargos){
+            // Calculate vagas: new model uses perfis, legacy uses turnosConfig.qtdPadrao
+            let qtd: number;
+            if (usarNovoModelo) {
+              const perfilNome = resolvePerfilDia(dataD, dataStr, isFeriado);
+              qtd = vagasDoPerfil(perfilNome, zona, funcao);
+              // GoJet bonus for field roles
+              const ehCampo = ['Charger','Scout','Scalt'].includes(funcao);
+              if (ehCampo && demanda.bonus > 0) qtd += demanda.bonus;
+            } else {
+              const ehCampo = funcao==='Charger'||funcao==='Scout'||funcao==='Scalt';
+              qtd = (cfg?.turnosConfig?.[turnoId]?.qtdPadrao || 2) + (ehCampo ? demanda.bonus : 0);
+            }
+            qtd = Math.min(teto, qtd);
+            if (qtd <= 0) continue;
 
-          // Qtd: base + bônus de demanda GoJet (campo), com TETO (guardrail Fase 2)
-          const ehCampo = funcao==='Charger'||funcao==='Scout'||funcao==='Scalt';
-          const qtd = Math.min(teto, (cfg?.turnosConfig?.[turno]?.qtdPadrao || 2) + (ehCampo ? demanda.bonus : 0));
-          const horaIni = cfg?.turnosConfig?.[turno]?.horaIni || (turno==='T1'?'07:00':turno==='T2'?'15:00':'23:00');
-          const horaFim = cfg?.turnosConfig?.[turno]?.horaFim || (turno==='T1'?'15:00':turno==='T2'?'23:00':'07:00');
+            // Encontra disponíveis para este dia/turno/função
+            const disponiveis = disponibilidades.filter(dp=>
+              dp.funcao===funcao&&
+              dp.diasSemana.includes(diaSem)&&
+              dp.turnosDisponiveis.includes(turnoId)&&
+              (!cidade||dp.cidade===cidade)&&
+              (zona==='Auto'||!dp.zonasDisponiveis?.length||dp.zonasDisponiveis.includes(zona))
+            );
 
-          // Verificar se já existe slot para este dia/turno/função
-          const isoCheck = dataD.toISOString().slice(0,10);
-          const jaExiste = slots.some(sl=>(sl.dataSlot===dataStr||(sl.turnoInicio&&sl.turnoInicio.slice(0,10)===isoCheck))&&sl.turno===turno&&sl.tipo===funcao);
-          if(jaExiste) continue;
+            // Verificar se já existe slot para este dia/turno/função/zona
+            const isoCheck = dataD.toISOString().slice(0,10);
+            const jaExiste = slots.some(sl=>(sl.dataSlot===dataStr||(sl.turnoInicio&&sl.turnoInicio.slice(0,10)===isoCheck))&&sl.turno===turnoId&&sl.tipo===funcao&&(zona==='Auto'||sl.zona===zona));
+            if(jaExiste) continue;
 
-          // Fase 3: prioriza por CONFIABILIDADE (pontos do prestador), desc.
-          const candidatos = disponiveis
-            .slice()
-            .sort((a,b)=>(pontosMap[b.uid!]||0)-(pontosMap[a.uid!]||0))
-            .slice(0,qtd*2); // pool de candidatos
-          const sugeridos = candidatos.slice(0,qtd).map(c=>({uid:c.uid,nome:c.nome,pontos:pontosMap[c.uid!]||0}));
+            // Fase 3: prioriza por CONFIABILIDADE (pontos do prestador), desc.
+            const candidatos = disponiveis
+              .slice()
+              .sort((a,b)=>(pontosMap[b.uid!]||0)-(pontosMap[a.uid!]||0))
+              .slice(0,qtd*2);
+            const sugeridos = candidatos.slice(0,qtd).map(c=>({uid:c.uid,nome:c.nome,pontos:pontosMap[c.uid!]||0}));
 
-          gerado.push({
-            turno, horaIni, horaFim, tipo:funcao,
-            dataSlot: dataStr,
-            diaSem: DIAS_SEM[diaSem],
-            isFeriado,
-            qtdPessoas: qtd,
-            candidatos: candidatos.length,
-            sugeridos,
-            cidade: cidade||'SP',
-            status:'preview',
-          });
+            gerado.push({
+              turno: turnoId, horaIni, horaFim, tipo: funcao, zona,
+              dataSlot: dataStr,
+              diaSem: DIAS_SEM[diaSem],
+              isFeriado,
+              qtdPessoas: qtd,
+              candidatos: candidatos.length,
+              sugeridos,
+              cidade: cidade||'SP',
+              status:'preview',
+            });
+          }
         }
       }
     }
     setPrevia(gerado);
     setShowPrevia(true);
-  },[diasAhead,disponibilidades,slots,feriados,cfg,cidade,demanda,prests]);
+  },[diasAhead,disponibilidades,slots,feriados,cfg,cidade,demanda,prests,resolvePerfilDia,vagasDoPerfil]);
 
   // Cria os slots da prévia no Firestore
   const confirmarEscala = async()=>{
@@ -1258,6 +1329,13 @@ function AbaPenalidades({usuario,cidade}:AbaProps){
 // ABA CONFIG TEAMS
 // ═══════════════════════════════════════════════════════════════════════════════
 
+const PERFIL_NAMES = ['alta','media','baixa','evento'] as const;
+const DIAS_SEMANA_KEYS: {k:string;tx:keyof typeof TX}[] = [
+  {k:'0',tx:'dom'},{k:'1',tx:'seg'},{k:'2',tx:'ter'},{k:'3',tx:'qua'},
+  {k:'4',tx:'qui'},{k:'5',tx:'sex'},{k:'6',tx:'sab'},
+];
+const DEFAULT_CARGOS = ['Charger','Scalt','Motorista','Promotor','Fiscal'];
+
 function AbaConfigTeams({cidade}:{cidade:string}){
   const { pick } = useLang();
   const [cfg,setCfg]=useState<EscalaConfig>({
@@ -1270,10 +1348,18 @@ function AbaConfigTeams({cidade}:{cidade:string}){
     respeitarPreferencias:true, respeitarFeriados:true, nivelMinimoUrgente:1,
     bonus:{presencaConfirmada:10,inicioNoPrazo:5,avaliacaoExcelente:10,streakSemanal:25,streakMensal:100,pontoZerado:15},
     penalidades:{falta:30,atraso15:10,atraso30:20,cancelamentoTardio:15},
+    faixas:[], perfis:{}, mapaDias:{}, overridesData:{}, zonasAtivas:[], gojetCityId:null,
+    gojetAjuste:false, feriadoPerfil:'baixa', tetoVagasZona:10, cargos:[...DEFAULT_CARGOS],
   });
   const [feriados,setFeriados]=useState<Feriado[]>([]);
   const [novoFeriado,setNovoFeriado]=useState({data:'',nome:'',nacional:false});
   const [salvando,setSalvando]=useState(false);
+  const [perfilTab,setPerfilTab]=useState<string>('alta');
+  const [novaZona,setNovaZona]=useState('');
+  const [novoCargo,setNovoCargo]=useState('');
+
+  const cargos = cfg.cargos?.length ? cfg.cargos : DEFAULT_CARGOS;
+  const zonas = cfg.zonasAtivas ?? [];
 
   const recarregarFeriados=()=>fetchEscala(cidade).then(d=>setFeriados(d.feriados as any)).catch(()=>{});
   useEffect(()=>{
@@ -1298,8 +1384,37 @@ function AbaConfigTeams({cidade}:{cidade:string}){
     <div><label style={S.lbl}>{label}</label><input type="number" min={min} max={max} value={val} onChange={e=>onChange(parseInt(e.target.value)||0)} style={S.inp}/></div>
   );
 
+  // Helpers for faixas
+  const addFaixa=()=>{
+    const f:FaixaHoraria={id:'',horaIni:'08:00',horaFim:'16:00'};
+    setCfg(c=>({...c,faixas:[...(c.faixas||[]),f]}));
+  };
+  const updFaixa=(i:number,field:'horaIni'|'horaFim',v:string)=>{
+    setCfg(c=>{
+      const fs=[...(c.faixas||[])];
+      fs[i]={...fs[i],[field]:v,id:`${field==='horaIni'?v:fs[i].horaIni}-${field==='horaFim'?v:fs[i].horaFim}`};
+      return {...c,faixas:fs};
+    });
+  };
+  const rmFaixa=(i:number)=>setCfg(c=>({...c,faixas:(c.faixas||[]).filter((_,j)=>j!==i)}));
+
+  // Helpers for perfis
+  const getPerfilVal=(perfil:string,zona:string,cargo:string):number=>{
+    return cfg.perfis?.[perfil]?.[zona]?.[cargo] ?? 0;
+  };
+  const setPerfilVal=(perfil:string,zona:string,cargo:string,v:number)=>{
+    setCfg(c=>{
+      const p={...c.perfis};
+      if(!p[perfil]) p[perfil]={};
+      if(!p[perfil][zona]) p[perfil][zona]={};
+      p[perfil]={...p[perfil],[zona]:{...p[perfil][zona],[cargo]:v}};
+      return {...c,perfis:p};
+    });
+  };
+
   return(
-    <div style={{maxWidth:640}}>
+    <div style={{maxWidth:720}}>
+      {/* Configuracoes gerais */}
       <div style={{...S.card(T.bluel),marginBottom:14}}>
         <div style={S.sec}>{pick(TX.configTitulo)} {cidade||pick(TX.global)}</div>
         <div style={S.g2}>
@@ -1318,20 +1433,149 @@ function AbaConfigTeams({cidade}:{cidade:string}){
         </div>
       </div>
 
+      {/* 1. Faixas Horárias */}
       <div style={{...S.card(T.purple),marginBottom:14}}>
-        <div style={S.sec}>{pick(TX.horariosTurno)}</div>
-        {TURNOS.map(t=>(
-          <div key={t} style={{marginBottom:10}}>
-            <div style={{fontSize:11,fontWeight:700,color:T.bluel,marginBottom:6}}>{t}</div>
-            <div style={S.g2}>
-              <div><label style={S.lbl}>{pick(TX.horaInicio)}</label><input type="time" value={cfg.turnosConfig?.[t]?.horaIni||''} onChange={e=>setCfg(c=>({...c,turnosConfig:{...c.turnosConfig,[t]:{...c.turnosConfig?.[t],horaIni:e.target.value}}}))} style={S.inp}/></div>
-              <div><label style={S.lbl}>{pick(TX.horaFim)}</label><input type="time" value={cfg.turnosConfig?.[t]?.horaFim||''} onChange={e=>setCfg(c=>({...c,turnosConfig:{...c.turnosConfig,[t]:{...c.turnosConfig?.[t],horaFim:e.target.value}}}))} style={S.inp}/></div>
-              <div><label style={S.lbl}>{pick(TX.vagasPadrao)}</label><input type="number" min={1} max={20} value={cfg.turnosConfig?.[t]?.qtdPadrao||2} onChange={e=>setCfg(c=>({...c,turnosConfig:{...c.turnosConfig,[t]:{...c.turnosConfig?.[t],qtdPadrao:parseInt(e.target.value)||2}}}))} style={S.inp}/></div>
-            </div>
+        <div style={S.sec}>{pick(TX.faixasTit)}</div>
+        {(!cfg.faixas||cfg.faixas.length===0) && (
+          <div style={{fontSize:12,color:T.dim,marginBottom:10,fontStyle:'italic'}}>{pick(TX.faixaVazia)}</div>
+        )}
+        {(cfg.faixas||[]).map((f,i)=>(
+          <div key={i} style={{display:'flex',gap:8,alignItems:'center',marginBottom:8}}>
+            <div style={{flex:1}}><label style={S.lbl}>{pick(TX.horaInicio)}</label><input type="time" value={f.horaIni} onChange={e=>updFaixa(i,'horaIni',e.target.value)} style={S.inp}/></div>
+            <div style={{flex:1}}><label style={S.lbl}>{pick(TX.horaFim)}</label><input type="time" value={f.horaFim} onChange={e=>updFaixa(i,'horaFim',e.target.value)} style={S.inp}/></div>
+            <div style={{fontSize:10,color:T.dim,fontFamily:'monospace',minWidth:90}}>{f.horaIni}-{f.horaFim}</div>
+            <button onClick={()=>rmFaixa(i)} style={{...S.btn(T.red,true),padding:'4px 8px',fontSize:10}}>{pick(TX.remover)}</button>
           </div>
         ))}
+        <button onClick={addFaixa} style={{...S.btnG(T.blueg),fontSize:11}}>{pick(TX.addFaixa)}</button>
       </div>
 
+      {/* 2. Perfis de Demanda */}
+      <div style={{...S.card(T.blue),marginBottom:14}}>
+        <div style={S.sec}>{pick(TX.perfisTit)}</div>
+        <div style={{display:'flex',gap:4,marginBottom:12}}>
+          {PERFIL_NAMES.map(p=>(
+            <button key={p} onClick={()=>setPerfilTab(p)}
+              style={{padding:'6px 14px',borderRadius:8,border:`1px solid ${perfilTab===p?T.bluel:T.bdr}`,
+                background:perfilTab===p?T.bluel+'22':'transparent',color:perfilTab===p?T.bluel:T.dim,
+                fontSize:11,fontWeight:700,cursor:'pointer',textTransform:'capitalize'}}>
+              {p}
+            </button>
+          ))}
+        </div>
+        <div style={{overflowX:'auto'}}>
+          <table style={S.table}>
+            <thead>
+              <tr>
+                <th style={S.th}>Zona</th>
+                {cargos.map(c=><th key={c} style={S.th}>{c}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {/* _default row */}
+              <tr>
+                <td style={{...S.td,fontWeight:700,color:T.bluel,fontSize:11}}>{pick(TX.perfilDefault)}</td>
+                {cargos.map(c=>(
+                  <td key={c} style={S.td}>
+                    <input type="number" min={0} max={50} value={getPerfilVal(perfilTab,'_default',c)}
+                      onChange={e=>setPerfilVal(perfilTab,'_default',c,parseInt(e.target.value)||0)}
+                      style={{...S.inp,width:56,marginBottom:0,textAlign:'center'}}/>
+                  </td>
+                ))}
+              </tr>
+              {/* Zone-specific rows */}
+              {zonas.map(z=>(
+                <tr key={z}>
+                  <td style={{...S.td,fontSize:11,color:T.txt}}>{z}</td>
+                  {cargos.map(c=>(
+                    <td key={c} style={S.td}>
+                      <input type="number" min={0} max={50} value={getPerfilVal(perfilTab,z,c)}
+                        onChange={e=>setPerfilVal(perfilTab,z,c,parseInt(e.target.value)||0)}
+                        style={{...S.inp,width:56,marginBottom:0,textAlign:'center'}}/>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 3. Mapa de Dias */}
+      <div style={{...S.card(T.yellow),marginBottom:14}}>
+        <div style={S.sec}>{pick(TX.mapaDiasTit)}</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:8}}>
+          {DIAS_SEMANA_KEYS.map(({k,tx})=>(
+            <div key={k}>
+              <label style={S.lbl}>{pick(TX[tx])}</label>
+              <select value={cfg.mapaDias?.[k]||'media'}
+                onChange={e=>setCfg(c=>({...c,mapaDias:{...c.mapaDias,[k]:e.target.value}}))}
+                style={{...S.inp,marginBottom:0}}>
+                {PERFIL_NAMES.map(p=><option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 4. Zonas Ativas */}
+      <div style={{...S.card(T.green),marginBottom:14}}>
+        <div style={S.sec}>{pick(TX.zonasAtivasTit)}</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
+          {zonas.map((z,i)=>(
+            <span key={z} style={{...S.chip(T.green),display:'flex',alignItems:'center',gap:4}}>
+              {z}
+              <button onClick={()=>setCfg(c=>({...c,zonasAtivas:c.zonasAtivas.filter((_,j)=>j!==i)}))}
+                style={{background:'none',border:'none',color:T.red,cursor:'pointer',fontSize:10,fontWeight:700,padding:0}}>x</button>
+            </span>
+          ))}
+        </div>
+        <div style={{display:'flex',gap:6}}>
+          <input value={novaZona} onChange={e=>setNovaZona(e.target.value)} placeholder="Z1 - Vermelha" style={{...S.inp,flex:1,marginBottom:0}}/>
+          <button onClick={()=>{if(novaZona.trim()){setCfg(c=>({...c,zonasAtivas:[...(c.zonasAtivas||[]),novaZona.trim()]}));setNovaZona('');}}}
+            style={{...S.btnG(T.blueg),flexShrink:0}}>{pick(TX.addZona)}</button>
+        </div>
+      </div>
+
+      {/* 5. Cargos */}
+      <div style={{...S.card(T.purple),marginBottom:14}}>
+        <div style={S.sec}>{pick(TX.cargosTit)}</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
+          {cargos.map((c,i)=>(
+            <span key={c} style={{...S.chip(T.purple),display:'flex',alignItems:'center',gap:4}}>
+              {c}
+              <button onClick={()=>setCfg(prev=>({...prev,cargos:prev.cargos.filter((_,j)=>j!==i)}))}
+                style={{background:'none',border:'none',color:T.red,cursor:'pointer',fontSize:10,fontWeight:700,padding:0}}>x</button>
+            </span>
+          ))}
+        </div>
+        <div style={{display:'flex',gap:6}}>
+          <input value={novoCargo} onChange={e=>setNovoCargo(e.target.value)} placeholder="Cargo" style={{...S.inp,flex:1,marginBottom:0}}/>
+          <button onClick={()=>{if(novoCargo.trim()){setCfg(c=>({...c,cargos:[...(c.cargos||[]),novoCargo.trim()]}));setNovoCargo('');}}}
+            style={{...S.btnG(T.blueg),flexShrink:0}}>{pick(TX.addCargo)}</button>
+        </div>
+      </div>
+
+      {/* 6. GoJet & Ajustes */}
+      <div style={{...S.card(T.orange),marginBottom:14}}>
+        <div style={S.sec}>{pick(TX.gojetTit)}</div>
+        <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',fontSize:12,color:T.txt,marginBottom:10}}>
+          <input type="checkbox" checked={cfg.gojetAjuste} onChange={e=>setCfg(c=>({...c,gojetAjuste:e.target.checked}))}/>
+          {pick(TX.gojetAjuste)}
+        </label>
+        <div style={S.g2}>
+          <div><label style={S.lbl}>{pick(TX.gojetCityId)}</label><input value={cfg.gojetCityId||''} onChange={e=>setCfg(c=>({...c,gojetCityId:e.target.value||null}))} style={S.inp}/></div>
+          <div>
+            <label style={S.lbl}>{pick(TX.feriadoPerfil)}</label>
+            <select value={cfg.feriadoPerfil||'baixa'} onChange={e=>setCfg(c=>({...c,feriadoPerfil:e.target.value}))} style={S.inp}>
+              {PERFIL_NAMES.map(p=><option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          <N label={pick(TX.tetoVagasZona)} val={cfg.tetoVagasZona??10} onChange={v=>setCfg(c=>({...c,tetoVagasZona:v}))} min={1} max={100}/>
+        </div>
+      </div>
+
+      {/* Bonus */}
       <div style={{...S.card(T.green),marginBottom:14}}>
         <div style={S.sec}>{pick(TX.bonusPontuacao)}</div>
         <div style={S.g2}>
@@ -1344,6 +1588,7 @@ function AbaConfigTeams({cidade}:{cidade:string}){
         </div>
       </div>
 
+      {/* Penalidades */}
       <div style={{...S.card(T.red),marginBottom:14}}>
         <div style={S.sec}>{pick(TX.penalidadesTit)}</div>
         <div style={S.g2}>
