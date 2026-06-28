@@ -2667,36 +2667,6 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
 
 
 
-      {/* Botão Satélite */}
-      <button
-        onClick={() => {
-          const map = leafletRef.current;
-          if (!map) return;
-          const sat = (window as any).__satLayer;
-          if (sat) {
-            map.removeLayer(sat);
-            delete (window as any).__satLayer;
-          } else {
-            // Camada satélite Google (s=satélite, y=satélite+rótulos, h=híbrido)
-            const satTile = L.tileLayer(
-              'https://mt0.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}',
-              { attribution:'© Google Maps', maxZoom:21, opacity:1 }
-            );
-            satTile.addTo(map);
-            (window as any).__satLayer = satTile;
-          }
-          // força re-render
-          setMapMode(m => m);
-        }}
-        style={{ position:'fixed', bottom:20, left:'50%',
-          transform:`translateX(calc(-50% + ${(typeof window!=='undefined' && (window as any).__satLayer) ? '0px' : '60px'}))`,
-          zIndex:1000, padding:'7px 14px', borderRadius:20,
-          background:'rgba(13,18,30,.9)', border:'1px solid rgba(16,185,129,.3)',
-          color:'#34d399', fontSize:11, fontWeight:600, cursor:'pointer',
-          backdropFilter:'blur(8px)', display:'flex', alignItems:'center', gap:5 }}>
-        🛰 {(typeof window!=='undefined' && (window as any).__satLayer) ? '✓ Satélite' : 'Satélite'}
-      </button>
-
       {/* Botão Dark/Light — centro inferior */}
       <button onClick={() => setMapMode(m => m === 'dark' ? 'light' : 'dark')}
         style={{ position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)',
