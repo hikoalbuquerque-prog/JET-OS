@@ -326,7 +326,7 @@ export const notificarTarefaFn = https.onCall(
   async (request) => {
     if (!request.auth) throw new https.HttpsError('unauthenticated', 'Não autenticado');
 
-    const { tarefaTitulo, assigneeUid, cidade, fcmToken } = request.data ?? {};
+    const { tarefaTitulo, assigneeUid, cidade } = request.data ?? {};
     if (!assigneeUid) return { ok: true };
 
     const resultados: string[] = [];
@@ -335,28 +335,14 @@ export const notificarTarefaFn = https.onCall(
       const userRow = await supabaseGetOne<any>('usuarios', `select=*&id=eq.${encodeURIComponent(assigneeUid)}`);
       const userData = userRow ?? {};
 
-      // 1. FCM push nativo (Android/iOS)
-      const tokenFCM = fcmToken ?? userData.fcmToken ?? null;
-      if (tokenFCM) {
-        try {
-          const { getMessaging } = await import('firebase-admin/messaging');
-          const msg = await getMessaging().send({
-            token: tokenFCM,
-            notification: {
-              title: '📦 Nova tarefa!',
-              body: tarefaTitulo ?? 'Você recebeu uma nova tarefa no JET OS.',
-            },
-            data: { cidade: cidade ?? '', tipo: 'nova_tarefa' },
-            android: {
-              priority: 'high',
-              notification: { channelId: 'tarefas', sound: 'default' },
-            },
-          });
-          resultados.push(`fcm:${msg}`);
-        } catch (e: any) {
-          logger.warn('[notificarTarefa] FCM erro:', e.message);
-          resultados.push(`fcm:erro:${e.message}`);
-        }
+      // 1. Web Push (substitui FCM)
+      try {
+        const { enviarPushParaUsuario } = await import('./web-push');
+        await enviarPushParaUsuario(assigneeUid, '📦 Nova tarefa!', tarefaTitulo ?? 'Você recebeu uma nova tarefa no JET OS.');
+        resultados.push('webpush:ok');
+      } catch (e: any) {
+        logger.warn('[notificarTarefa] WebPush erro:', e.message);
+        resultados.push(`webpush:erro:${e.message}`);
       }
 
       // 2. Telegram (se tiver chat_id cadastrado)

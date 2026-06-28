@@ -48,7 +48,6 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ingestGps = void 0;
-const admin = __importStar(require("firebase-admin"));
 const functions = __importStar(require("firebase-functions"));
 const https_1 = require("firebase-functions/v2/https");
 const supabase_rest_1 = require("./lib/supabase-rest");
@@ -72,8 +71,8 @@ exports.ingestGps = (0, https_1.onRequest)({ region: 'southamerica-east1', cors:
     }
     let uid;
     try {
-        const decoded = await admin.auth().verifyIdToken(m[1]);
-        uid = decoded.uid;
+        const { uid: u } = await (0, supabase_rest_1.verifySupabaseToken)(m[1]);
+        uid = u;
     }
     catch {
         res.status(401).json({ error: 'invalid_token' });

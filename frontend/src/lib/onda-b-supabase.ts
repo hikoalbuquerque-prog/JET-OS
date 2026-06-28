@@ -1,22 +1,10 @@
 // frontend/src/lib/onda-b-supabase.ts
-// Fase 2 / Onda B menores — leitura de solicitacoes_prestadores e turnos_logistica
-// do Supabase (dual-run, atrás de flag). Escrita ainda Firestore; mirrors
-// (espelharSolicitacaoPrestadorSupabase / espelharTurnoLogisticaSupabase) populam.
-// Requer sessão JS autenticada (RLS) — ver supabase.ts / supabase-auth.ts (sessão A).
+// Leitura e escrita de solicitacoes_prestadores e turnos_logistica no Supabase.
+// Requer sessão JS autenticada (RLS) — ver supabase.ts / supabase-auth.ts.
 
 import { supabase } from './supabase';
 
-// Flag por browser SEM rebuild: `localStorage.setItem('jet_logistica_provider','supabase')`
-// liga só pra você; `'firebase'` (ou remover) volta ao Firestore.
-// (Ou build com VITE_LOGISTICA_PROVIDER=supabase.)
-export const logisticaProviderSupabase = (): boolean => {
-  try {
-    const v = localStorage.getItem('jet_logistica_provider');
-    if (v === 'supabase') return true;
-    if (v === 'firebase') return false;
-  } catch { /* sem localStorage */ }
-  return (import.meta.env.VITE_LOGISTICA_PROVIDER as string) !== 'firebase';
-};
+export const logisticaProviderSupabase = (): boolean => true;
 
 // ── Solicitações de prestadores (UsuariosManager) ────────────────────────────
 // Mapeia snake_case Supabase → shape do app (SolicitacaoPrestador: cpf_cnpj, data_criacao).
@@ -77,18 +65,7 @@ export async function carregarTurnosLogisticaSupabase(desdeISO: string): Promise
   return (data || []).map(mapTurno);
 }
 
-// ── ESCRITA (cutover de writes, dual-write atrás de flag) ────────────────────
-// RLS já pronta: solicitacoes (insert público / update gestor), turnos (insert
-// autenticado / update gestor) — ver 0001 e 0026. Mirrors já deployados; o write
-// do cliente prova escrita sob RLS sem Firebase Auth (rumo ao flip de Auth).
-export const logisticaWriteSupabase = (): boolean => {
-  try {
-    const v = localStorage.getItem('jet_logistica_write');
-    if (v === 'supabase') return true;
-    if (v === 'firebase') return false;
-  } catch { /* sem localStorage */ }
-  return (import.meta.env.VITE_LOGISTICA_WRITE as string) !== 'firebase';
-};
+export const logisticaWriteSupabase = (): boolean => true;
 
 const sW = (...vals: any[]): string | null => {
   for (const v of vals) if (typeof v === 'string' && v.trim()) return v;

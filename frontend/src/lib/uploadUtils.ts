@@ -22,14 +22,7 @@ function delay(ms: number) {
   return new Promise<void>(resolve => setTimeout(resolve, ms));
 }
 
-export const storageProviderSupabase = (): boolean => {
-  try {
-    const v = localStorage.getItem('jet_storage_provider');
-    if (v === 'supabase') return true;
-    if (v === 'firebase') return false;
-  } catch { /* sem localStorage */ }
-  return (import.meta.env.VITE_STORAGE_PROVIDER as string) !== 'firebase';
-};
+export const storageProviderSupabase = (): boolean => true;
 
 async function uploadSupabase(file: File | Blob, path: string): Promise<string> {
   const { bucket, key } = resolveBucket(path);

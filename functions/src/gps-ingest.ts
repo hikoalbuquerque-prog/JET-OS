@@ -13,10 +13,9 @@
 //
 // Deploy: export * from './gps-ingest' no index.ts.
 
-import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
 import { onRequest } from 'firebase-functions/v2/https';
-import { supabaseInsert, supabaseUpdate } from './lib/supabase-rest';
+import { supabaseInsert, supabaseUpdate, verifySupabaseToken } from './lib/supabase-rest';
 import { verificarChegadaPontoFn } from './gps-alertas';
 
 const MAX_PONTOS = 200;
@@ -48,8 +47,8 @@ export const ingestGps = onRequest(
 
     let uid: string;
     try {
-      const decoded = await admin.auth().verifyIdToken(m[1]);
-      uid = decoded.uid;
+      const { uid: u } = await verifySupabaseToken(m[1]);
+      uid = u;
     } catch {
       res.status(401).json({ error: 'invalid_token' }); return;
     }

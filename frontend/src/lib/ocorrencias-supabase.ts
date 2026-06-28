@@ -1,23 +1,11 @@
 // frontend/src/lib/ocorrencias-supabase.ts
-// Fase 2 / Onda B — leitura de ocorrências (Guard) do Supabase (dual-run, atrás de flag).
-// Lê a view ocorrencias_geo (lat/lng numéricos da coluna geography + firebase_uid
-// do registrador, ver migration 0030). A ESCRITA continua no Firestore; o mirror
-// (espelharOcorrenciaSupabase) popula a tabela. Read-only enquanto a flag estiver ligada.
-// Requer sessão JS autenticada (RLS) — ver supabase.ts / supabase-auth.ts (sessão A).
+// Leitura e escrita de ocorrências (Guard) no Supabase.
+// Lê a view ocorrencias_geo (lat/lng numéricos da coluna geography).
+// Requer sessão JS autenticada (RLS) — ver supabase.ts / supabase-auth.ts.
 
 import { supabase } from './supabase';
 
-// Flag por browser SEM rebuild: `localStorage.setItem('jet_guard_provider','supabase')`
-// liga só pra você; `'firebase'` (ou remover) volta ao Firestore.
-// (Ou build com VITE_GUARD_PROVIDER=supabase.) Toggle SEPARADO do mapa — módulo de segurança.
-export const guardProviderSupabase = (): boolean => {
-  try {
-    const v = localStorage.getItem('jet_guard_provider');
-    if (v === 'supabase') return true;
-    if (v === 'firebase') return false;
-  } catch { /* sem localStorage */ }
-  return (import.meta.env.VITE_GUARD_PROVIDER as string) !== 'firebase';
-};
+export const guardProviderSupabase = (): boolean => true;
 
 // O mirror grava status em lowercase; o app exibe valores capitalizados
 // (STATUS_COR['Aberto'] etc). Restaura os valores canônicos conhecidos.
@@ -114,19 +102,7 @@ export async function carregarOcorrenciasSupabase(opts?: {
   return (data || []).map(mapRow);
 }
 
-// ── ESCRITA (cutover de writes, dual-write atrás de flag) ────────────────────
-// Flag SEPARADA da leitura: `localStorage['jet_guard_write']='supabase'` (ou
-// VITE_GUARD_WRITE) liga o dual-write (Firestore + Supabase). Default OFF → só Firestore.
-// O mirror server-side já sincronia Firestore→Supabase; o write do cliente existe p/
-// provar a escrita SOB RLS (sem depender de Firebase Auth) rumo ao flip de Auth (Onda C).
-export const guardWriteSupabase = (): boolean => {
-  try {
-    const v = localStorage.getItem('jet_guard_write');
-    if (v === 'supabase') return true;
-    if (v === 'firebase') return false;
-  } catch { /* sem localStorage */ }
-  return (import.meta.env.VITE_GUARD_WRITE as string) !== 'firebase';
-};
+export const guardWriteSupabase = (): boolean => true;
 
 const numW = (v: any): number | null => {
   const n = typeof v === 'string' ? parseFloat(v) : v;

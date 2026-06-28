@@ -10,6 +10,17 @@ function headers() {
   return { apikey: key, Authorization: `Bearer ${key}` };
 }
 
+export async function verifySupabaseToken(token: string): Promise<{ uid: string }> {
+  const url = `${SB_URL()}/auth/v1/user`;
+  const res = await fetch(url, {
+    headers: { apikey: SB_KEY(), Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error('invalid_token');
+  const user = await res.json();
+  if (!user?.id) throw new Error('invalid_token');
+  return { uid: user.id };
+}
+
 /**
  * GET genérico PostgREST. Retorna array de rows ou null se falhar.
  * @param table   Nome da tabela (ex: 'ocorrencias')

@@ -34,7 +34,6 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registrarTelegramChatId = exports.testarTelegram = exports.notificarTarefa = exports.notificarOcorrencia = exports.aceitarSlot = void 0;
-const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
 const config_supabase_1 = require("./config-supabase");
 const supabase_rest_1 = require("./lib/supabase-rest");
@@ -430,7 +429,7 @@ exports.testarTelegram = (0, https_1.onRequest)((req, res) => {
                 return;
             }
             const token = auth.split(' ')[1];
-            const decoded = await admin.auth().verifyIdToken(token);
+            const decoded = await (0, supabase_rest_1.verifySupabaseToken)(token);
             const userRow = await (0, supabase_rest_1.supabaseGetOne)('usuarios', `select=role&id=eq.${encodeURIComponent(decoded.uid)}`);
             if (!['admin', 'gestor'].includes(userRow?.role ?? '')) {
                 res.status(403).json({ erro: 'Permissão negada' });

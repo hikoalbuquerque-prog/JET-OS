@@ -1,7 +1,4 @@
 // src/utils/index.ts
-import * as admin from 'firebase-admin';
-
-export const storage = () => admin.storage();
 
 // ── VALIDAÇÕES ───────────────────────────────────────────────────
 export function validarLatLng(lat: unknown, lng: unknown): boolean {

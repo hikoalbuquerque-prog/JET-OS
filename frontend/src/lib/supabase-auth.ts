@@ -20,20 +20,7 @@ export const SUPA_REFRESH_KEY = 'jet_supa_refresh';
 // centralizada em useAuth.ts (auth flip C.9). O login chama a Edge Function
 // auth-login diretamente e usa setSession() para estabelecer as sessões A e B.
 
-// ── Onda C (groundwork, REVERSÍVEL) ──────────────────────────────────────────
-// Flag de provedor de AUTH/AUTORIZAÇÃO. Liga SÓ a fonte do perfil (role/paises/nome):
-// quando 'supabase', o useAuth carrega o perfil de public.usuarios em vez de Firestore.
-// O Firebase Auth segue PRIMÁRIO (sessão + escritas + GPS intactos) — isto NÃO é o flip
-// de login (C.8) nem aposenta o Firebase (C.9). Reversível: basta 'firebase'/remover.
-//   localStorage.setItem('jet_auth_provider','supabase')  // liga só pra você
-export const authProviderSupabase = (): boolean => {
-  try {
-    const v = localStorage.getItem('jet_auth_provider');
-    if (v === 'supabase') return true;
-    if (v === 'firebase') return false;
-  } catch { /* sem localStorage */ }
-  return (import.meta.env.VITE_AUTH_PROVIDER as string) !== 'firebase';
-};
+export const authProviderSupabase = (): boolean => true;
 
 // Perfil do app a partir de public.usuarios (Supabase), buscando por firebase_uid.
 // IMPORTANTE: mantém `uid` = firebase_uid (as escritas seguem no Firestore e filtram por

@@ -1,24 +1,9 @@
 // frontend/src/lib/usuarios-supabase.ts
-// Fase 2 / Onda C — escrita de usuarios via Edge Function `usuarios-write` (dual-write,
-// atrás de flag). A RLS só deixa o próprio se-atualizar; a Edge Function (service_role)
-// valida o chamador (self ou gestor/admin) e aplica o update — permite admin/gestor
-// escrever OUTROS usuários (aprovar prestador, editar permissões) sem Firebase Auth.
-// Pré-req do flip de Auth (C.8/C.9). Default OFF → só Firestore.
-//
-// Onda E — leitura de usuarios do Supabase atrás de flag (read-only).
-// Default: segue VITE_AUTH_PROVIDER; localStorage override por instância.
+// Leitura e escrita de usuarios no Supabase.
 
 import { supabase } from './supabase';
 
-// ── Onda E: flag de leitura ─────────────────────────────────────────────────
-export const usuariosReadSupabase = (): boolean => {
-  try {
-    const v = localStorage.getItem('jet_usuarios_read_provider');
-    if (v === 'supabase') return true;
-    if (v === 'firebase') return false;
-  } catch { /* sem localStorage */ }
-  return (import.meta.env.VITE_AUTH_PROVIDER as string) !== 'firebase';
-};
+export const usuariosReadSupabase = (): boolean => true;
 
 // ── Conversão snake_case → camelCase (downstream espera camelCase) ──────────
 function toFirestoreShape(row: any): any {
@@ -77,14 +62,7 @@ export async function fetchUsuariosByIds(uids: string[]): Promise<any[]> {
   return results;
 }
 
-export const usuariosWriteSupabase = (): boolean => {
-  try {
-    const v = localStorage.getItem('jet_usuarios_write');
-    if (v === 'supabase') return true;
-    if (v === 'firebase') return false;
-  } catch { /* sem localStorage */ }
-  return (import.meta.env.VITE_USUARIOS_WRITE as string) !== 'firebase';
-};
+export const usuariosWriteSupabase = (): boolean => true;
 
 // Atualiza um usuário (por firebase uid) via Edge Function. `patch` em camelCase; a função
 // só aplica colunas permitidas pelo papel do chamador (self: perfil; gestor: + role/cidades/ativo).

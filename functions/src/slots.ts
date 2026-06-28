@@ -1,7 +1,6 @@
-import * as admin from 'firebase-admin';
 import { onRequest, onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getAppSetting } from './config-supabase';
-import { supabaseGetOne, supabaseUpdate } from './lib/supabase-rest';
+import { supabaseGetOne, supabaseUpdate, verifySupabaseToken } from './lib/supabase-rest';
 
 // functions/src/slots.ts
 // Cloud Functions para módulo Slots + Logística + Telegram
@@ -502,7 +501,7 @@ export const testarTelegram = onRequest((req, res) => {
           return;
         }
         const token = auth.split(' ')[1];
-        const decoded = await admin.auth().verifyIdToken(token);
+        const decoded = await verifySupabaseToken(token);
 
         const userRow = await supabaseGetOne<{ role: string }>('usuarios', `select=role&id=eq.${encodeURIComponent(decoded.uid)}`);
         if (!['admin', 'gestor'].includes(userRow?.role ?? '')) {

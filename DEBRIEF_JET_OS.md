@@ -3343,8 +3343,43 @@ Migrados **todos os 15 arquivos** que importavam de `lib/firebase.ts` ou diretam
 - `escala-supabase.ts`: funções `overrideSlotEscala()` e `cancelarSlotEscala()` com audit log
 - `SlotsTeamsModule.tsx`: métricas expandidas (% preenchimento, antecedência, reabertos, overrides) + botões Override/Cancelar para admins
 
+### §19.29 — verifyIdToken→Supabase + streetview→Supabase Storage + flags=true + FCM→WebPush + cleanup
+**Data:** 2026-06-27
+
+**verifyIdToken (items 4 & 5):**
+- `gps-ingest.ts`: `admin.auth().verifyIdToken` → `verifySupabaseToken` (via GoTrue `/auth/v1/user`)
+- `slots.ts`: idem para `testarTelegram`
+- Novo helper `verifySupabaseToken()` em `lib/supabase-rest.ts`
+- Nota: `gps-ingest.ts` não é mais exportado do index.ts (GPS nativo já usa Edge Function `ingest-gps`)
+
+**streetview→Supabase Storage (item 8):**
+- `streetview/index.ts`: cache de imagens migrado de Firebase Storage → Supabase Storage bucket `uploads/streetview/`
+- `utils/index.ts`: removido `storage()` helper (admin.storage() — sem callers)
+
+**FCM→WebPush (item 9):**
+- `automacao-tarefas.ts`: `getMessaging().send()` → `enviarPushParaUsuario()` (Web Push)
+
+**Flags hardcoded true (items 10-13):**
+- `guardProviderSupabase()` / `guardWriteSupabase()` → `true`
+- `logisticaProviderSupabase()` / `logisticaWriteSupabase()` → `true`
+- `usuariosReadSupabase()` / `usuariosWriteSupabase()` → `true`
+- `gojetProviderSupabase()` → `true`
+- `authProviderSupabase()` → `true`
+- `functionsProviderSupabase()` → `true`
+- `storageProviderSupabase()` → `true`
+
+**Firebase rules cleanup (items 14 & 15):**
+- Deletados: `firestore.rules`, `firestore.indexes.json`, `storage.rules`
+- `firebase.json`: removidas seções `firestore` e `storage`
+
+**admin.* remanescente (mínimo):**
+- `index.ts`: `admin.initializeApp()`, `admin.auth().updateUser` (revogarAcesso)
+- `auth/index.ts`: `admin.auth().getUserByEmail`, `createUser`, `generatePasswordResetLink`
+
 **Próximos passos:**
 1. Rotacionar service_role key (exposta em chat) — **SEGURANÇA**
 2. Rotacionar keystore password (mover de build.gradle para keystore.properties)
-3. Desabilitar Firebase Auth no console
-4. Features: NFS-e, Chat in-app, Guard v2
+3. Migrar `auth/index.ts` (createUser → Supabase Auth admin API)
+4. Migrar `revogarAcesso` (admin.auth().updateUser → Supabase Auth admin API)
+5. Remover `firebase-admin` do package.json (após items 3-4)
+6. Features: NFS-e, Chat in-app, Guard v2

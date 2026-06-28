@@ -284,36 +284,22 @@ exports.gerarTarefasAgendado = scheduler.onSchedule({
 exports.notificarTarefaFn = https.onCall({ region: 'southamerica-east1', maxInstances: 10 }, async (request) => {
     if (!request.auth)
         throw new https.HttpsError('unauthenticated', 'Não autenticado');
-    const { tarefaTitulo, assigneeUid, cidade, fcmToken } = request.data ?? {};
+    const { tarefaTitulo, assigneeUid, cidade } = request.data ?? {};
     if (!assigneeUid)
         return { ok: true };
     const resultados = [];
     try {
         const userRow = await (0, supabase_rest_1.supabaseGetOne)('usuarios', `select=*&id=eq.${encodeURIComponent(assigneeUid)}`);
         const userData = userRow ?? {};
-        // 1. FCM push nativo (Android/iOS)
-        const tokenFCM = fcmToken ?? userData.fcmToken ?? null;
-        if (tokenFCM) {
-            try {
-                const { getMessaging } = await Promise.resolve().then(() => __importStar(require('firebase-admin/messaging')));
-                const msg = await getMessaging().send({
-                    token: tokenFCM,
-                    notification: {
-                        title: '📦 Nova tarefa!',
-                        body: tarefaTitulo ?? 'Você recebeu uma nova tarefa no JET OS.',
-                    },
-                    data: { cidade: cidade ?? '', tipo: 'nova_tarefa' },
-                    android: {
-                        priority: 'high',
-                        notification: { channelId: 'tarefas', sound: 'default' },
-                    },
-                });
-                resultados.push(`fcm:${msg}`);
-            }
-            catch (e) {
-                v2_1.logger.warn('[notificarTarefa] FCM erro:', e.message);
-                resultados.push(`fcm:erro:${e.message}`);
-            }
+        // 1. Web Push (substitui FCM)
+        try {
+            const { enviarPushParaUsuario } = await Promise.resolve().then(() => __importStar(require('./web-push')));
+            await enviarPushParaUsuario(assigneeUid, '📦 Nova tarefa!', tarefaTitulo ?? 'Você recebeu uma nova tarefa no JET OS.');
+            resultados.push('webpush:ok');
+        }
+        catch (e) {
+            v2_1.logger.warn('[notificarTarefa] WebPush erro:', e.message);
+            resultados.push(`webpush:erro:${e.message}`);
         }
         // 2. Telegram (se tiver chat_id cadastrado)
         const telegramChatId = userData.telegramChatId ?? null;

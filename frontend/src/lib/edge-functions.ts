@@ -6,14 +6,7 @@
 
 import { supabase } from './supabase';
 
-export const functionsProviderSupabase = (): boolean => {
-  try {
-    const v = localStorage.getItem('jet_functions_provider');
-    if (v === 'supabase') return true;
-    if (v === 'firebase') return false;
-  } catch { /* sem localStorage */ }
-  return (import.meta.env.VITE_FUNCTIONS_PROVIDER as string) !== 'firebase';
-};
+export const functionsProviderSupabase = (): boolean => true;
 
 type CallableResult = { data: any };
 type CallableFn = (req: { data?: any } | any) => Promise<CallableResult>;

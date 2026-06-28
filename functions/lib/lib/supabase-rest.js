@@ -3,6 +3,7 @@
 // Onda G — helpers PostgREST genéricos para migrar reads de Firestore → Supabase.
 // Usado por Cloud Functions que precisam ler tabelas Supabase com fallback.
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.verifySupabaseToken = verifySupabaseToken;
 exports.supabaseGet = supabaseGet;
 exports.supabaseGetOne = supabaseGetOne;
 exports.supabaseUpsert = supabaseUpsert;
@@ -14,6 +15,18 @@ const SB_KEY = () => process.env.SUPABASE_SERVICE_ROLE ?? '';
 function headers() {
     const key = SB_KEY();
     return { apikey: key, Authorization: `Bearer ${key}` };
+}
+async function verifySupabaseToken(token) {
+    const url = `${SB_URL()}/auth/v1/user`;
+    const res = await fetch(url, {
+        headers: { apikey: SB_KEY(), Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok)
+        throw new Error('invalid_token');
+    const user = await res.json();
+    if (!user?.id)
+        throw new Error('invalid_token');
+    return { uid: user.id };
 }
 /**
  * GET genérico PostgREST. Retorna array de rows ou null se falhar.

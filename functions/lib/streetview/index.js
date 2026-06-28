@@ -41,9 +41,10 @@ exports.fetchFramesParaIA = fetchFramesParaIA;
 exports.svGetEstatisticas = svGetEstatisticas;
 // src/streetview/index.ts
 const axios_1 = __importDefault(require("axios"));
-const utils_1 = require("../utils");
 const GMAPS_KEY = process.env.GMAPS_KEY || '';
 const MAPILLARY_TOKEN = process.env.MAPILLARY_TOKEN || '';
+const SB_URL = () => process.env.SUPABASE_URL ?? '';
+const SB_KEY = () => process.env.SUPABASE_SERVICE_ROLE ?? '';
 // ── CONTADORES ───────────────────────────────────────────────────
 const CUSTOS = {
     CACHE: 0.000,
@@ -73,27 +74,29 @@ function cacheKey(lat, lng) {
 }
 async function buscarCache(key) {
     try {
-        const file = (0, utils_1.storage)().bucket().file(`streetview/${key}.jpg`);
-        const [existe] = await file.exists();
-        if (!existe)
+        const url = `${SB_URL()}/storage/v1/object/uploads/streetview/${key}.jpg`;
+        const res = await fetch(url, { headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}` } });
+        if (!res.ok)
             return null;
-        const [buffer] = await file.download();
-        return buffer;
+        return Buffer.from(await res.arrayBuffer());
     }
     catch {
         return null;
     }
 }
-async function salvarCache(key, codigo, buffer, fonte) {
-    const file = (0, utils_1.storage)().bucket().file(`streetview/${key}.jpg`);
-    await file.save(buffer, {
-        metadata: {
-            contentType: 'image/jpeg',
-            metadata: { fonte, codigo, key }
+async function salvarCache(key, _codigo, buffer, _fonte) {
+    const path = `streetview/${key}.jpg`;
+    const url = `${SB_URL()}/storage/v1/object/uploads/${path}`;
+    await fetch(url, {
+        method: 'PUT',
+        headers: {
+            apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}`,
+            'Content-Type': 'image/jpeg',
+            'x-upsert': 'true',
         },
-        public: true
+        body: new Uint8Array(buffer),
     });
-    return file.publicUrl();
+    return `${SB_URL()}/storage/v1/object/public/uploads/${path}`;
 }
 // ── MAPILLARY ────────────────────────────────────────────────────
 async function fetchMapillary(lat, lng) {
@@ -222,8 +225,7 @@ async function fetchStreetViewCascata(lat, lng, codigo) {
     const cached = await buscarCache(key);
     if (cached) {
         await incrementarContador('CACHE');
-        const file = (0, utils_1.storage)().bucket().file(`streetview/${key}.jpg`);
-        return { url: file.publicUrl(), fonte: 'CACHE' };
+        return { url: `${SB_URL()}/storage/v1/object/public/uploads/streetview/${key}.jpg`, fonte: 'CACHE' };
     }
     let buffer = null;
     let fonte = '';

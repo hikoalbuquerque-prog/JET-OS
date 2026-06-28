@@ -1,21 +1,9 @@
 // frontend/src/lib/gojet-config-supabase.ts
-// Fase 2 / Onda H — leitura de gojet_config do Supabase (dual-run, atrás de flag).
-// Escrita ainda Firestore; mirror (espelharGojetConfigSupabase) popula.
-// Requer sessão JS autenticada (RLS) — ver supabase.ts / supabase-auth.ts (sessão A).
+// Leitura e escrita de gojet_config no Supabase.
 
 import { supabase } from './supabase';
 
-// Flag por browser SEM rebuild: `localStorage.setItem('jet_gojet_provider','supabase')`
-// liga só pra você; `'firebase'` (ou remover) volta ao Firestore.
-// (Ou build com VITE_GOJET_PROVIDER=supabase.)
-export const gojetProviderSupabase = (): boolean => {
-  try {
-    const v = localStorage.getItem('jet_gojet_provider');
-    if (v === 'supabase') return true;
-    if (v === 'firebase') return false;
-  } catch { /* sem localStorage */ }
-  return (import.meta.env.VITE_GOJET_PROVIDER as string) !== 'firebase';
-};
+export const gojetProviderSupabase = (): boolean => true;
 
 export interface GoJetCidadeSupabase {
   id: string;      // cidade (PK)

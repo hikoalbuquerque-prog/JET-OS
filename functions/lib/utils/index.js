@@ -1,4 +1,5 @@
 "use strict";
+// src/utils/index.ts
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -33,7 +34,6 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.storage = void 0;
 exports.validarLatLng = validarLatLng;
 exports.limparNulos = limparNulos;
 exports.normalizarLargura = normalizarLargura;
@@ -41,10 +41,6 @@ exports.gerarCodigo = gerarCodigo;
 exports.erroResponse = erroResponse;
 exports.okResponse = okResponse;
 exports.logEvento = logEvento;
-// src/utils/index.ts
-const admin = __importStar(require("firebase-admin"));
-const storage = () => admin.storage();
-exports.storage = storage;
 // ── VALIDAÇÕES ───────────────────────────────────────────────────
 function validarLatLng(lat, lng) {
     const la = Number(lat), lo = Number(lng);
