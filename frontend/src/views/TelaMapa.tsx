@@ -77,6 +77,8 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
       try {
         const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string;
         if (!vapidKey || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user?.id) return;
         const reg = await navigator.serviceWorker.register('/push-sw.js');
         await navigator.serviceWorker.ready;
         const permission = await Notification.requestPermission();
@@ -87,15 +89,16 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
         });
         const json = sub.toJSON();
         if (json.endpoint && json.keys?.p256dh && json.keys?.auth) {
-          await supabase.from('push_subscriptions').upsert({
-            uid: usuario.uid,
+          const { error: pushErr } = await supabase.from('push_subscriptions').upsert({
+            uid: session.user.id,
             endpoint: json.endpoint,
             p256dh: json.keys.p256dh,
             auth: json.keys.auth,
             atualizado_em: new Date().toISOString(),
           }, { onConflict: 'uid,endpoint' });
+          if (pushErr) console.error('[push-sub] upsert error:', pushErr);
         }
-      } catch { /* Push não disponível */ }
+      } catch (e) { console.warn('[push-sub] failed:', e); }
     })();
   }, [usuario?.uid]);
 
