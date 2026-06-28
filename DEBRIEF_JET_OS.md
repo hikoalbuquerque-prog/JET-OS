@@ -1,5 +1,5 @@
 # Jet OS Firebase — Master Debrief
-**Atualizado em:** 27/06/2026 (§19.26 Web Push nativo + firebase.ts DELETADO · §19.25 Eliminar dynamic imports Firebase · §19.24 Purge firebase.ts zero imports estáticos · §19.23 Triggers→inline + AppShell migrado + deploy total · §19.22 Ondas A-D purge Firestore total · §19.21 Migração 22 coleções · §19.20 Remoção mirrors · §19.19 Dual-write Fase 2 · §19.18 Audit pré-shutdown · §19.17 i18n + POI + deploy)  
+**Atualizado em:** 28/06/2026 (§19.27 Engine unificada slots + FAB grouping + UX polish · §19.26 Web Push nativo + firebase.ts DELETADO · §19.25 Eliminar dynamic imports Firebase · §19.24 Purge firebase.ts zero imports estáticos · §19.23 Triggers→inline + AppShell migrado + deploy total · §19.22 Ondas A-D purge Firestore total · §19.21 Migração 22 coleções · §19.20 Remoção mirrors · §19.19 Dual-write Fase 2 · §19.18 Audit pré-shutdown · §19.17 i18n + POI + deploy)  
 **Projeto:** jet-os-1 | Firebase Hosting + Firestore + Storage + Cloud Functions  
 **Stack:** React + Vite + TypeScript + Leaflet + deck.gl | Node.js 22 Cloud Functions
 
@@ -3382,4 +3382,46 @@ Migrados **todos os 15 arquivos** que importavam de `lib/firebase.ts` ou diretam
 3. Migrar `auth/index.ts` (createUser → Supabase Auth admin API)
 4. Migrar `revogarAcesso` (admin.auth().updateUser → Supabase Auth admin API)
 5. Remover `firebase-admin` do package.json (após items 3-4)
-6. Features: NFS-e, Chat in-app, Guard v2
+6. Features: NFS-e, Chat in-app, Guard v2, Fluxo dos prestadores
+
+---
+
+### §19.27 Engine Unificada de Slots + FAB Grouping + UX Polish (28/06/2026)
+
+#### Engine unificada de geração de slots
+- **Migration 0074** (`escala_config`): 10 novas colunas JSONB — `faixas`, `perfis`, `mapa_dias`, `overrides_data`, `zonas_ativas`, `gojet_city_id`, `gojet_ajuste`, `feriado_perfil`, `teto_vagas_zona`, `cargos`, `atualizado_em`
+- **Migration 0075→0076**: Unique index promovido a CONSTRAINT `(cidade, data_slot, turno, tipo, zona)` — PostgREST exige constraint, não index, para `on_conflict`
+- **Migration 0077**: Config SP-específica movida de `global` para row `São Paulo`; global resetado para defaults (manual mode)
+- **Edge Function `gerar-slots-escala`** (263 linhas): Lê `escala_config` por cidade, resolve perfil do dia (override→feriado→mapa_dias), itera faixas×zonas×cargos, aplica ajuste GoJet ao vivo, upsert idempotente
+- **Frontend**: `gerarPrevia()` refatorada para novo schema com fallback legado; `fetchEscala` com fallback cidade→global
+- **Config UI**: 6 novas seções na AbaConfigTeams (Faixas, Perfis, Mapa Dias, Zonas, Cargos, GoJet)
+
+#### GoJet auto-discovery
+- Botão "Sincronizar do GoJet" busca `parkings` por `city_id`, detecta zonas via emoji (🟥→Z1, ⬛→Z2, etc.), auto-popula `zonas_ativas`
+- Auto-enable GoJet layer ao trocar cidade (sem FAB manual)
+- Seção GoJet movida acima de Zonas Ativas no fluxo de config
+
+#### FAB grouping (26→6 visíveis)
+- **🛠 Ferramentas**: Locais (🏭📍💳) + POIs (🎯📍) + SV tools (⚡🌐📐)
+- **🗺 Camadas** (novo): Satélite 🛰 + Ciclovias 🚲 + Zonas ⬡ + Raio
+- **🛴 GoJet**, **⏱ Turno**, **🛡 Guard**, **🧭 Localização** standalone
+- Botão satélite duplicado (bottom-center) removido
+
+#### UX polish
+- Sort indicators ▲▼ em GoJetDashboard e PainelRoubos
+- Touch targets: 10 elementos no SlotsTeamsModule (padding 2-4px → 6-10px)
+- Skeleton loaders: CandidatosManager, ShiftPanel, PainelRoubos, TarefasLogisticaModule
+- Hamburger menu mobile + i18n `fab.camadas`/`fab.shifts` (pt/en/es/ru)
+
+#### push_subscriptions fix (3 rodadas)
+1. PostgREST `on_conflict` exige CONSTRAINT → Migration 0073
+2. Schema cache → `NOTIFY pgrst, 'reload schema'`
+3. `usuario.uid` (Firebase) ≠ UUID → `session.user.id`
+
+#### 10 Cloud Functions órfãs deletadas
+- mirror*, sync* functions removidas
+
+#### Commits: `479fa9d`→`f9e4d91` (8 commits)
+
+#### Limpeza
+- 4 worktrees de agentes antigos removidos (.claude/worktrees/agent-*)
