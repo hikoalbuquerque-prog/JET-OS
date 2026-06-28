@@ -16,6 +16,8 @@ import {
 } from './components/AppShell';
 import { useAuthProvider, AuthCtx } from './hooks/useAuth';
 import type { Usuario } from './hooks/useAuth';
+import { DialogProvider } from './components/ui/ConfirmDialog';
+import { ToastProvider } from './components/ui/ToastQueue';
 import 'leaflet/dist/leaflet.css';
 import './i18n';
 import i18n from './i18n/index';
@@ -101,15 +103,17 @@ export default function App() {
     await logout();
   };
 
-  if (tela === 'loading') return <SplashScreen />;
+  const wrap = (el: React.ReactNode) => <DialogProvider><ToastProvider>{el}</ToastProvider></DialogProvider>;
 
-  if (tela === 'login') return <TelaLogin onLogin={handleLogin} />;
+  if (tela === 'loading') return wrap(<SplashScreen />);
 
-  if (tela === 'prestador-pendente' && usuario) return <TelaPrestadorPendente usuario={usuario as any} onLogout={() => handleLogout()} />;
+  if (tela === 'login') return wrap(<TelaLogin onLogin={handleLogin} />);
+
+  if (tela === 'prestador-pendente' && usuario) return wrap(<TelaPrestadorPendente usuario={usuario as any} onLogout={() => handleLogout()} />);
 
   if (
     usuario && (tela === 'mapa' || tela === 'guard') && !termosOk
-  ) return (
+  ) return wrap(
     <TermosUsoGate
       uid={usuario.uid}
       email={usuario.email}
@@ -124,7 +128,7 @@ export default function App() {
   if (
     usuario && (tela === 'mapa' || tela === 'guard') &&
     precisaConsentirLocalizacao(usuario as any) && !lgpdOk
-  ) return (
+  ) return wrap(
     <LgpdConsentGate
       uid={usuario.uid}
       email={usuario.email}
@@ -135,11 +139,11 @@ export default function App() {
     />
   );
 
-  if (usuario && (tela === 'mapa' || tela === 'guard') && !permGateOk) return (
+  if (usuario && (tela === 'mapa' || tela === 'guard') && !permGateOk) return wrap(
     <AndroidPermissionGate role={usuario.role} onReady={() => setPermGateOk(true)} />
   );
 
-  if (onboarding && usuario && tela === 'mapa') return (
+  if (onboarding && usuario && tela === 'mapa') return wrap(
     <>
       <TelaMapa usuario={usuario as any} onLogout={() => handleLogout()} />
       <OnboardingWizard
@@ -158,19 +162,19 @@ export default function App() {
     setTimeout(() => setTela('mapa'), 0);
     return null;
   }
-  if (tela === 'guard') return (
+  if (tela === 'guard') return wrap(
     <AuthCtx.Provider value={auth}>
       <TelaGuard usuario={usuario as any} onLogout={() => handleLogout()} onVoltarMapa={() => setTela('mapa')} />
       <BugReportButton usuario={usuario as any} />
     </AuthCtx.Provider>
   );
-  if (tela === 'trocar-senha') return (
+  if (tela === 'trocar-senha') return wrap(
     <TelaTrocarSenha
       onConcluido={() => setTela(usuario?.role === 'guard' ? 'guard' : 'mapa')}
       onLogout={() => { handleLogout(); setTela('login'); }}
     />
   );
-  return (
+  return wrap(
     <AuthCtx.Provider value={auth}>
       <TelaMapa usuario={usuario as any} onLogout={() => handleLogout()} />
       <BugReportButton usuario={usuario as any} />

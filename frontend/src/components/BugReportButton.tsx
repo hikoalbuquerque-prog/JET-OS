@@ -101,7 +101,7 @@ export default function BugReportButton({ usuario }: { usuario: Usuario }) {
   return (
     <>
       {/* Botão flutuante discreto (canto inferior esquerdo, longe dos FABs da direita) */}
-      <button onClick={() => setAberto(true)} title={pick(T.tituloBotao)}
+      <button onClick={() => setAberto(true)} title={pick(T.tituloBotao)} aria-label={pick(T.tituloBotao)}
         style={{ position: 'fixed', left: 12, bottom: 100, zIndex: 1500, width: 40, height: 40,
           borderRadius: 20, border: '1px solid rgba(255,255,255,.12)', background: 'rgba(15,25,41,.85)',
           color: '#fbbf24', fontSize: 18, cursor: 'pointer', backdropFilter: 'blur(4px)',
@@ -114,7 +114,7 @@ export default function BugReportButton({ usuario }: { usuario: Usuario }) {
           <div style={card}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
               <div style={{ fontSize: 16, fontWeight: 800, color: '#dce8ff' }}>{pick(T.titulo)}</div>
-              <button onClick={fechar} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.4)', fontSize: 20, cursor: 'pointer' }}>✕</button>
+              <button onClick={fechar} aria-label={pick(T.fechar)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.4)', fontSize: 20, cursor: 'pointer' }}>✕</button>
             </div>
 
             {ok ? (

@@ -247,7 +247,7 @@ const T = {
   bg:'rgba(13,18,30,1)', sur:'rgba(13,18,30,.97)', card:'rgba(22,28,40,.95)',
   bdr:'rgba(255,255,255,.08)', bdr2:'rgba(255,255,255,.04)',
   blueg:'linear-gradient(135deg,#1a6fd4,#307FE2)',
-  txt:'#e2e8f0', dim:'#64748b',
+  txt:'#e2e8f0', dim:'#8a96b0',
 };
 
 const S = {

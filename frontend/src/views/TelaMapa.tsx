@@ -11,6 +11,7 @@ import { carregarEstacoesSupabase, carregarZonasSupabase } from '../lib/estacoes
 import { supabase } from '../lib/supabase';
 import ZonasManager from '../ZonasManager';
 import { useCidadesExpansao, CidadeExpansaoModal, STATUS_META, type CidadeExpansao } from '../CidadesExpansao';
+import { showToastGlobal } from '../components/ui/ToastQueue';
 import UsuariosManager from '../UsuariosManager';
 import DashboardManager from '../DashboardManager';
 import PainelConfiguracoes from '../components/PainelConfiguracoes';
@@ -246,6 +247,46 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
   const [cidadesExpShow, setCidadesExpShow] = useState(false);
   const [cidadeExpModal, setCidadeExpModal] = useState<{editando?:CidadeExpansao;latLng?:{lat:number;lng:number}}|null>(null);
   const cidadesExp = useCidadesExpansao();
+
+  // ── Modal mutual exclusivity ──────────────────────────────────
+  // Opening one overlay panel closes all others to prevent UI clutter.
+  const closeAllPanels = useCallback(() => {
+    setShowNotif(false);
+    setUsuariosModulo(false);
+    setPainelConfig(false);
+    setGuiaModulo(false);
+    setDashboardModulo(false);
+    setAnalyticsModulo(false);
+    setSlotsModulo(false);
+    setTurnoRegistro(false);
+    setGojetAnalytics(false);
+    setGojetDash(false);
+    setFinanceiro(false);
+    setShowPerfilPrestador(false);
+    setCidadeModal(false);
+    setGuardModulo(false);
+    setGuardDash(false);
+    setLogisticaModulo(false);
+    setGestorLogistica(false);
+    setPagamentosOpen(false);
+    setPagamentosAdminOpen(false);
+    setShiftPanel(false);
+    setShowWorkers(false);
+    setPainelRoubos(false);
+    setPainelPerdas(false);
+    setTarefasLogistica(false);
+    setCandidatosModulo(false);
+    setZonasModulo(false);
+    setCidadesExpShow(false);
+    setNovaOcorrencia(false);
+  }, []);
+
+  const openPanel = useCallback((setter: (v: boolean) => void) => {
+    closeAllPanels();
+    setter(true);
+  }, [closeAllPanels]);
+  // ──────────────────────────────────────────────────────────────
+
   const analyticsHoverRef = useRef<ReturnType<typeof setTimeout>|null>(null);
   // Dedicated stable listener for analytics station hover
   useEffect(() => {
@@ -701,7 +742,7 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
       e.originalEvent.preventDefault();
       const pts = zonaPointsRef.current;
       if (pts.length < 3) {
-        alert('Desenhe pelo menos 3 pontos antes de fechar.');
+        showToastGlobal('Desenhe pelo menos 3 pontos antes de fechar.', 'warn');
         return;
       }
       // Finaliza — abre formulário
@@ -1872,7 +1913,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
       setZonaEditando(null);
       setPoligonosOn(false); setTimeout(() => setPoligonosOn(true), 150);
     } catch(e: unknown) {
-      alert('Erro ao editar zona: ' + (e instanceof Error ? e.message : String(e)));
+      showToastGlobal('Erro ao editar zona: ' + (e instanceof Error ? e.message : String(e)), 'erro');
     }
   };
 
@@ -1884,7 +1925,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
       setZonaEditando(null);
       if (poligonosOn) { setPoligonosOn(false); setTimeout(() => setPoligonosOn(true), 100); }
     } catch(e: unknown) {
-      alert('Erro ao excluir zona: ' + (e instanceof Error ? e.message : String(e)));
+      showToastGlobal('Erro ao excluir zona: ' + (e instanceof Error ? e.message : String(e)), 'erro');
     }
   };
 
@@ -1910,7 +1951,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         setTimeout(() => setPoligonosOn(true), 100);
       }
     } catch(e: unknown) {
-      alert('Erro ao salvar zona: ' + (e instanceof Error ? e.message : String(e)));
+      showToastGlobal('Erro ao salvar zona: ' + (e instanceof Error ? e.message : String(e)), 'erro');
     }
   };
 
@@ -1931,7 +1972,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
       <div style={{ padding: '5px 10px', display: 'flex', alignItems: 'center', gap: 6,
         overflowX: 'auto', scrollbarWidth: 'none' as const, flexWrap: 'nowrap' as const }}>
         <span style={{ color: '#307FE2', fontWeight: 900, fontSize: 16, letterSpacing: -0.5 }}>JET OS</span>
-        <button onClick={() => isViewer ? null : setCidadeModal(true)} style={{
+        <button onClick={() => isViewer ? null : openPanel(setCidadeModal)} style={{
           flex: 1, padding: '6px 12px', background: 'rgba(255,255,255,.06)',
           border: '1px solid rgba(255,255,255,.1)', borderRadius: 8,
           color: cidade ? '#fff' : 'rgba(255,255,255,.4)', fontSize: 13,
@@ -1946,23 +1987,23 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         )}
         <span style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', display: 'none' } as React.CSSProperties}>{usuario.nome.split(' ')[0]}</span>
         {isGestorApp && (
-                  <button onClick={() => setUsuariosModulo(v => !v)} style={{
+                  <button onClick={() => usuariosModulo ? setUsuariosModulo(false) : openPanel(setUsuariosModulo)} style={{
                     background: usuariosModulo ? 'rgba(96,165,250,.15)' : 'rgba(255,255,255,.06)',
                     border: `1px solid ${usuariosModulo ? 'rgba(96,165,250,.3)' : 'rgba(255,255,255,.1)'}`,
                     borderRadius: 8, color: usuariosModulo ? '#60a5fa' : 'rgba(255,255,255,.5)',
                     padding: '4px 10px', fontSize: 11, cursor: 'pointer'
-                  }}>👥</button>
+                  }} aria-label="Usuários">👥</button>
                 )}
                 {usuario.role === 'admin' && (
-                  <button onClick={() => setPainelConfig(v => !v)} style={{
+                  <button onClick={() => painelConfig ? setPainelConfig(false) : openPanel(setPainelConfig)} style={{
                     background: painelConfig ? 'rgba(99,102,241,.15)' : 'rgba(255,255,255,.06)',
                     border: `1px solid ${painelConfig ? 'rgba(99,102,241,.4)' : 'rgba(255,255,255,.1)'}`,
                     borderRadius: 8, color: painelConfig ? '#818cf8' : 'rgba(255,255,255,.5)',
                     padding: '4px 10px', fontSize: 11, cursor: 'pointer'
-                  }}>⚙️</button>
+                  }} aria-label="Configurações">⚙️</button>
                 )}
                         <div style={{ flex: 1 }} />
-        <button onClick={() => setGuiaModulo(v => !v)}
+        <button onClick={() => guiaModulo ? setGuiaModulo(false) : openPanel(setGuiaModulo)}
           style={{ background: guiaModulo?'rgba(99,102,241,.15)':'rgba(255,255,255,.06)',
             border:`1px solid ${guiaModulo?'rgba(99,102,241,.4)':'rgba(255,255,255,.1)'}`,
             borderRadius:8, color: guiaModulo?'#818cf8':'rgba(255,255,255,.5)',
@@ -1973,12 +2014,13 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         <LangSelector />
         {/* Sino de notificações */}
         <div style={{ position:'relative', flexShrink:0 }}>
-          <button onClick={() => setShowNotif(v => !v)}
+          <button onClick={() => showNotif ? setShowNotif(false) : openPanel(setShowNotif)}
             style={{ width:30, height:30, borderRadius:'50%', cursor:'pointer',
               background: showNotif?'rgba(251,191,36,.2)':'rgba(255,255,255,.06)',
               border:`1px solid ${showNotif?'rgba(251,191,36,.4)':'rgba(255,255,255,.08)'}`,
               color: showNotif?'#fbbf24':'rgba(255,255,255,.5)',
-              fontSize:14, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              fontSize:14, display:'flex', alignItems:'center', justifyContent:'center' }}
+            aria-label="Notificações">
             🔔
           </button>
           {notifList.filter((n:any) => !n.lida).length > 0 && (
@@ -1991,14 +2033,14 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
           )}
         </div>
         {usuario.tipoCadastro === 'prestador' && (
-          <button onClick={() => setShowPerfilPrestador(true)} style={{
+          <button onClick={() => openPanel(setShowPerfilPrestador)} style={{
             background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)',
             color: 'rgba(255,255,255,.6)', borderRadius: 8, width: 34, height: 34,
             fontSize: 16, cursor: 'pointer', flexShrink: 0,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>👤</button>
+          }} aria-label="Perfil">👤</button>
         )}
-        <button onClick={onLogout} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.3)', fontSize: 18, cursor: 'pointer', flexShrink: 0 }}>⏻</button>
+        <button onClick={onLogout} aria-label="Sair" style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,.3)', fontSize: 18, cursor: 'pointer', flexShrink: 0 }}>⏻</button>
       </div>
       {/* KPIs para gestor/admin */}
       {isGestorApp && (
@@ -2006,7 +2048,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
           borderTop:'1px solid rgba(255,255,255,.04)',
           display:'flex', gap:16, alignItems:'center', flexShrink:0, overflowX:'auto',
           scrollbarWidth:'none' as const }}>
-          <div style={{ fontSize:10, color:'#4a5a7a', whiteSpace:'nowrap' as const }}>
+          <div style={{ fontSize:10, color:'#7a8ba8', whiteSpace:'nowrap' as const }}>
             🏢 Ativas: <b style={{ color:'#4ade80' }}>
               {estacoes.filter((e:any)=>
                 e.status==='INSTALADO' &&
@@ -2014,7 +2056,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
               ).length}
             </b>
           </div>
-          <div style={{ fontSize:10, color:'#4a5a7a', whiteSpace:'nowrap' as const }}>
+          <div style={{ fontSize:10, color:'#7a8ba8', whiteSpace:'nowrap' as const }}>
             🛡 Ocorrências: <b style={{ color: kpis.ocAbertas>0?'#fbbf24':'#4ade80' }}>{kpis.ocAbertas}</b>
           </div>
           {kpis.roubos > 0 && (
@@ -2056,7 +2098,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
 
         {isGestorApp && <>
           {isGestor && (
-            <button onClick={() => { setAnalyticsModulo(v => !v); setDashboardModulo(false); }} style={{
+            <button onClick={() => analyticsModulo ? setAnalyticsModulo(false) : openPanel(setAnalyticsModulo)} style={{
               background: analyticsModulo ? 'rgba(61,155,255,.15)' : 'rgba(255,255,255,.06)',
               border: `1px solid ${analyticsModulo ? 'rgba(61,155,255,.3)' : 'rgba(255,255,255,.1)'}`,
               borderRadius: 8, color: analyticsModulo ? '#3d9bff' : 'rgba(255,255,255,.5)',
@@ -2064,7 +2106,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
             }}>📊 Analytics</button>
           )}
 
-          <button onClick={() => setDashboardModulo(v => !v)} style={{
+          <button onClick={() => dashboardModulo ? setDashboardModulo(false) : openPanel(setDashboardModulo)} style={{
             background: dashboardModulo ? 'rgba(96,165,250,.15)' : 'rgba(255,255,255,.06)',
             border: `1px solid ${dashboardModulo ? 'rgba(96,165,250,.3)' : 'rgba(255,255,255,.1)'}`,
             borderRadius: 8, color: dashboardModulo ? '#60a5fa' : 'rgba(255,255,255,.5)',
@@ -2083,7 +2125,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
             fontSize: 12, padding: '6px 12px', cursor: 'pointer', fontWeight: 600,
           }}>🛡 Guard{ocorrenciasLayer.length > 0 ? ` (${ocorrenciasLayer.length})` : ''}</button>
           {isGestorApp && (
-            <button onClick={() => setGuardDash(v => !v)} style={{
+            <button onClick={() => guardDash ? setGuardDash(false) : openPanel(setGuardDash)} style={{
               background: guardDash ? 'rgba(192,132,252,.15)' : 'rgba(255,255,255,.06)',
               border: `1px solid ${guardDash ? 'rgba(192,132,252,.3)' : 'rgba(255,255,255,.1)'}`,
               borderRadius: 8, color: guardDash ? '#c084fc' : 'rgba(255,255,255,.5)',
@@ -2091,13 +2133,13 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
             }}>📊 Guard Dash</button>
           )}
 
-          <button onClick={() => setPainelRoubos(v => !v)} style={{
+          <button onClick={() => painelRoubos ? setPainelRoubos(false) : openPanel(setPainelRoubos)} style={{
             background: painelRoubos ? 'rgba(239,68,68,.15)' : 'rgba(255,255,255,.06)',
             border: `1px solid ${painelRoubos ? 'rgba(239,68,68,.3)' : 'rgba(255,255,255,.1)'}`,
             borderRadius: 8, color: painelRoubos ? '#ef4444' : 'rgba(255,255,255,.5)',
             fontSize: 12, padding: '6px 12px', cursor: 'pointer', fontWeight: 600,
           }}>🔴 Roubos</button>
-          <button onClick={() => setPainelPerdas(v => !v)} style={{
+          <button onClick={() => painelPerdas ? setPainelPerdas(false) : openPanel(setPainelPerdas)} style={{
             background: painelPerdas ? 'rgba(239,68,68,.15)' : 'rgba(255,255,255,.06)',
             border: `1px solid ${painelPerdas ? 'rgba(239,68,68,.3)' : 'rgba(255,255,255,.1)'}`,
             borderRadius: 8, color: painelPerdas ? '#ef4444' : 'rgba(255,255,255,.5)',
@@ -2108,7 +2150,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         {(isGestorLog || isPrestadorLogistica) && (
           <>
           {isGestorApp && (
-            <button onClick={() => setShowWorkers(v => !v)} style={{
+            <button onClick={() => showWorkers ? setShowWorkers(false) : openPanel(setShowWorkers)} style={{
               padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
               background: showWorkers ? 'rgba(16,185,129,.15)' : 'rgba(255,255,255,.06)',
               border: `1px solid ${showWorkers ? 'rgba(16,185,129,.3)' : 'rgba(255,255,255,.1)'}`,
@@ -2118,7 +2160,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
           )}
           {isLogisticaApp && (
             <button
-              onClick={() => { setTarefasLogistica(v => !v); setParkingParaTarefa(null); }}
+              onClick={() => { if (tarefasLogistica) { setTarefasLogistica(false); } else { openPanel(setTarefasLogistica); } setParkingParaTarefa(null); }}
               style={{
                 padding: '8px 10px', borderRadius: 8, border: 'none', cursor: 'pointer',
                 background: tarefasLogistica ? 'rgba(16,185,129,.15)' : 'rgba(255,255,255,.06)',
@@ -2128,14 +2170,14 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
               📦 Tarefas
             </button>
           )}
-          <button onClick={() => { setSlotsModulo(v => !v); setDashboardModulo(false); }} style={{
+          <button onClick={() => slotsModulo ? setSlotsModulo(false) : openPanel(setSlotsModulo)} style={{
             background: slotsModulo? 'rgba(16,185,129,.15)' : 'rgba(255,255,255,.06)',
             border: `1px solid ${slotsModulo? 'rgba(16,185,129,.3)' : 'rgba(255,255,255,.1)'}`,
             borderRadius: 8, color: slotsModulo? '#10b981' : 'rgba(255,255,255,.5)',
             fontSize: 12, padding: '6px 12px', cursor: 'pointer', fontWeight: 600,
           }}>📦 Slots</button>
           {isGestorLog && (
-            <button onClick={() => setGestorLogistica(v => !v)} style={{
+            <button onClick={() => gestorLogistica ? setGestorLogistica(false) : openPanel(setGestorLogistica)} style={{
               background: gestorLogistica ? 'rgba(26,111,212,.15)' : 'rgba(255,255,255,.06)',
               border: `1px solid ${gestorLogistica ? 'rgba(26,111,212,.3)' : 'rgba(255,255,255,.1)'}`,
               borderRadius: 8, color: gestorLogistica ? '#307FE2' : 'rgba(255,255,255,.5)',
@@ -2144,7 +2186,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
           )}
           {/* Pagamentos — prestadores veem seus ganhos; gestores/admin veem painel de validação */}
           {isPrestadorLogistica && (
-            <button onClick={() => setPagamentosOpen(true)} style={{
+            <button onClick={() => openPanel(setPagamentosOpen)} style={{
               background: pagamentosOpen ? 'rgba(16,185,129,.15)' : 'rgba(255,255,255,.06)',
               border: `1px solid ${pagamentosOpen ? 'rgba(16,185,129,.3)' : 'rgba(255,255,255,.1)'}`,
               borderRadius: 8, color: pagamentosOpen ? '#10b981' : 'rgba(255,255,255,.5)',
@@ -2152,7 +2194,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
             }}>💰 Pagamentos</button>
           )}
           {isGestorLog && (
-            <button onClick={() => setPagamentosAdminOpen(true)} style={{
+            <button onClick={() => openPanel(setPagamentosAdminOpen)} style={{
               background: pagamentosAdminOpen ? 'rgba(245,158,11,.15)' : 'rgba(255,255,255,.06)',
               border: `1px solid ${pagamentosAdminOpen ? 'rgba(245,158,11,.3)' : 'rgba(255,255,255,.1)'}`,
               borderRadius: 8, color: pagamentosAdminOpen ? '#f59e0b' : 'rgba(255,255,255,.5)',
@@ -2241,7 +2283,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
       </div>
 
       {/* ── FABs de camadas — ocultos para viewer ───────────── */}
-      {!isViewer && <div style={{
+      {!isViewer && <div className="jet-fab-group" style={{
         position: 'fixed', right: 16, bottom: 100, zIndex: 1000,
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
       }}>
@@ -2253,7 +2295,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
               <>
                 {/* Add pin no mapa */}
                 <button onClick={() => setModoAddLocal(m => !m)}
-                  title={modoAddLocal ? t('fab.cancelAction') : t('fab.addLocalMap')}
+                  title={modoAddLocal ? t('fab.cancelAction') : t('fab.addLocalMap')} aria-label={modoAddLocal ? t('fab.cancelAction') : t('fab.addLocalMap')}
                   style={{ width:40, height:40, borderRadius:10, border:'none', cursor:'pointer',
                     background: modoAddLocal?'rgba(239,68,68,.9)':'rgba(52,211,153,.9)',
                     color:'#fff', fontSize:18, display:'flex', alignItems:'center',
@@ -2261,7 +2303,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                   {modoAddLocal ? '✕' : '📍'}
                 </button>
                 {/* Abrir painel financeiro */}
-                <button onClick={() => setFinanceiro(v => !v)} title={t('fab.financial')}
+                <button onClick={() => financeiro ? setFinanceiro(false) : openPanel(setFinanceiro)} title={t('fab.financial')} aria-label={t('fab.financial')}
                   style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
                     border:`2px solid ${financeiro?'rgba(74,222,128,.5)':'rgba(255,255,255,.2)'}`,
                     background: financeiro?'rgba(74,222,128,.2)':'rgba(13,18,30,.85)',
@@ -2279,7 +2321,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                 setShowLocaisOp(v => !v);
                 if (showLocaisOp) { setFinanceiro(false); setModoAddLocal(false); }
               }}
-              title={t('fab.locais')}
+              title={t('fab.locais')} aria-label={t('fab.locais')}
               style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
                 border:`2px solid ${showLocaisOp?'rgba(52,211,153,.5)':'rgba(255,255,255,.15)'}`,
                 background: showLocaisOp?'rgba(52,211,153,.2)':'rgba(13,18,30,.85)',
@@ -2298,7 +2340,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
 
             {/* POIs Google — DESATIVADO */}
             {false && (
-            <button title={t('fab.poisGoogle')}
+            <button title={t('fab.poisGoogle')} aria-label={t('fab.poisGoogle')}
               onClick={async () => {
                 if (poiGoogleDados.length > 0) { setShowPoiFilterPanel(v => !v); return; }
                 const map = leafletRef.current; if (!map) return;
@@ -2327,8 +2369,8 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
             )}
 
             {/* Pt. Candidatos FAB */}
-            <button title={t('fab.candidates')}
-              onClick={() => setCandidatosModulo(v => !v)}
+            <button title={t('fab.candidates')} aria-label={t('fab.candidates')}
+              onClick={() => candidatosModulo ? setCandidatosModulo(false) : openPanel(setCandidatosModulo)}
               style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
                 border:`2px solid ${candidatosModulo?'rgba(251,191,36,.4)':'rgba(255,255,255,.15)'}`,
                 background: candidatosModulo ? 'rgba(251,191,36,.2)' : 'rgba(13,18,30,.85)',
@@ -2338,7 +2380,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
               🎯
             </button>
             {/* POIs OSM */}
-            <button title={t('fab.poisOsm')}
+            <button title={t('fab.poisOsm')} aria-label={t('fab.poisOsm')}
               onClick={async () => {
                 if (showPOILayer) {
                   // Desligar OSM
@@ -2392,7 +2434,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         )}
 
         {/* FAB POIs — só gestor/campo */}
-        {isGestor && <button onClick={() => setShowPOIsFab(v => !v)} title={t('fab.pois')}
+        {isGestor && <button onClick={() => setShowPOIsFab(v => !v)} title={t('fab.pois')} aria-label={t('fab.pois')}
           style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
             border:`2px solid ${showPOIsFab||showPOILayer||poiGoogleDados.length>0?'rgba(16,185,129,.5)':'rgba(255,255,255,.15)'}`,
             background: showPOIsFab||showPOILayer||poiGoogleDados.length>0 ? 'rgba(16,185,129,.2)' : 'rgba(13,18,30,.85)',
@@ -2409,7 +2451,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
           const map = leafletRef.current; if (!map) return;
           if ((map as any)._satLayer) { map.removeLayer((map as any)._satLayer); (map as any)._satLayer = null; setSatOn(false); }
           else { const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{ attribution:'© Esri', maxZoom:19 }); sat.addTo(map); (map as any)._satLayer = sat; setSatOn(true); }
-        }} title={t('fab.satelite')} style={{ width: 40, height: 40, borderRadius: 10, border: `2px solid ${satOn?'#fbbf24':'rgba(255,255,255,.15)'}`, cursor: 'pointer',
+        }} title={t('fab.satelite')} aria-label={t('fab.satelite')} style={{ width: 40, height: 40, borderRadius: 10, border: `2px solid ${satOn?'#fbbf24':'rgba(255,255,255,.15)'}`, cursor: 'pointer',
           background: satOn ? 'rgba(251,191,36,.2)' : 'rgba(13,18,30,.85)', backdropFilter: 'blur(8px)',
           color: satOn ? '#fbbf24' : 'rgba(255,255,255,.5)', fontSize: 16,
           display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 2px 8px rgba(0,0,0,.4)',
@@ -2419,14 +2461,14 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         {isGestor && showToolsFab && (
           <>
             <button onClick={() => { (window as any)._svMedirCombo?.(); setShowToolsFab(false); }}
-              title={t('fab.svCombo')}
+              title={t('fab.svCombo')} aria-label={t('fab.svCombo')}
               style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
                 border:'2px solid rgba(59,130,246,.4)', background:'rgba(59,130,246,.15)',
                 backdropFilter:'blur(8px)', color:'#60a5fa',
                 fontSize:11, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center',
                 boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>⚡</button>
             <button onClick={() => { (window as any)._svBatch?.(); setShowToolsFab(false); }}
-              title={t('fab.svBatch')} disabled={svBatchRunning}
+              title={t('fab.svBatch')} aria-label={t('fab.svBatch')} disabled={svBatchRunning}
               style={{ width:40, height:40, borderRadius:10, cursor: svBatchRunning ? 'wait' : 'pointer',
                 border:`2px solid ${svBatchRunning?'rgba(0,91,255,.5)':'rgba(255,255,255,.2)'}`,
                 background: svBatchRunning ? 'rgba(0,91,255,.2)' : 'rgba(13,18,30,.85)',
@@ -2435,7 +2477,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                 fontSize:14, display:'flex', alignItems:'center', justifyContent:'center',
                 boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>{svBatchRunning ? '⏳' : '🌐'}</button>
             <button onClick={() => { (window as any)._medirBatch?.(); setShowToolsFab(false); }}
-              title={t('fab.medirBatch')}
+              title={t('fab.medirBatch')} aria-label={t('fab.medirBatch')}
               style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
                 border:'2px solid rgba(255,255,255,.2)', background:'rgba(13,18,30,.85)',
                 backdropFilter:'blur(8px)', color:'rgba(255,255,255,.5)',
@@ -2444,7 +2486,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
           </>
         )}
         {isGestor && <button onClick={() => setShowToolsFab(v => !v)}
-          title={t('fab.tools')}
+          title={t('fab.tools')} aria-label={t('fab.tools')}
           style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
             border:`2px solid ${showToolsFab?'rgba(59,130,246,.5)':'rgba(255,255,255,.15)'}`,
             background: showToolsFab ? 'rgba(59,130,246,.2)' : 'rgba(13,18,30,.85)',
@@ -2458,21 +2500,21 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         {/* GoJet — sub-botões expandem ao ativar layer */}
         {(isGestorApp || isCampo || isLogisticaApp) && showGoJetLayer && isGestor && (
           <>
-            <button title={t('fab.gojetAnalytics')} onClick={() => setGojetAnalytics(v => !v)}
+            <button title={t('fab.gojetAnalytics')} aria-label={t('fab.gojetAnalytics')} onClick={() => gojetAnalytics ? setGojetAnalytics(false) : openPanel(setGojetAnalytics)}
               style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
                 border:`2px solid ${gojetAnalytics?'rgba(167,139,250,.5)':'rgba(255,255,255,.2)'}`,
                 background: gojetAnalytics?'rgba(167,139,250,.2)':'rgba(13,18,30,.85)',
                 backdropFilter:'blur(8px)', color: gojetAnalytics?'#a78bfa':'rgba(255,255,255,.5)',
                 fontSize:16, display:'flex', alignItems:'center', justifyContent:'center',
                 boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>📈</button>
-            <button title={t('fab.gojetDash')} onClick={() => setGojetDash(v => !v)}
+            <button title={t('fab.gojetDash')} aria-label={t('fab.gojetDash')} onClick={() => gojetDash ? setGojetDash(false) : openPanel(setGojetDash)}
               style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
                 border:`2px solid ${gojetDash?'rgba(59,130,246,.5)':'rgba(255,255,255,.2)'}`,
                 background: gojetDash?'rgba(59,130,246,.2)':'rgba(13,18,30,.85)',
                 backdropFilter:'blur(8px)', color: gojetDash?'#60a5fa':'rgba(255,255,255,.5)',
                 fontSize:16, display:'flex', alignItems:'center', justifyContent:'center',
                 boxShadow:'0 2px 8px rgba(0,0,0,.4)' }}>📊</button>
-            <button title="Turnos (gestor)" onClick={() => setShiftPanel(v => !v)}
+            <button title="Turnos (gestor)" aria-label="Turnos" onClick={() => shiftPanel ? setShiftPanel(false) : openPanel(setShiftPanel)}
               style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
                 border:`2px solid ${shiftPanel?'rgba(34,197,94,.5)':'rgba(255,255,255,.2)'}`,
                 background: shiftPanel?'rgba(34,197,94,.2)':'rgba(13,18,30,.85)',
@@ -2482,7 +2524,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
           </>
         )}
         {(isGestorApp || isCampo || isLogisticaApp) && (
-          <button title={t('fab.gojet')} onClick={() => setShowGoJetLayer(v => !v)}
+          <button title={t('fab.gojet')} aria-label={t('fab.gojet')} onClick={() => setShowGoJetLayer(v => !v)}
             style={{ width:40, height:40, borderRadius:10, cursor:'pointer',
               border:`2px solid ${showGoJetLayer?'rgba(16,185,129,.5)':'rgba(255,255,255,.15)'}`,
               background: showGoJetLayer?'rgba(16,185,129,.2)':'rgba(13,18,30,.85)',
@@ -2493,7 +2535,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
 
         {/* Turno — registro entrada/saída */}
         {(usuario?.role === 'campo' || usuario?.role === 'logistica' || usuario?.role === 'motorista' || isGestorApp) && (
-          <button title={t('fab.turno')} onClick={() => setTurnoRegistro(v => !v)}
+          <button title={t('fab.turno')} aria-label={t('fab.turno')} onClick={() => turnoRegistro ? setTurnoRegistro(false) : openPanel(setTurnoRegistro)}
             style={{ width: 40, height: 40, borderRadius: 10, cursor: 'pointer',
               border: `2px solid ${turnoRegistro ? 'rgba(34,197,94,.5)' : 'rgba(255,255,255,.15)'}`,
               background: turnoRegistro ? 'rgba(34,197,94,.2)' : 'rgba(13,18,30,.85)',
@@ -2506,7 +2548,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
 
         {/* Ciclovias */}
         {cidade && (
-          <button onClick={() => setCicloviasOn(v => !v)} title={t('fab.cycleways')}
+          <button onClick={() => setCicloviasOn(v => !v)} title={t('fab.cycleways')} aria-label={t('fab.cycleways')}
             style={{ width: 40, height: 40, borderRadius: 10, border: `2px solid ${cicloviasOn?'#00e676':'rgba(255,255,255,.15)'}`, cursor: 'pointer',
               background: cicloviasOn ? 'rgba(0,230,118,.2)' : 'rgba(13,18,30,.85)', backdropFilter: 'blur(8px)',
               color: cicloviasOn ? '#00e676' : 'rgba(255,255,255,.5)', fontSize: 16,
@@ -2515,7 +2557,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         )}
         {/* Zonas — guard visualiza, gestor edita (botões edição abaixo são isGestor) */}
         {cidade && (isGestorApp || isCampo || isLogisticaApp) && (
-          <button onClick={() => setPoligonosOn(v => !v)} title={t('fab.zones')}
+          <button onClick={() => setPoligonosOn(v => !v)} title={t('fab.zones')} aria-label={t('fab.zones')}
             style={{ width: 40, height: 40, borderRadius: 10, border: `2px solid ${poligonosOn?'#60a5fa':'rgba(255,255,255,.15)'}`, cursor: 'pointer',
               background: poligonosOn ? 'rgba(96,165,250,.2)' : 'rgba(13,18,30,.85)', backdropFilter: 'blur(8px)',
               color: poligonosOn ? '#60a5fa' : 'rgba(255,255,255,.5)', fontSize: 16,
@@ -2525,7 +2567,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         {/* Nova cidade expansão */}
         {isGestor && cidadesExpShow && (
           <button onClick={() => setCidadeExpModal({ latLng: leafletRef.current ? (() => { const c = leafletRef.current!.getCenter(); return {lat:c.lat,lng:c.lng}; })() : {lat:0,lng:0} })}
-            title={t('fab.addExpCity')}
+            title={t('fab.addExpCity')} aria-label={t('fab.addExpCity')}
             style={{ width:40, height:40, borderRadius:10, border:'2px solid rgba(99,102,241,.4)',
               cursor:'pointer', background:'rgba(99,102,241,.15)', backdropFilter:'blur(8px)',
               color:'#818cf8', fontSize:18, display:'flex', alignItems:'center', justifyContent:'center',
@@ -2535,7 +2577,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         {/* Gerir zonas — abre ZonasManager com edição de vértices */}
         {isGestor && poligonosOn && (
           <>
-            <button onClick={() => setZonasModulo(v => !v)} title={t('fab.manageZones')}
+            <button onClick={() => zonasModulo ? setZonasModulo(false) : openPanel(setZonasModulo)} title={t('fab.manageZones')} aria-label={t('fab.manageZones')}
               style={{ width:40, height:40, borderRadius:10,
                 border:`2px solid ${zonasModulo?'#c084fc':'rgba(255,255,255,.15)'}`,
                 cursor:'pointer',
@@ -2545,7 +2587,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                 display:'flex', alignItems:'center', justifyContent:'center',
                 boxShadow:'0 2px 8px rgba(0,0,0,.4)',
               }}>⬡</button>
-            <button onClick={() => setZonaEditor(v => !v)} title={t('fab.drawZone')}
+            <button onClick={() => setZonaEditor(v => !v)} title={t('fab.drawZone')} aria-label={t('fab.drawZone')}
               style={{ width:40, height:40, borderRadius:10,
                 border:`2px solid ${zonaEditor?'#c084fc':'rgba(255,255,255,.15)'}`,
                 cursor:'pointer',
@@ -2559,7 +2601,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         )}
 
         {/* Raio */}
-        <button onClick={() => setRaioAtivo(v => !v)} title={t('fab.radius').replace('{n}', String(raioMetros))}
+        <button onClick={() => setRaioAtivo(v => !v)} title={t('fab.radius').replace('{n}', String(raioMetros))} aria-label={t('fab.radius').replace('{n}', String(raioMetros))}
           style={{ width: 40, height: 40, borderRadius: 10, border: `2px solid ${raioAtivo?'#a78bfa':'rgba(255,255,255,.15)'}`, cursor: 'pointer',
             background: raioAtivo ? 'rgba(167,139,250,.2)' : 'rgba(13,18,30,.85)', backdropFilter: 'blur(8px)',
             color: raioAtivo ? '#a78bfa' : 'rgba(255,255,255,.5)', fontSize: 13, fontWeight: 700,
@@ -2573,8 +2615,8 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         )}
         {/* Guard FAB — gestor_seg tem destaque maior */}
         {(isGestorApp || isCampo || isLogisticaApp) && (
-          <button onClick={() => setNovaOcorrencia(v => !v)}
-            title={t('fab.guard')}
+          <button onClick={() => novaOcorrencia ? setNovaOcorrencia(false) : openPanel(setNovaOcorrencia)}
+            title={t('fab.guard')} aria-label={t('fab.guard')}
             style={{
               width:  usuario.role === 'gestor_seg' ? 52 : 40,
               height: usuario.role === 'gestor_seg' ? 52 : 40,
@@ -2633,7 +2675,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
             // Disparar evento global para abrir drawer fora do contexto do Leaflet
             window.dispatchEvent(new CustomEvent('jetAddNaLocalizacao', { detail: { lat, lng } }));
           }, () => showToast(t('map.locationUnavailable'),'error'));
-        }} title={t('fab.myLocation')}
+        }} title={t('fab.myLocation')} aria-label={t('fab.myLocation')}
           style={{ width:40, height:40, borderRadius:'50%', cursor:'pointer',
             border:'1px solid rgba(59,130,246,.4)',
             background:'rgba(13,18,30,.85)', backdropFilter:'blur(8px)',
@@ -2693,7 +2735,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
 
       {/* FAB adicionar — só gestor/campo, não gestor_seg */}
       {isGestor && <button onClick={() => { setModoAdd(m => !m); if (!modoAdd) showToast(t('map.tapToPosition'), 'info'); }}
-        title={t('fab.addStation')}
+        title={t('fab.addStation')} aria-label={t('fab.addStation')}
         style={{ position: 'fixed', right: 16, bottom: 32, width: 56, height: 56,
           borderRadius: '50%', border: 'none', zIndex: 1000, cursor: 'pointer',
           background: modoAdd ? 'linear-gradient(135deg,#ef4444,#dc2626)' : 'linear-gradient(135deg,#1a6fd4,#307FE2)',
@@ -2809,7 +2851,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                     ).sort((a: any, b: any) => a.cidade.localeCompare(b.cidade))
                   : [];
                 if (!comEst.length && !semEst.length) {
-                  return <div style={{ padding:20, textAlign:'center', color:'#4a5a7a', fontSize:12 }}>Nenhuma cidade encontrada</div>;
+                  return <div style={{ padding:20, textAlign:'center', color:'#7a8ba8', fontSize:12 }}>Nenhuma cidade encontrada</div>;
                 }
                 // Agrupar comEst por país
                 const FLAG: Record<string,string> = { BR:'🇧🇷', MX:'🇲🇽', AR:'🇦🇷', CO:'🇨🇴', CL:'🇨🇱', PE:'🇵🇪' };
@@ -2820,7 +2862,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                 return (
                   <>
                     {comEst.length === 0 && (
-                      <div style={{ fontSize:12, color:'#4a5a7a', padding:'8px 0', marginBottom:8 }}>{t('cities.noStations')}</div>
+                      <div style={{ fontSize:12, color:'#7a8ba8', padding:'8px 0', marginBottom:8 }}>{t('cities.noStations')}</div>
                     )}
                     {paisesCom.map((p: any) => (
                       <div key={p}>
@@ -3010,7 +3052,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
           <div style={{ width:'100%', maxWidth:400, background:'#0d1521',
             borderRadius:'16px 16px 0 0', padding:20, fontFamily:'Inter,sans-serif' }}>
             <div style={{ fontSize:14, fontWeight:700, color:'#dce8ff', marginBottom:4 }}>📷 Foto da estação</div>
-            <div style={{ fontSize:11, color:'#4a5a7a', marginBottom:16 }}>Selecione uma foto para esta estação</div>
+            <div style={{ fontSize:11, color:'#7a8ba8', marginBottom:16 }}>Selecione uma foto para esta estação</div>
             <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
               <label style={{ flex:1, minWidth:80, padding:'14px', borderRadius:10, cursor:'pointer', textAlign:'center',
                 background:'rgba(16,185,129,.1)', border:'1px solid rgba(16,185,129,.3)', color:'#34d399',
@@ -3095,7 +3137,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                 📋 Colar
               </button>
             </div>
-            <div style={{ fontSize:10, color:'#4a5a7a', marginTop:8, textAlign:'center' }}>
+            <div style={{ fontSize:10, color:'#7a8ba8', marginTop:8, textAlign:'center' }}>
               Dica: tire print (Win+Shift+S), depois clique em 📋 Colar
             </div>
             <button onClick={() => setFotoCapturaCtx(null)}
@@ -3158,7 +3200,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                 <div style={{ fontSize:13, fontWeight:700, color:'#dce8ff' }}>
                   📐 {t('medir.batch')} — {atual}/{total}
                 </div>
-                <div style={{ fontSize:11, color:'#4a5a7a' }}>
+                <div style={{ fontSize:11, color:'#7a8ba8' }}>
                   {est.codigo} · {est.endereco || est.bairro || ''}
                   {isSv ? ' · 🌐 SV' : ''}
                 </div>
@@ -3166,7 +3208,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
               <div style={{ background:'#1c2535', borderRadius:8, padding:'4px 10px', fontSize:11, color:'#60a5fa', fontWeight:600 }}>
                 {atual}/{total}
               </div>
-              <div style={{ fontSize:9, color:'#4a5a7a', display:'flex', gap:4 }}>
+              <div style={{ fontSize:9, color:'#7a8ba8', display:'flex', gap:4 }}>
                 <kbd style={{ background:'#1c2535', padding:'1px 4px', borderRadius:3, fontSize:9 }}>→</kbd> {t('medir.kbSkip')}
                 <kbd style={{ background:'#1c2535', padding:'1px 4px', borderRadius:3, fontSize:9 }}>Esc</kbd> {t('medir.kbStop')}
               </div>
@@ -3207,7 +3249,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
           <div style={{ background:'#0d1521', borderRadius:12, padding:24, textAlign:'center', maxWidth:320 }}>
             <div style={{ fontSize:40, marginBottom:12 }}>✅</div>
             <div style={{ fontSize:16, fontWeight:700, color:'#dce8ff', marginBottom:8 }}>{t('medir.done')}</div>
-            <div style={{ fontSize:12, color:'#4a5a7a', marginBottom:16 }}>
+            <div style={{ fontSize:12, color:'#7a8ba8', marginBottom:16 }}>
               {t('medir.doneDesc', { count: medirFila.lista.length })}
             </div>
             <button onClick={() => setMedirFila(null)}
@@ -3228,7 +3270,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
             boxShadow:'0 24px 80px rgba(0,0,0,.9)', border:'1px solid #1c2535' }}
             onClick={e => e.stopPropagation()}>
             <div style={{ fontSize:13, fontWeight:700, color:'#dce8ff', marginBottom:8 }}>
-              🌐 {t('sv.preview')} <span style={{ fontSize:10, fontWeight:400, color:'#4a5a7a', marginLeft:6 }}>({svPreview.fonte})</span>
+              🌐 {t('sv.preview')} <span style={{ fontSize:10, fontWeight:400, color:'#7a8ba8', marginLeft:6 }}>({svPreview.fonte})</span>
             </div>
             <img src={svPreview.url} referrerPolicy="no-referrer"
               style={{ width:'100%', borderRadius:8, marginBottom:12, maxHeight:240, objectFit:'cover' }} />

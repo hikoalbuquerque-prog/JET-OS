@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
+import { SkeletonTable, SkeletonPulseStyle } from './components/ui/Skeleton';
 import { useTranslation } from 'react-i18next';
 import { getEdgeCallable } from './lib/edge-functions';
 import { supabase } from './lib/supabase';
 import { carregarSolicitacoesPendentesSupabase, atualizarSolicitacaoSupabase } from './lib/onda-b-supabase';
 import { escreverUsuarioSupabase, fetchUsuarios } from './lib/usuarios-supabase';
 import { carregarCidadesSupabase } from './lib/estacoes-supabase';
+import { confirmDialog } from './components/ui/ConfirmDialog';
 
 // ── i18n: padrão TermosUsoGate (objeto T com { pt, en, es, ru }, sem chaves json) ──
 type Lang = 'pt' | 'en' | 'es' | 'ru';
@@ -430,7 +432,7 @@ export default function UsuariosManager({
       es: `¿Aprobar ${selecionadosLote.size} solicitud(es) como "${roleAprovacao}"?`,
       ru: `Одобрить заявок (${selecionadosLote.size}) как "${roleAprovacao}"?`,
     };
-    if (!window.confirm(pick(confirmLote))) return;
+    if (!await confirmDialog(pick(confirmLote), '')) return;
     setAprovandoLote(true);
     let ok = 0;
     for (const id of Array.from(selecionadosLote)) {
@@ -704,7 +706,7 @@ export default function UsuariosManager({
               ) : (
                 <div>
                   {loading ? (
-                    <div style={{ textAlign: 'center', padding: 32 }}>{pick(T.carregando)}</div>
+                    <div style={{ padding: 16 }}><SkeletonPulseStyle /><SkeletonTable rows={6} cols={4} /></div>
                   ) : solicitacoes.filter(req => podeVerSolicitacao(req, roleAtual)).length === 0 ? (
                     <div style={{ textAlign: 'center', padding: 32, color: 'rgba(255,255,255,.5)' }}>
                       {pick(T.nenhumaSolicitacao)}

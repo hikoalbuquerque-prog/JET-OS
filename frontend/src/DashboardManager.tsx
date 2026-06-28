@@ -1,5 +1,6 @@
 // DashboardManager.tsx — Dashboard + Custos API + Exportação/Importação
 import { useState, useEffect, useRef } from 'react';
+import { SkeletonTable, SkeletonPulseStyle } from './components/ui/Skeleton';
 import { useTranslation } from 'react-i18next';
 import { useState as useLocalState } from 'react';
 import { carregarOcorrenciasSupabase, buscarOcorrenciaSupabase, atualizarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
@@ -10,6 +11,7 @@ import JSZip from 'jszip';
 import { useCidadesExpansao, STATUS_META, type CidadeExpansao } from './CidadesExpansao';
 import { fnGerarCroquisLote, fnSvEstatisticas, getEdgeCallable, functionsProviderSupabase } from './lib/edge-functions';
 import GoJetCidadesPanel from './components/GoJetCidadesPanel';
+import { showToastGlobal } from './components/ui/ToastQueue';
 
 interface Estacao {
   id: string; codigo: string; cidade: string; bairro: string;
@@ -1596,7 +1598,7 @@ function ZonasInline({ cidade, pais }: { cidade: string; pais: string }) {
     filtro === 'todos' ? true : filtro === 'ativos' ? z.ativo !== false : z.ativo === false
   ).sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
 
-  if (loading) return <div style={{ padding: 12, fontSize: 11, color: 'rgba(255,255,255,.4)' }}>{pick(T.carregando)}</div>;
+  if (loading) return <div style={{ padding: 16 }}><SkeletonPulseStyle /><SkeletonTable rows={6} cols={4} /></div>;
   if (!zonas.length) return <div style={{ padding: 12, fontSize: 11, color: 'rgba(255,255,255,.3)', textAlign: 'center' }}>{pick(T.nenhuma)}</div>;
 
   return (
@@ -1847,7 +1849,7 @@ function AbaCroquisLote({ cidade, pais, total, estacoes }: {
   const iniciar = async () => {
     if (!cidade) return;
     const alvo = getAlvo();
-    if (!alvo.length) { alert(pick(T.nenhumaProc)); return; }
+    if (!alvo.length) { showToastGlobal(pick(T.nenhumaProc), 'warn'); return; }
     const fotoAviso = modeLote !== 'semFoto' && semFotoMode === 'pular'
       ? `\n\n⚠ ${semFoto} ${pick(T.avisoPular)}`
       : modeLote !== 'semFoto' && semFotoMode === 'placeholder'
@@ -2899,7 +2901,7 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
     display:'flex', alignItems:'center', gap:8, marginBottom:6,
   };
   const sec: React.CSSProperties = { padding:'12px 16px', borderBottom:'1px solid rgba(255,255,255,.06)' };
-  const hdr: React.CSSProperties = { fontSize:9, color:'#4a5a7a', textTransform:'uppercase' as const, letterSpacing:.5, marginBottom:8, fontWeight:700 };
+  const hdr: React.CSSProperties = { fontSize:9, color:'#7a8ba8', textTransform:'uppercase' as const, letterSpacing:.5, marginBottom:8, fontWeight:700 };
 
   return (
     <div style={{ flex:1, overflowY:'auto', scrollbarWidth:'thin' as const, scrollbarColor:'#1c2535 transparent', display:'flex', flexDirection:'column' }}>
@@ -2907,7 +2909,7 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
       {/* Header */}
       <div style={{ padding:'14px 16px', borderBottom:'1px solid rgba(255,255,255,.06)', background:'rgba(167,139,250,.05)' }}>
         <div style={{ fontSize:13, fontWeight:700, color:'#a78bfa' }}>{pick(T.relatAuto)}</div>
-        <div style={{ fontSize:10, color:'#4a5a7a', marginTop:3 }}>
+        <div style={{ fontSize:10, color:'#7a8ba8', marginTop:3 }}>
           {pick(T.relatAutoSub)}
         </div>
       </div>
@@ -2916,15 +2918,15 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
       {isAdmin && (
       <div style={sec}>
         <div style={hdr}>{pick(T.cfgTelegram)}</div>
-        <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:8, lineHeight:1.7 }}>
+        <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:8, lineHeight:1.7 }}>
           {pick(T.cfgTelegramSub)}
         </div>
-        <label style={{ fontSize:9, color:'#4a5a7a', marginBottom:3, display:'block' }}>BOT TOKEN</label>
+        <label style={{ fontSize:9, color:'#7a8ba8', marginBottom:3, display:'block' }}>BOT TOKEN</label>
         <input value={config.token} onChange={e => setConfig(c=>({...c,token:e.target.value}))}
           placeholder="123456:ABC-..."
           style={{ width:'100%', padding:'7px 10px', borderRadius:6, border:'1px solid #1c2535',
             background:'#111722', color:'#dce8ff', fontSize:10, boxSizing:'border-box', marginBottom:8 }}/>
-        <label style={{ fontSize:9, color:'#4a5a7a', marginBottom:3, display:'block' }}>CHAT ID</label>
+        <label style={{ fontSize:9, color:'#7a8ba8', marginBottom:3, display:'block' }}>CHAT ID</label>
         <input value={config.chatId} onChange={e => setConfig(c=>({...c,chatId:e.target.value}))}
           placeholder="-100123456789"
           style={{ width:'100%', padding:'7px 10px', borderRadius:6, border:'1px solid #1c2535',
@@ -2955,7 +2957,7 @@ function GuardRelatoriosPanel({ isAdmin = false }: { isAdmin?: boolean }) {
           <code style={{ color:'#fbbf24', background:'rgba(0,0,0,.3)', padding:'1px 5px', borderRadius:3 }}>
             firebase deploy --only functions
           </code><br/><br/>
-          <span style={{ color:'#4a5a7a' }}>{pick(T.triggersCriados)}</span><br/>
+          <span style={{ color:'#7a8ba8' }}>{pick(T.triggersCriados)}</span><br/>
           {pick(T.trigGuardD)}<br/>
           {pick(T.trigGuardS)}<br/>
           {pick(T.trigPerdasD)}<br/>
@@ -3122,7 +3124,7 @@ function GuardExportCSV() {
       a.download = `ocorrencias_guard_${periodo}_${new Date().toISOString().slice(0,10)}.csv`;
       a.click();
     } catch (e: any) {
-      alert(pick(T.erroExport) + ' ' + e.message);
+      showToastGlobal(pick(T.erroExport) + ' ' + e.message, 'erro');
     } finally {
       setExportando(false);
     }
@@ -3222,13 +3224,13 @@ function GuardNotifConfig() {
       <input type="checkbox" checked={!!cfg[key]}
         onChange={e => setCfg(c => ({ ...c, [key]: e.target.checked }))}
         style={{ accentColor: cor, width:15, height:15 }}/>
-      <span style={{ fontSize:10, color: cfg[key] ? '#dce8ff' : '#4a5a7a' }}>{label}</span>
+      <span style={{ fontSize:10, color: cfg[key] ? '#dce8ff' : '#7a8ba8' }}>{label}</span>
     </label>
   );
 
   return (
     <div>
-      <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:10, lineHeight:1.7 }}>
+      <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:10, lineHeight:1.7 }}>
         {pick(T.intro)}
       </div>
 
@@ -3244,21 +3246,21 @@ function GuardNotifConfig() {
           <div style={{ fontSize:11, fontWeight:700, color: cfg.ativo ? '#a78bfa' : 'rgba(255,255,255,.5)' }}>
             {cfg.ativo ? pick(T.notifAtivas) : pick(T.notifDesat)}
           </div>
-          <div style={{ fontSize:9, color:'#4a5a7a' }}>
+          <div style={{ fontSize:9, color:'#7a8ba8' }}>
             {pick(T.alertasRT)}
           </div>
         </div>
       </label>
 
       {/* Chat ID alternativo */}
-      <label style={{ fontSize:9, color:'#4a5a7a', marginBottom:3, display:'block' }}>
+      <label style={{ fontSize:9, color:'#7a8ba8', marginBottom:3, display:'block' }}>
         {pick(T.chatIdLabel)}
       </label>
       <input value={cfg.chatIdNotif} onChange={e=>setCfg(c=>({...c,chatIdNotif:e.target.value}))}
         placeholder={pick(T.chatIdPh)} style={inp}/>
 
       {/* Tipos de evento */}
-      <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:6, marginTop:4 }}>
+      <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:6, marginTop:4 }}>
         {pick(T.notificarQuando)}
       </div>
       {chk('roubos',    pick(T.chkRoubos), '#ef4444')}
@@ -3267,7 +3269,7 @@ function GuardNotifConfig() {
       {chk('procurando',pick(T.chkProc),   '#ef4444')}
 
       {/* Prioridade mínima */}
-      <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3, marginTop:8 }}>
+      <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:3, marginTop:8 }}>
         {pick(T.prioMin)}
       </div>
       <select value={cfg.minPrioridade} onChange={e=>setCfg(c=>({...c,minPrioridade:e.target.value}))}
@@ -3347,7 +3349,7 @@ function GuardHistorico() {
 
   return (
     <div>
-      <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:8 }}>
+      <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:8 }}>
         {pick(T.intro)}
       </div>
       <div style={{ display:'flex', gap:6 }}>
@@ -3367,7 +3369,7 @@ function GuardHistorico() {
       {itens.length > 0 && (
         <div style={{ marginTop:10 }}>
           {itens.map((it, i) => it._vazio ? (
-            <div key={i} style={{ fontSize:10, color:'#4a5a7a', padding:'8px 0' }}>
+            <div key={i} style={{ fontSize:10, color:'#7a8ba8', padding:'8px 0' }}>
               {pick(T.vazio)}
             </div>
           ) : it._erro ? (
@@ -3379,7 +3381,7 @@ function GuardHistorico() {
                 <span style={{ fontSize:10, color:'#a78bfa', fontWeight:600 }}>
                   ✏️ {it.alteradoPor || pick(T.sistema)}
                 </span>
-                <span style={{ fontSize:9, color:'#4a5a7a' }}>{fmtDt(it.alteradoEm)}</span>
+                <span style={{ fontSize:9, color:'#7a8ba8' }}>{fmtDt(it.alteradoEm)}</span>
               </div>
               {it.campos && Object.entries(it.campos).map(([k, v]: any) => (
                 <div key={k} style={{ fontSize:9, color:'rgba(255,255,255,.5)', lineHeight:1.6 }}>
@@ -3529,7 +3531,7 @@ function GuardExportExcel() {
       const data = new Date().toLocaleDateString('pt-BR').replace(/\//g,'-');
       w.XLSX.writeFile(wb, `guard_export_${data}.xlsx`);
     } catch(e:any) {
-      alert(pick(T.erroExport) + ' ' + e.message);
+      showToastGlobal(pick(T.erroExport) + ' ' + e.message, 'erro');
     }
     setCarregando(false);
   };
@@ -3542,7 +3544,7 @@ function GuardExportExcel() {
 
   return (
     <div>
-      <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:8 }}>
+      <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:8 }}>
         {pick(T.introFiltros)}
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:8 }}>
@@ -3563,11 +3565,11 @@ function GuardExportExcel() {
         placeholder={pick(T.filtrarCidade)} style={inp}/>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:10 }}>
         <div>
-          <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.de)}</div>
+          <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:3 }}>{pick(T.de)}</div>
           <input type='date' value={filtros.de} onChange={e=>setFiltros(f=>({...f,de:e.target.value}))} style={inp}/>
         </div>
         <div>
-          <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.ate)}</div>
+          <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:3 }}>{pick(T.ate)}</div>
           <input type='date' value={filtros.ate} onChange={e=>setFiltros(f=>({...f,ate:e.target.value}))} style={inp}/>
         </div>
       </div>
@@ -3667,7 +3669,7 @@ function GuardAuditoriaPanel() {
 
   return (
     <div>
-      <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:8 }}>
+      <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:8 }}>
         {pick(T.intro)}
       </div>
       <div style={{ display:'flex', gap:6, marginBottom:10 }}>
@@ -3689,14 +3691,14 @@ function GuardAuditoriaPanel() {
             {pick(T.editando)} {ocorr.id}
           </div>
 
-          <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.dataInc)}</div>
+          <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:3 }}>{pick(T.dataInc)}</div>
           <input type='datetime-local' style={inp}
             defaultValue={fmtDateInput(ocorr.created_at || ocorr.criadoEm)}
             onChange={e=>setForm((f:any)=>({...f,created_at_edit:e.target.value}))}/>
 
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
             <div>
-              <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.tipo)}</div>
+              <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:3 }}>{pick(T.tipo)}</div>
               <select value={form.tipo||''} onChange={e=>setForm((f:any)=>({...f,tipo:e.target.value}))}
                 style={{...inp, cursor:'pointer'}}>
                 {['Roubo','Furto','Vandalismo','Tentativa','Alarme','Recuperacao'].map(t=>(
@@ -3705,7 +3707,7 @@ function GuardAuditoriaPanel() {
               </select>
             </div>
             <div>
-              <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.status)}</div>
+              <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:3 }}>{pick(T.status)}</div>
               <select value={form.status||''} onChange={e=>setForm((f:any)=>({...f,status:e.target.value}))}
                 style={{...inp, cursor:'pointer'}}>
                 {['Aberto','Em apuracao','Encerrado','Recuperado'].map(s=>(
@@ -3714,19 +3716,19 @@ function GuardAuditoriaPanel() {
               </select>
             </div>
             <div>
-              <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.assetId)}</div>
+              <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:3 }}>{pick(T.assetId)}</div>
               <input value={form.asset_id||''} onChange={e=>setForm((f:any)=>({...f,asset_id:e.target.value}))} style={inp}/>
             </div>
             <div>
-              <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.responsavel)}</div>
+              <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:3 }}>{pick(T.responsavel)}</div>
               <input value={form.responsavel||''} onChange={e=>setForm((f:any)=>({...f,responsavel:e.target.value}))} style={inp}/>
             </div>
           </div>
 
-          <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.cidade)}</div>
+          <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:3 }}>{pick(T.cidade)}</div>
           <input value={form.cidade_inicial||''} onChange={e=>setForm((f:any)=>({...f,cidade_inicial:e.target.value}))} style={inp}/>
 
-          <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:3 }}>{pick(T.obsAudit)}</div>
+          <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:3 }}>{pick(T.obsAudit)}</div>
           <textarea value={form.observacao_fechamento||''} rows={2}
             onChange={e=>setForm((f:any)=>({...f,observacao_fechamento:e.target.value}))}
             style={{...inp, resize:'vertical' as const}}/>
@@ -3846,7 +3848,7 @@ function UsuariosPanel() {
       setSenhaTemp({ uid, email: sol.email, senha: senhaGerada });
       setSolicitacoes(s => s.filter(x => x.id !== sol.id));
     } catch(e:any) {
-      alert(pick(T.erroAprovar) + ' ' + e.message);
+      showToastGlobal(pick(T.erroAprovar) + ' ' + e.message, 'erro');
     }
   };
 
@@ -3854,7 +3856,7 @@ function UsuariosPanel() {
     try {
       await escreverUsuarioSupabase(uid, { role: novoRole });
       setUsuarios(u => u.map(x => x.id === uid ? { ...x, role: novoRole } : x));
-    } catch(e:any) { alert(pick(T.erro) + ' ' + e.message); }
+    } catch(e:any) { showToastGlobal(pick(T.erro) + ' ' + e.message, 'erro'); }
   };
 
   const copiarWhats = (email: string, senha: string) => {
@@ -3863,7 +3865,7 @@ function UsuariosPanel() {
   };
 
   const sec: React.CSSProperties = { padding:'12px 16px', borderBottom:'1px solid rgba(255,255,255,.06)' };
-  const hdr: React.CSSProperties = { fontSize:9, color:'#4a5a7a', textTransform:'uppercase' as const, letterSpacing:.5, marginBottom:8, fontWeight:700 };
+  const hdr: React.CSSProperties = { fontSize:9, color:'#7a8ba8', textTransform:'uppercase' as const, letterSpacing:.5, marginBottom:8, fontWeight:700 };
   const ROLE_CORES: Record<string,string> = { admin:'#f87171', gestor:'#fbbf24', campo:'#60a5fa', guard:'#a78bfa', viewer:'#3b82f6', supergestor:'#f59e0b', gestor_seg:'#f97316' };
 
   return (
@@ -3897,16 +3899,16 @@ cidadesDisponiveis={[...new Set<string>(
             <div style={{ fontSize:15, fontWeight:700, color:'#4ade80', marginBottom:4 }}>
               {pick(T.usuarioAprovado)}
             </div>
-            <div style={{ fontSize:11, color:'#4a5a7a', marginBottom:16 }}>
+            <div style={{ fontSize:11, color:'#7a8ba8', marginBottom:16 }}>
               {pick(T.copieCred)}
             </div>
 
             <div style={{ background:'rgba(255,255,255,.04)', borderRadius:10,
               padding:'12px 14px', marginBottom:14,
               border:'1px solid rgba(255,255,255,.08)' }}>
-              <div style={{ fontSize:10, color:'#4a5a7a', marginBottom:4 }}>{pick(T.email)}</div>
+              <div style={{ fontSize:10, color:'#7a8ba8', marginBottom:4 }}>{pick(T.email)}</div>
               <div style={{ fontSize:13, color:'#dce8ff', fontWeight:600 }}>{senhaTemp.email}</div>
-              <div style={{ fontSize:10, color:'#4a5a7a', marginTop:10, marginBottom:4 }}>{pick(T.senhaTemp)}</div>
+              <div style={{ fontSize:10, color:'#7a8ba8', marginTop:10, marginBottom:4 }}>{pick(T.senhaTemp)}</div>
               <div style={{ fontSize:20, color:'#fbbf24', fontWeight:800,
                 fontFamily:'monospace', letterSpacing:2 }}>{senhaTemp.senha}</div>
             </div>
@@ -3920,7 +3922,7 @@ cidadesDisponiveis={[...new Set<string>(
               {copiado ? pick(T.copiado) : pick(T.copiarWhats)}
             </button>
 
-            <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:12, textAlign:'center' }}>
+            <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:12, textAlign:'center' }}>
               {pick(T.deveTrocar)}
             </div>
 
@@ -3948,23 +3950,23 @@ cidadesDisponiveis={[...new Set<string>(
       </div>
 
       {loading && (
-        <div style={{ padding:20, textAlign:'center', color:'#4a5a7a', fontSize:12 }}>{pick(T.carregando)}</div>
+        <div style={{ padding:20, textAlign:'center', color:'#7a8ba8', fontSize:12 }}>{pick(T.carregando)}</div>
       )}
 
       {/* Solicitações pendentes */}
       {aba === 'pendentes' && !loading && (
         <div>
           {solicitacoes.length === 0 ? (
-            <div style={{ padding:20, textAlign:'center', color:'#4a5a7a', fontSize:12 }}>
+            <div style={{ padding:20, textAlign:'center', color:'#7a8ba8', fontSize:12 }}>
               {pick(T.nenhumaPend)}
             </div>
           ) : solicitacoes.map(sol => (
             <div key={sol.id} style={{ ...sec }}>
               <div style={{ fontSize:12, fontWeight:600, color:'#dce8ff', marginBottom:2 }}>{sol.nome || sol.email}</div>
-              <div style={{ fontSize:10, color:'#4a5a7a', marginBottom:8 }}>{sol.email} · {sol.cargo || ''} · {sol.empresa || ''}</div>
+              <div style={{ fontSize:10, color:'#7a8ba8', marginBottom:8 }}>{sol.email} · {sol.cargo || ''} · {sol.empresa || ''}</div>
               {sol.motivo && <div style={{ fontSize:10, color:'rgba(255,255,255,.4)', marginBottom:10,
                 padding:'6px 10px', background:'rgba(255,255,255,.03)', borderRadius:6 }}>{sol.motivo}</div>}
-              <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:6 }}>{pick(T.aprovarComo)}</div>
+              <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:6 }}>{pick(T.aprovarComo)}</div>
               <div style={{ display:'flex', gap:6, flexWrap:'wrap' as const }}>
                 {['campo','guard','gestor_seg','gestor'].map((r) => (
                   <button key={r} onClick={() => aprovar(sol, r)}
@@ -4021,11 +4023,11 @@ cidadesDisponiveis={[...new Set<string>(
               .sort((a,b) => (a.email||'').localeCompare(b.email||''));
             return (
               <>
-                <div style={{ padding:'4px 12px', fontSize:9, color:'#4a5a7a' }}>
+                <div style={{ padding:'4px 12px', fontSize:9, color:'#7a8ba8' }}>
                   {filtrados.length} {filtrados.length !== 1 ? pick(T.usuariosEnc) : pick(T.usuarioEnc)} {filtrados.length !== 1 ? pick(T.encontrados) : pick(T.encontrado)}
                 </div>
                 {filtrados.length === 0 ? (
-                  <div style={{ padding:20, textAlign:'center', color:'#4a5a7a', fontSize:12 }}>
+                  <div style={{ padding:20, textAlign:'center', color:'#7a8ba8', fontSize:12 }}>
                     {pick(T.nenhumUsuario)}
                   </div>
                 ) : filtrados.map(u => (
@@ -4035,12 +4037,12 @@ cidadesDisponiveis={[...new Set<string>(
                         overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' as const }}>
                         {u.nome || u.email}
                       </div>
-                      <div style={{ fontSize:9, color:'#4a5a7a' }}>{u.email}</div>
+                      <div style={{ fontSize:9, color:'#7a8ba8' }}>{u.email}</div>
                     </div>
                     <div style={{ fontSize:9, padding:'2px 7px', borderRadius:6,
-                      background:`${ROLE_CORES[u.role] || '#4a5a7a'}20`,
-                      border:`1px solid ${ROLE_CORES[u.role] || '#4a5a7a'}40`,
-                      color: ROLE_CORES[u.role] || '#4a5a7a', fontWeight:700, flexShrink:0 }}>
+                      background:`${ROLE_CORES[u.role] || '#7a8ba8'}20`,
+                      border:`1px solid ${ROLE_CORES[u.role] || '#7a8ba8'}40`,
+                      color: ROLE_CORES[u.role] || '#7a8ba8', fontWeight:700, flexShrink:0 }}>
                       {u.role || 'viewer'}
                     </div>
                     <select value={u.role || 'viewer'} onChange={e => alterarRole(u.id, e.target.value)}
@@ -4191,7 +4193,7 @@ function GraficoEstacoes({ estacoes, cidade }: { estacoes: any[]; cidade: string
           <input type="date" value={customDe} onChange={e=>setCustomDe(e.target.value)}
             style={{ padding:'6px 10px', borderRadius:8, background:'rgba(255,255,255,.05)',
               border:'1px solid rgba(255,255,255,.1)', color:'#dce8ff', fontSize:12, colorScheme:'dark' as any }}/>
-          <span style={{ color:'#4a5a7a', fontSize:12 }}>{pick(T.ate)}</span>
+          <span style={{ color:'#7a8ba8', fontSize:12 }}>{pick(T.ate)}</span>
           <input type="date" value={customAte} onChange={e=>setCustomAte(e.target.value)}
             style={{ padding:'6px 10px', borderRadius:8, background:'rgba(255,255,255,.05)',
               border:'1px solid rgba(255,255,255,.1)', color:'#dce8ff', fontSize:12, colorScheme:'dark' as any }}/>
@@ -4203,7 +4205,7 @@ function GraficoEstacoes({ estacoes, cidade }: { estacoes: any[]; cidade: string
         {porTipo.map(t => (
           <div key={t.label} style={{ ...card, textAlign:'center' }}>
             <div style={{ fontSize:22, fontWeight:900, color:t.cor }}>{t.count}</div>
-            <div style={{ fontSize:10, color:'#4a5a7a', marginTop:2 }}>{t.label}</div>
+            <div style={{ fontSize:10, color:'#7a8ba8', marginTop:2 }}>{t.label}</div>
             <div style={{ fontSize:9, color:'rgba(255,255,255,.2)' }}>
               {total ? Math.round(t.count/total*100) : 0}%
             </div>
@@ -4252,7 +4254,7 @@ function GraficoEstacoes({ estacoes, cidade }: { estacoes: any[]; cidade: string
             <div style={{ fontSize:11, fontWeight:600, color:'rgba(255,255,255,.5)' }}>
               {pick(T.evolucao)}
             </div>
-            <div style={{ fontSize:9, color:'#4a5a7a' }}>
+            <div style={{ fontSize:9, color:'#7a8ba8' }}>
               {pick(T.totalLabel)} {filtradas.length} {pick(T.estacoes)}
             </div>
           </div>
@@ -4383,7 +4385,7 @@ function CidadeViewerModal({ usuario, cidadesDisponiveis, onFechar, onSalvo }: {
       await escreverUsuarioSupabase(usuario.id, { cidadesPermitidas: selecionadas });
       onSalvo(selecionadas);
     } catch(e: any) {
-      alert(pick(T.erro) + ' ' + e.message);
+      showToastGlobal(pick(T.erro) + ' ' + e.message, 'erro');
     } finally {
       setSalvando(false);
     }
@@ -4397,12 +4399,12 @@ function CidadeViewerModal({ usuario, cidadesDisponiveis, onFechar, onSalvo }: {
         <div style={{ fontSize:14, fontWeight:700, color:'#60a5fa', marginBottom:4 }}>
           {pick(T.titulo)}
         </div>
-        <div style={{ fontSize:11, color:'#4a5a7a', marginBottom:16 }}>
+        <div style={{ fontSize:11, color:'#7a8ba8', marginBottom:16 }}>
           {usuario.nome || usuario.email}
         </div>
 
         {cidadesReais.length === 0 ? (
-          <div style={{ color:'#4a5a7a', fontSize:12, marginBottom:16 }}>
+          <div style={{ color:'#7a8ba8', fontSize:12, marginBottom:16 }}>
             {pick(T.carregando)}
           </div>
         ) : (
@@ -4732,8 +4734,8 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
     };
 
     const handleAtualizar = async () => {
-      if (!isGestor) { alert(pick(T.asApenasGestores)); return; }
-      if (paraProcesar.length === 0) { alert(pick(T.asSelecione)); return; }
+      if (!isGestor) { showToastGlobal(pick(T.asApenasGestores), 'warn'); return; }
+      if (paraProcesar.length === 0) { showToastGlobal(pick(T.asSelecione), 'warn'); return; }
       
       setAtualizando(true);
       setResultado(null);
@@ -5319,9 +5321,9 @@ function AbaFotos({ estacoes, cidade, isGestor }: {
   };
 
   const iniciar = async () => {
-    if (!alvo.length) { alert(pick(T.alertNenhuma)); return; }
+    if (!alvo.length) { showToastGlobal(pick(T.alertNenhuma), 'warn'); return; }
     if (fonte === 'mapillary' && !mapillaryTok) {
-      alert(pick(T.alertToken));
+      showToastGlobal(pick(T.alertToken), 'warn');
       return;
     }
     if (!confirm(`${pick(T.confirmA)} ${alvo.length} ${pick(T.confirmB)} ${pick(T.fonteLabels[fonte])}?`)) return;

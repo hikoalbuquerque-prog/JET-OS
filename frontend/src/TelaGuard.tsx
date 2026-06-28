@@ -7,6 +7,7 @@ import { comprimirImagem, capturarFotoNativa } from './lib/imageUtils';
 import { capturarPosicaoUnica } from './lib/gps-background';
 import { isAndroidNative } from './lib/gps-native';
 import { carregarMinhasOcorrenciasSupabase, criarOcorrenciaSupabase, atualizarOcorrenciaSupabase, deletarOcorrenciaSupabase } from './lib/ocorrencias-supabase';
+import { showToastGlobal } from './components/ui/ToastQueue';
 
 // ── TIPOS ─────────────────────────────────────────────────────────
 interface Ocorrencia {
@@ -154,7 +155,7 @@ function BotaoFoto({ slot, preview, onArquivo, onRemover }: {
       <div style={{ position: 'relative' }}>
         <img src={preview} alt={'Foto ' + slot}
           style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 10, display: 'block' }} />
-        <button onClick={onRemover} style={{
+        <button onClick={onRemover} aria-label="Remover foto" style={{
           position: 'absolute', top: 6, right: 6,
           background: 'rgba(0,0,0,.65)', border: 'none', borderRadius: '50%',
           color: '#fff', width: 26, height: 26, fontSize: 13, cursor: 'pointer',
@@ -391,7 +392,7 @@ function ModalEdicao({ ocorrencia, onFechar, onSalvo, showToast, roleUsuario = '
               ID: {ocorrencia.id}
             </div>
           </div>
-          <button onClick={onFechar} style={{ background:'none', border:'none',
+          <button onClick={onFechar} aria-label="Fechar" style={{ background:'none', border:'none',
             color:'rgba(255,255,255,.4)', fontSize:22, cursor:'pointer' }}>✕</button>
         </div>
 
@@ -615,7 +616,7 @@ function ModalEdicao({ ocorrencia, onFechar, onSalvo, showToast, roleUsuario = '
           {boPreview ? (
             <div style={{ position: 'relative', marginBottom: 8 }}>
               <img src={boPreview} alt="BO" style={{ width: '100%', borderRadius: 10, maxHeight: 180, objectFit: 'cover' }} />
-              <button onClick={() => { setBoPreview(''); setBoFile(null); }} style={{
+              <button onClick={() => { setBoPreview(''); setBoFile(null); }} aria-label="Remover foto do BO" style={{
                 position: 'absolute', top: 6, right: 6,
                 background: 'rgba(0,0,0,.65)', border: 'none', borderRadius: '50%',
                 color: '#fff', width: 26, height: 26, cursor: 'pointer',
@@ -801,7 +802,7 @@ export default function TelaGuard({ usuario, onLogout, onVoltarMapa }: Props) {
               🗺 Mapa
             </button>
           )}
-          <button onClick={onLogout} style={{
+          <button onClick={onLogout} aria-label="Sair" style={{
             background: 'none', border: 'none', color: 'rgba(255,255,255,.3)',
             fontSize: 20, cursor: 'pointer', padding: '4px 8px',
           }}>⏻</button>
@@ -943,9 +944,9 @@ function LocSelector({
           markerLocRef.current.setLatLng([lat, lng]);
         }
       } else {
-        alert('Endereço não encontrado. Tente ser mais específico.');
+        showToastGlobal('Endereço não encontrado. Tente ser mais específico.', 'warn');
       }
-    } catch { alert('Erro ao buscar endereço.'); }
+    } catch { showToastGlobal('Erro ao buscar endereço.', 'erro'); }
     setBuscandoEnd(false);
   };
 
@@ -1478,7 +1479,7 @@ function ListaOcorrencias({ ocorrencias, showToast, roleUsuario = 'guard' }: {
 
         return (
           <div key={o.id} style={{ marginBottom: 8, borderRadius: 12,
-            border: `1px solid ${tipoMeta?.cor || '#4a5a7a'}30`,
+            border: `1px solid ${tipoMeta?.cor || '#7a8ba8'}30`,
             background: 'rgba(255,255,255,.03)', overflow: 'hidden' }}>
 
             {/* Card resumo */}
@@ -1486,8 +1487,8 @@ function ListaOcorrencias({ ocorrencias, showToast, roleUsuario = 'guard' }: {
               style={{ padding: '12px 14px', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-                background: (tipoMeta?.cor || '#4a5a7a') + '22',
-                border: '1px solid ' + (tipoMeta?.cor || '#4a5a7a') + '44',
+                background: (tipoMeta?.cor || '#7a8ba8') + '22',
+                border: '1px solid ' + (tipoMeta?.cor || '#7a8ba8') + '44',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16 }}>
                 {tipoMeta?.emoji || '⚪'}
               </div>

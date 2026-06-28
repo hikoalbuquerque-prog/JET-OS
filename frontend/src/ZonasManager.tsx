@@ -5,6 +5,7 @@ import { carregarZonasSupabase } from './lib/estacoes-supabase';
 import { supabase } from './lib/supabase';
 import L from 'leaflet';
 import JSZip from 'jszip';
+import { showToastGlobal } from './components/ui/ToastQueue';
 
 // ─────────────────────────── i18n (pt / en / es / ru) ───────────────────────────
 // Padrão do TermosUsoGate: objeto T com { pt, en, es, ru }; cada subcomponente que
@@ -220,7 +221,7 @@ function EditorVertices({ zona, onSalvar, onCancelar, mapInstance }: {
       const removeVertex = (e?: any) => {
         if (e?.originalEvent) { e.originalEvent.preventDefault(); e.originalEvent.stopPropagation(); }
         L.DomEvent.stopPropagation(e || {} as any);
-        if (ptsRef.current.length <= 3) { alert(pick(T.minVertices)); return; }
+        if (ptsRef.current.length <= 3) { showToastGlobal(pick(T.minVertices), 'warn'); return; }
         ptsRef.current.splice(idx, 1);
         buildMarkers();
         updatePoly();
@@ -553,7 +554,7 @@ export default function ZonasManager({ cidade, pais, onFechar, mapInstance, onMa
 
     const onDblClick = (e: L.LeafletMouseEvent) => {
       e.originalEvent.preventDefault();
-      if (pts.length < 3) { alert(pick(T.desenhePontos)); return; }
+      if (pts.length < 3) { showToastGlobal(pick(T.desenhePontos), 'warn'); return; }
       setDesenhando(false);
       setVista('nova_form');
       map.off('click', onClick);

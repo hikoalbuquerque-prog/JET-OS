@@ -17,6 +17,7 @@ import { sanitizarFotoUrl } from '../lib/app-utils';
 import { capturarPosicaoUnica } from '../lib/gps-background';
 import type { Usuario } from '../lib/app-utils';
 import { CIDADES } from '../lib/app-utils';
+import { showToastGlobal } from './ui/ToastQueue';
 
 // Compressão HEIC-safe (ver lib/imageUtils). Converte HEIC→JPEG antes de comprimir,
 // evitando o bug de foto "quebrada" (HEIC enviado como .jpg que o WebView não renderiza).
@@ -316,7 +317,7 @@ export function TelaSolicitacao({ onVoltar }: { onVoltar: () => void }) {
                         {cidadesDisponiveis.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
                       {cidadesDisponiveis.length === 0 && (
-                        <div style={{ fontSize: 10, color: '#4a5a7a', marginTop: 4 }}>{t('appShell.loadingCities')}</div>
+                        <div style={{ fontSize: 10, color: '#7a8ba8', marginTop: 4 }}>{t('appShell.loadingCities')}</div>
                       )}
                     </div>
 
@@ -494,6 +495,7 @@ function ApkBanner() {
         </a>
       </div>
       <button onClick={() => { setShow(false); if (latestVersion) localStorage.setItem('jet_apk_banner_dismissed_v', latestVersion); }}
+        aria-label="Fechar"
         style={{ position: 'absolute', top: 6, right: 8, background: 'none', border: 'none',
           color: 'rgba(255,255,255,.3)', fontSize: 16, cursor: 'pointer', padding: 2, lineHeight: 1 }}>
         ✕
@@ -635,6 +637,7 @@ export function TelaLogin({ onLogin }: { onLogin: (e: string, s: string) => Prom
                   placeholder="••••••••"
                 />
                 <button type="button" onClick={() => setVerSenha(v => !v)}
+                  aria-label={verSenha ? t('appShell.hidePassword') || 'Ocultar senha' : t('appShell.showPassword') || 'Mostrar senha'}
                   style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)',
                     background:'none', border:'none', cursor:'pointer', padding:4,
                     color:'rgba(255,255,255,.4)', fontSize:16, lineHeight:1 }}>
@@ -790,7 +793,7 @@ export function DocPublicoModal({ estacaoId, cidade, docAtual, onFechar, onSalvo
         .eq('firebase_id', estacaoId);
       if (estErr) throw estErr;
       onSalvo();
-    } catch(e: any) { alert(t('appShell.errorSaving') + e.message); }
+    } catch(e: any) { showToastGlobal(t('appShell.errorSaving') + e.message, 'erro'); }
     setBusy(false);
   };
 
@@ -803,9 +806,9 @@ export function DocPublicoModal({ estacaoId, cidade, docAtual, onFechar, onSalvo
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
           <div>
             <div style={{ fontSize:15, fontWeight:700, color:'#60a5fa' }}>{t('appShell.docPublic')}</div>
-            <div style={{ fontSize:10, color:'#4a5a7a', marginTop:2 }}>{cidade} · {estacaoId}</div>
+            <div style={{ fontSize:10, color:'#7a8ba8', marginTop:2 }}>{cidade} · {estacaoId}</div>
           </div>
-          <button onClick={onFechar} style={{ background:'none', border:'none', color:'rgba(255,255,255,.4)', fontSize:20, cursor:'pointer' }}>✕</button>
+          <button onClick={onFechar} aria-label={t('appShell.cancel')} style={{ background:'none', border:'none', color:'rgba(255,255,255,.4)', fontSize:20, cursor:'pointer' }}>✕</button>
         </div>
         {[
           { label:'🏛 TPU', url:tpuUrl, setUrl:setTpuUrl, file:tpuFile, setFile:setTpuFile, path:'tpu' },
@@ -816,7 +819,7 @@ export function DocPublicoModal({ estacaoId, cidade, docAtual, onFechar, onSalvo
             {item.url && <a href={item.url} target="_blank" rel="noreferrer" style={{ display:'block', fontSize:11, color:'#60a5fa', marginBottom:6, textDecoration:'none' }}>{t('appShell.docCurrent')}</a>}
             <input type="text" value={item.url} onChange={e=>item.setUrl(e.target.value)} placeholder={t('appShell.docUrlPlaceholder')} style={inp} />
             <div style={{ marginTop:6 }}>
-              <label style={{ fontSize:10, color:'#4a5a7a', cursor:'pointer', background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.1)', borderRadius:6, padding:'5px 10px', display:'inline-block' }}>
+              <label style={{ fontSize:10, color:'#7a8ba8', cursor:'pointer', background:'rgba(255,255,255,.06)', border:'1px solid rgba(255,255,255,.1)', borderRadius:6, padding:'5px 10px', display:'inline-block' }}>
                 {t('appShell.upload')}
                 <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display:'none' }} onChange={e=>item.setFile(e.target.files?.[0]||null)} />
               </label>
@@ -866,7 +869,7 @@ export function TelaGuardFormWrapper({ usuario, showToast, onSucesso }: {
   useEffect(() => {
     import('../TelaGuard').then(m => setComp(() => m.FormNovaOcorrenciaExport||null));
   }, []);
-  if (!Comp) return <div style={{ padding:32, textAlign:'center', color:'#4a5a7a' }}>{t('appShell.loading')}</div>;
+  if (!Comp) return <div style={{ padding:32, textAlign:'center', color:'#7a8ba8' }}>{t('appShell.loading')}</div>;
   return <Comp usuario={usuario} showToast={showToast} onSucesso={onSucesso} />;
 }
 
@@ -949,6 +952,7 @@ export function TelaTrocarSenha({ onConcluido, onLogout }: {
           onChange={e => onChange(e.target.value)}
           placeholder={placeholder} style={inp} required />
         <button type="button" onClick={() => setVer(!ver)}
+          aria-label={ver ? 'Ocultar senha' : 'Mostrar senha'}
           style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
             background: 'none', border: 'none', cursor: 'pointer',
             color: 'rgba(255,255,255,.4)', fontSize: 16, padding: 4, lineHeight: 1 }}>
@@ -1143,7 +1147,7 @@ export function OnboardingWizard({ usuario, onConcluir }: { usuario: Usuario; on
                 justifyContent:'center', fontSize:16, flexShrink:0 }}>{item.ic}</div>
               <div>
                 <div style={{ fontSize:12, fontWeight:600, color:'#dce8ff' }}>{item.t}</div>
-                <div style={{ fontSize:10, color:'#4a5a7a' }}>{item.d}</div>
+                <div style={{ fontSize:10, color:'#7a8ba8' }}>{item.d}</div>
               </div>
             </div>
           ))}
@@ -1167,7 +1171,7 @@ export function OnboardingWizard({ usuario, onConcluir }: { usuario: Usuario; on
               <span style={{ fontSize:20 }}>{item.emoji}</span>
               <div>
                 <span style={{ fontSize:12, fontWeight:600, color:item.c }}>{item.t}</span>
-                <span style={{ fontSize:10, color:'#4a5a7a', marginLeft:8 }}>{item.d}</span>
+                <span style={{ fontSize:10, color:'#7a8ba8', marginLeft:8 }}>{item.d}</span>
               </div>
             </div>
           ))}
@@ -1192,7 +1196,7 @@ export function OnboardingWizard({ usuario, onConcluir }: { usuario: Usuario; on
                 justifyContent:'center', fontSize:16, flexShrink:0 }}>{item.ic}</div>
               <div>
                 <div style={{ fontSize:12, fontWeight:600, color:'#dce8ff' }}>{item.t}</div>
-                <div style={{ fontSize:10, color:'#4a5a7a' }}>{item.d}</div>
+                <div style={{ fontSize:10, color:'#7a8ba8' }}>{item.d}</div>
               </div>
             </div>
           ))}
@@ -1232,7 +1236,7 @@ export function OnboardingWizard({ usuario, onConcluir }: { usuario: Usuario; on
         {/* Header */}
         <div style={{ padding:'20px 24px 0', display:'flex', justifyContent:'space-between',
           alignItems:'center' }}>
-          <div style={{ fontSize:10, color:'#4a5a7a', fontWeight:600, letterSpacing:'.08em' }}>
+          <div style={{ fontSize:10, color:'#7a8ba8', fontWeight:600, letterSpacing:'.08em' }}>
             {passo+1} / {PASSOS.length}
           </div>
           <button onClick={onConcluir}
@@ -1315,16 +1319,16 @@ export function CentralNotificacoes({ notifs, onFechar }: {
       </div>
       <div style={{ overflowY:'auto', flex:1, scrollbarWidth:'thin' as const }}>
         {notifs.length === 0 ? (
-          <div style={{ padding:24, textAlign:'center', color:'#4a5a7a', fontSize:12 }}>
+          <div style={{ padding:24, textAlign:'center', color:'#7a8ba8', fontSize:12 }}>
             Nenhuma notificação
           </div>
         ) : notifs.map(n => (
           <div key={n.id} style={{ padding:'10px 14px',
             borderBottom:'1px solid rgba(255,255,255,.04)',
             background: n.lida ? 'transparent' : 'rgba(26,111,212,.06)',
-            borderLeft:`3px solid ${corTipo[n.tipo]||'#4a5a7a'}` }}>
+            borderLeft:`3px solid ${corTipo[n.tipo]||'#7a8ba8'}` }}>
             <div style={{ fontSize:11, color:'#dce8ff', lineHeight:1.5 }}>{n.msg}</div>
-            <div style={{ fontSize:9, color:'#4a5a7a', marginTop:3 }}>{fmtTs(n.ts)}</div>
+            <div style={{ fontSize:9, color:'#7a8ba8', marginTop:3 }}>{fmtTs(n.ts)}</div>
           </div>
         ))}
       </div>
@@ -1342,15 +1346,15 @@ export function TelaPrestadorPendente({ usuario, onLogout }: { usuario: Usuario;
         <div style={{ fontSize:20, fontWeight:700, color:'#dce8ff', marginBottom:8 }}>
           Cadastro em análise
         </div>
-        <div style={{ fontSize:14, color:'#4a5a7a', lineHeight:1.6, marginBottom:24 }}>
+        <div style={{ fontSize:14, color:'#7a8ba8', lineHeight:1.6, marginBottom:24 }}>
           Seu cadastro como prestador de serviço foi recebido e está sendo analisado pela equipe JET.
           Você receberá um contato em breve para confirmar seu acesso.
         </div>
         <div style={{ background:'rgba(255,255,255,.04)', border:'1px solid rgba(255,255,255,.08)',
           borderRadius:10, padding:'12px 16px', marginBottom:24, textAlign:'left' }}>
-          <div style={{ fontSize:11, color:'#4a5a7a', marginBottom:4 }}>Cadastrado como</div>
+          <div style={{ fontSize:11, color:'#7a8ba8', marginBottom:4 }}>Cadastrado como</div>
           <div style={{ fontSize:13, color:'#dce8ff', fontWeight:600 }}>{usuario.nome}</div>
-          <div style={{ fontSize:11, color:'#4a5a7a' }}>{usuario.email}</div>
+          <div style={{ fontSize:11, color:'#7a8ba8' }}>{usuario.email}</div>
           {usuario.cargoPrestador && (
             <div style={{ fontSize:11, color:'#60a5fa', marginTop:4 }}>{usuario.cargoPrestador}</div>
           )}
@@ -1365,7 +1369,7 @@ export function TelaPrestadorPendente({ usuario, onLogout }: { usuario: Usuario;
         )}
         {vinculado === false && (
           <div style={{ marginBottom:24, textAlign:'left' }}>
-            <div style={{ fontSize:12, color:'#4a5a7a', marginBottom:12, lineHeight:1.5 }}>
+            <div style={{ fontSize:12, color:'#7a8ba8', marginBottom:12, lineHeight:1.5 }}>
               Vincule seu Telegram enquanto aguarda a aprovação. Você será notificado assim que seu cadastro for analisado.
             </div>
             <TelegramVinculo usuario={usuario} modo="inline" onVinculado={() => {}} />

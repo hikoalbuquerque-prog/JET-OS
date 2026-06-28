@@ -276,9 +276,9 @@ export function POIActionsPopup({
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#dce8ff' }}>{poi.nome}</div>
             <div style={{ fontSize: 10, color: meta.color }}>{metaLabel} · {poi.distancia}m</div>
-            {poi.endereco && <div style={{ fontSize: 10, color: '#4a5a7a', marginTop: 2 }}>{poi.endereco}</div>}
+            {poi.endereco && <div style={{ fontSize: 10, color: '#7a8ba8', marginTop: 2 }}>{poi.endereco}</div>}
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#4a5a7a', cursor: 'pointer', fontSize: 18, padding: 4 }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#7a8ba8', cursor: 'pointer', fontSize: 18, padding: 4 }}>✕</button>
         </div>
 
         {/* Estações próximas */}
@@ -287,7 +287,7 @@ export function POIActionsPopup({
             <div style={{ fontSize: 9, color: '#3d9bff', fontWeight: 700, textTransform: 'uppercase', letterSpacing: .8, marginBottom: 6 }}>{pick(T.estacoesJetProximas)}</div>
             {nearest.map((e, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#dce8ff', marginBottom: 3 }}>
-                <span style={{ color: '#4a5a7a' }}>{e.codigo || pick(T.estacao)} {e.bairro ? '· ' + e.bairro : ''}</span>
+                <span style={{ color: '#7a8ba8' }}>{e.codigo || pick(T.estacao)} {e.bairro ? '· ' + e.bairro : ''}</span>
                 <span style={{ fontFamily: "'IBM Plex Mono',monospace", color: e.dist < 150 ? '#2ecc71' : e.dist < 300 ? '#f5c842' : '#ff4757' }}>
                   {e.dist}m
                 </span>
@@ -305,7 +305,7 @@ export function POIActionsPopup({
             <span style={{ fontSize: 16 }}>📍</span>
             <div>
               <div style={{ fontWeight: 600 }}>{pick(T.adicionarEstacao)}</div>
-              <div style={{ fontSize: 10, color: '#4a5a7a' }}>{pick(T.adicionarEstacaoSub)}</div>
+              <div style={{ fontSize: 10, color: '#7a8ba8' }}>{pick(T.adicionarEstacaoSub)}</div>
             </div>
           </button>
 
@@ -316,7 +316,7 @@ export function POIActionsPopup({
             <span style={{ fontSize: 16 }}>🌐</span>
             <div>
               <div style={{ fontWeight: 600 }}>{pick(T.streetView)}</div>
-              <div style={{ fontSize: 10, color: '#4a5a7a' }}>
+              <div style={{ fontSize: 10, color: '#7a8ba8' }}>
                 {onStreetView ? pick(T.streetViewInline) : pick(T.streetViewMaps)}
               </div>
             </div>
@@ -329,7 +329,7 @@ export function POIActionsPopup({
             <span style={{ fontSize: 16 }}>🗺</span>
             <div>
               <div style={{ fontWeight: 600 }}>{pick(T.verGoogleMaps)}</div>
-              <div style={{ fontSize: 10, color: '#4a5a7a' }}>{poi.lat.toFixed(5)}, {poi.lng.toFixed(5)}</div>
+              <div style={{ fontSize: 10, color: '#7a8ba8' }}>{poi.lat.toFixed(5)}, {poi.lng.toFixed(5)}</div>
             </div>
           </button>
 
@@ -340,7 +340,7 @@ export function POIActionsPopup({
             <span style={{ fontSize: 16 }}>📋</span>
             <div>
               <div style={{ fontWeight: 600 }}>{pick(T.copiarCoordenadas)}</div>
-              <div style={{ fontSize: 10, color: '#4a5a7a' }}>{coords}</div>
+              <div style={{ fontSize: 10, color: '#7a8ba8' }}>{coords}</div>
             </div>
           </button>
         </div>

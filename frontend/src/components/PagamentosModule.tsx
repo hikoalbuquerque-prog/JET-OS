@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { SkeletonTable, SkeletonPulseStyle } from './ui/Skeleton';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
 import { uploadComRetry } from '../lib/uploadUtils';
+import { showToastGlobal } from './ui/ToastQueue';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -668,7 +670,7 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
       setUploadSuccess(true);
       await loadSemanaAtual();
     } catch (e: any) {
-      alert(pick(T.erroEnviarNF) + (e?.message ?? pick(T.tenteNovamente)));
+      showToastGlobal(pick(T.erroEnviarNF) + (e?.message ?? pick(T.tenteNovamente)), 'erro');
     } finally {
       setUploadingNF(false);
     }
@@ -690,7 +692,7 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
       await uploadNF(file, info, reg.tarefas_count, reg.valor_unitario, reg.id, reg);
       await loadHistorico();
     } catch (e: any) {
-      alert(pick(T.erroEnviarNF) + (e?.message ?? pick(T.tenteNovamente)));
+      showToastGlobal(pick(T.erroEnviarNF) + (e?.message ?? pick(T.tenteNovamente)), 'erro');
     } finally {
       setUploadingHistoricoId(null);
     }
@@ -738,8 +740,8 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
   const renderSemanaAtual = () => {
     if (loadingAtual) {
       return (
-        <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748b' }}>
-          <Spinner /> {pick(T.carregando)}
+        <div style={{ padding: 16 }}>
+          <SkeletonPulseStyle /><SkeletonTable rows={6} cols={4} />
         </div>
       );
     }
@@ -879,8 +881,8 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
   const renderHistorico = () => {
     if (loadingHistorico) {
       return (
-        <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748b' }}>
-          <Spinner /> {pick(T.carregandoHistorico)}
+        <div style={{ padding: 16 }}>
+          <SkeletonPulseStyle /><SkeletonTable rows={6} cols={4} />
         </div>
       );
     }

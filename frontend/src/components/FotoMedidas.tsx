@@ -143,7 +143,7 @@ export function FotoMedidas({ fotoUrl, fotoFile, onSalvar, onCancelar }: Props) 
   const poly = pts.flatMap(p => [p.x, p.y]);
 
   const lbl: CSSProperties = {
-    fontSize: 9, color: '#4a5a7a', textTransform: 'uppercase' as const,
+    fontSize: 9, color: '#7a8ba8', textTransform: 'uppercase' as const,
     letterSpacing: .5, fontWeight: 700, marginBottom: 4,
   };
 
@@ -157,12 +157,12 @@ export function FotoMedidas({ fotoUrl, fotoFile, onSalvar, onCancelar }: Props) 
         display:'flex', alignItems:'center', justifyContent:'space-between' }}>
         <div>
           <div style={{ fontSize:13, fontWeight:700, color:'#dce8ff' }}>📐 Área da Estação</div>
-          <div style={{ fontSize:9, color:'#4a5a7a', marginTop:1 }}>
+          <div style={{ fontSize:9, color:'#7a8ba8', marginTop:1 }}>
             Arraste os 4 cantos coloridos · Slider para rotacionar
           </div>
         </div>
         <button onClick={onCancelar}
-          style={{ background:'none', border:'none', color:'#4a5a7a', fontSize:20, cursor:'pointer' }}>✕</button>
+          style={{ background:'none', border:'none', color:'#7a8ba8', fontSize:20, cursor:'pointer' }}>✕</button>
       </div>
 
       {/* Konva Stage */}
@@ -234,7 +234,7 @@ export function FotoMedidas({ fotoUrl, fotoFile, onSalvar, onCancelar }: Props) 
         <div style={{ marginBottom:12 }}>
           <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
             <div style={lbl}>Rotação: {Math.round(rot)}°</div>
-            <button onClick={()=>aplicarRot(0)} style={{ background:'none',border:'none',color:'#4a5a7a',fontSize:10,cursor:'pointer' }}>Resetar</button>
+            <button onClick={()=>aplicarRot(0)} style={{ background:'none',border:'none',color:'#7a8ba8',fontSize:10,cursor:'pointer' }}>Resetar</button>
           </div>
           <input type="range" min={-180} max={180} value={rot} onChange={e=>aplicarRot(+e.target.value)}
             style={{ width:'100%', accentColor:'#a78bfa' }}/>

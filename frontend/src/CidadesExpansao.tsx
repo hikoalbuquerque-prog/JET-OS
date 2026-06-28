@@ -285,7 +285,7 @@ export function CidadeExpansaoModal({
           <div style={{ fontSize:14, fontWeight:700, color:'#dce8ff' }}>
             {editando ? pick(T.editCity) : pick(T.newCity)}
           </div>
-          <button onClick={onFechar} style={{ background:'none', border:'none', color:'#4a5a7a', cursor:'pointer', fontSize:18 }}>✕</button>
+          <button onClick={onFechar} style={{ background:'none', border:'none', color:'#7a8ba8', cursor:'pointer', fontSize:18 }}>✕</button>
         </div>
 
         {/* Form */}
@@ -424,7 +424,7 @@ export function CidadeExpansaoModal({
                     padding: '7px 6px', textAlign: 'center', border: '1px solid rgba(255,255,255,.06)' }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: c,
                       fontFamily: "'IBM Plex Mono',monospace" }}>{v}</div>
-                    <div style={{ fontSize: 9, color: '#4a5a7a', marginTop: 2 }}>{l}</div>
+                    <div style={{ fontSize: 9, color: '#7a8ba8', marginTop: 2 }}>{l}</div>
                   </div>
                 ))}
               </div>

@@ -58,7 +58,7 @@ interface Props {
 
 const T = {
   bg:'rgba(13,18,30,1)', card:'rgba(22,28,40,.95)',
-  bdr:'rgba(255,255,255,.08)', txt:'#e2e8f0', dim:'#64748b',
+  bdr:'rgba(255,255,255,.08)', txt:'#e2e8f0', dim:'#8a96b0',
 };
 
 export default function ShiftPanel({ visivel, onFechar, cidade }: Props) {

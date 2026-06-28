@@ -337,10 +337,10 @@ export function CandidatosManager({
                 <span style={{fontSize:18}}>🎯</span>
                 <div>
                   <div style={{fontSize:14,fontWeight:700,color:'#dce8ff',lineHeight:1.2}}>{pick(T.tituloPainel)}</div>
-                  <div style={{fontSize:9,color:'#4a5a7a',marginTop:1}}>{pick(T.subtitulo)}</div>
+                  <div style={{fontSize:9,color:'#7a8ba8',marginTop:1}}>{pick(T.subtitulo)}</div>
                 </div>
               </div>
-              <button onClick={()=>setAberto(false)} style={{background:'none',border:'none',color:'#4a5a7a',cursor:'pointer',fontSize:18,padding:'4px',borderRadius:4}}>✕</button>
+              <button onClick={()=>setAberto(false)} style={{background:'none',border:'none',color:'#7a8ba8',cursor:'pointer',fontSize:18,padding:'4px',borderRadius:4}}>✕</button>
             </div>
             {ridesAnalytics.length === 0 && (
               <div style={{padding:'6px 8px',background:'rgba(245,200,66,.06)',border:'1px solid rgba(245,200,66,.15)',borderRadius:6,fontSize:9,color:'#f5c842',marginBottom:6}}>
@@ -354,7 +354,7 @@ export function CandidatosManager({
               ).map(([l,c,p])=>(
                 <div key={String(l)} style={{flex:1,padding:'4px 6px',background:'rgba(255,255,255,.03)',borderRadius:5,border:'1px solid rgba(255,255,255,.06)',textAlign:'center'}}>
                   <div style={{fontSize:9,color:String(c),fontWeight:700}}>{l}</div>
-                  <div style={{fontSize:9,color:'#4a5a7a'}}>{p}</div>
+                  <div style={{fontSize:9,color:'#7a8ba8'}}>{p}</div>
                 </div>
               ))}
             </div>
@@ -362,7 +362,7 @@ export function CandidatosManager({
 
           {/* Configurações */}
           <div style={{padding:'12px 16px',borderBottom:'1px solid #1c2535',flexShrink:0}}>
-            <div style={{fontSize:9,fontWeight:700,textTransform:'uppercase',letterSpacing:1,color:'#4a5a7a',marginBottom:10}}>{pick(T.parametros)}</div>
+            <div style={{fontSize:9,fontWeight:700,textTransform:'uppercase',letterSpacing:1,color:'#7a8ba8',marginBottom:10}}>{pick(T.parametros)}</div>
             {([
               [pick(T.pRaioBusca),raioArea,setRaioArea,500,3000,100,'m',pick(T.pRaioBuscaHelp)],
               [pick(T.pGapMin),raioGap,setRaioGap,100,600,50,'m',pick(T.pGapMinHelp)],
@@ -373,7 +373,7 @@ export function CandidatosManager({
                 <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:3}}>
                   <span style={{fontSize:10,color:'#dce8ff',flex:1}}>{lbl}</span>
                   <div className="help-tip" style={{position:'relative',display:'inline-block'}}>
-                    <div style={{width:14,height:14,borderRadius:'50%',background:'rgba(255,255,255,.08)',border:'1px solid rgba(255,255,255,.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,color:'#4a5a7a',cursor:'default',userSelect:'none' as any}}>?</div>
+                    <div style={{width:14,height:14,borderRadius:'50%',background:'rgba(255,255,255,.08)',border:'1px solid rgba(255,255,255,.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,color:'#7a8ba8',cursor:'default',userSelect:'none' as any}}>?</div>
                     <div style={{position:'absolute',right:0,bottom:18,background:'#111722',border:'1px solid #1c2535',borderRadius:6,padding:'8px 10px',fontSize:10,color:'#dce8ff',width:180,lineHeight:1.5,zIndex:999,boxShadow:'0 4px 16px rgba(0,0,0,.8)',pointerEvents:'none',opacity:0,transition:'opacity .15s'}}
                       className="help-text">{help}</div>
                   </div>
@@ -398,7 +398,7 @@ export function CandidatosManager({
                 <button onClick={limpar} style={{
                   flex:1, padding:'8px', borderRadius:6,
                   border:'1px solid #1c2535', background:'rgba(255,255,255,.04)',
-                  color:'#4a5a7a', cursor:'pointer', fontSize:11,
+                  color:'#7a8ba8', cursor:'pointer', fontSize:11,
                 }}>{pick(T.limpar)}</button>
               )}
             </div>
@@ -410,7 +410,7 @@ export function CandidatosManager({
           {/* Lista */}
           <div style={{flex:1,overflowY:'auto'}}>
             {candidatos.length===0 && !loading && (
-              <div style={{padding:24,textAlign:'center',color:'#4a5a7a',fontSize:12}}>
+              <div style={{padding:24,textAlign:'center',color:'#7a8ba8',fontSize:12}}>
                 {pick(T.estadoVazio)}
               </div>
             )}
@@ -436,30 +436,30 @@ export function CandidatosManager({
                     <div style={{fontSize:11,fontWeight:600,color:'#dce8ff'}}>
                       {pick(T.candidatoLabel)}{i+1}
                     </div>
-                    <div style={{fontSize:9,color:'#4a5a7a',fontFamily:"'IBM Plex Mono',monospace"}}>
+                    <div style={{fontSize:9,color:'#7a8ba8',fontFamily:"'IBM Plex Mono',monospace"}}>
                       {c.lat.toFixed(5)}, {c.lng.toFixed(5)}
                     </div>
                   </div>
                   <div style={{fontSize:9,color:c.distanciaEstacao>raioGap?'#2ecc71':'#f5c842',fontFamily:"'IBM Plex Mono',monospace",textAlign:'right'}}>
                     {c.distanciaEstacao}m<br/>
-                    <span style={{color:'#4a5a7a'}}>{pick(T.daJET)}</span>
+                    <span style={{color:'#7a8ba8'}}>{pick(T.daJET)}</span>
                   </div>
                 </div>
 
                 {/* Barras de score */}
                 <div style={{display:'flex',flexDirection:'column',gap:3,marginBottom:4}}>
                   <div style={{display:'flex',alignItems:'center',gap:6}}>
-                    <span style={{fontSize:8,color:'#4a5a7a',width:40}}>{pick(T.legGap)}</span>
+                    <span style={{fontSize:8,color:'#7a8ba8',width:40}}>{pick(T.legGap)}</span>
                     {scoreBar(c.scoreGap,'#3d9bff')}
                     <span style={{fontSize:8,color:'#3d9bff',width:24,textAlign:'right'}}>{c.scoreGap}</span>
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:6}}>
-                    <span style={{fontSize:8,color:'#4a5a7a',width:40}}>{pick(T.legFluxo)}</span>
+                    <span style={{fontSize:8,color:'#7a8ba8',width:40}}>{pick(T.legFluxo)}</span>
                     {scoreBar(c.scoreFluxo,'#2ecc71')}
                     <span style={{fontSize:8,color:'#2ecc71',width:24,textAlign:'right'}}>{c.scoreFluxo}</span>
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:6}}>
-                    <span style={{fontSize:8,color:'#4a5a7a',width:40}}>{pick(T.legPOI)}</span>
+                    <span style={{fontSize:8,color:'#7a8ba8',width:40}}>{pick(T.legPOI)}</span>
                     {scoreBar(c.scorePOI,'#f5c842')}
                     <span style={{fontSize:8,color:'#f5c842',width:24,textAlign:'right'}}>{c.scorePOI}</span>
                   </div>
@@ -518,7 +518,7 @@ export function CandidatosManager({
                           e.stopPropagation();
                           window.dispatchEvent(new CustomEvent('jetFlyTo',{detail:{lat:c.lat,lng:c.lng,zoom:19}}));
                         }}
-                        style={{flex:1,padding:'7px',borderRadius:6,border:'1px solid #1c2535',background:'rgba(255,255,255,.04)',color:'#4a5a7a',fontSize:10,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
+                        style={{flex:1,padding:'7px',borderRadius:6,border:'1px solid #1c2535',background:'rgba(255,255,255,.04)',color:'#7a8ba8',fontSize:10,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
                         {pick(T.verNoMapa)}
                       </button>
                       <button
@@ -526,7 +526,7 @@ export function CandidatosManager({
                           e.stopPropagation();
                           window.dispatchEvent(new CustomEvent('jetOpenSV',{detail:{lat:c.lat,lng:c.lng,nome:pick(T.candidatoLabel)+(i+1)}}));
                         }}
-                        style={{flex:1,padding:'7px',borderRadius:6,border:'1px solid #1c2535',background:'rgba(255,255,255,.04)',color:'#4a5a7a',fontSize:10,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
+                        style={{flex:1,padding:'7px',borderRadius:6,border:'1px solid #1c2535',background:'rgba(255,255,255,.04)',color:'#7a8ba8',fontSize:10,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
                         {pick(T.streetView)}
                       </button>
                       <button
@@ -534,7 +534,7 @@ export function CandidatosManager({
                           e.stopPropagation();
                           navigator.clipboard.writeText(c.lat.toFixed(6)+', '+c.lng.toFixed(6));
                         }}
-                        style={{padding:'7px 10px',borderRadius:6,border:'1px solid #1c2535',background:'rgba(255,255,255,.04)',color:'#4a5a7a',fontSize:10,cursor:'pointer'}}>
+                        style={{padding:'7px 10px',borderRadius:6,border:'1px solid #1c2535',background:'rgba(255,255,255,.04)',color:'#7a8ba8',fontSize:10,cursor:'pointer'}}>
                         📋
                       </button>
                     </div>
@@ -554,11 +554,11 @@ export function CandidatosManager({
               ].map(([l,v,c])=>(
                 <div key={String(l)} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:1}}>
                   <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:14,fontWeight:700,color:String(c)}}>{v}</div>
-                  <div style={{fontSize:9,color:'#4a5a7a'}}>{l}</div>
+                  <div style={{fontSize:9,color:'#7a8ba8'}}>{l}</div>
                 </div>
               ))}
               <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'flex-end'}}>
-                <div style={{fontSize:9,color:'#4a5a7a'}}>{pick(T.custo)}</div>
+                <div style={{fontSize:9,color:'#7a8ba8'}}>{pick(T.custo)}</div>
               </div>
             </div>
           )}

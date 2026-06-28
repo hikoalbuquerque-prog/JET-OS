@@ -8,6 +8,7 @@ import { carregarOcorrenciasSupabase, atualizarOcorrenciaSupabase } from '../lib
 import { analyticsProviderSupabase, fetchOcorrenciasRegional } from '../lib/analytics-supabase';
 import { supabase } from '../lib/supabase';
 import L from 'leaflet';
+import { confirmDialog } from './ui/ConfirmDialog';
 
 // ─── i18n (pt/en/es/ru) — padrão TermosUsoGate/OnboardingWizard, sem chaves json ──
 type Lang = 'pt' | 'en' | 'es' | 'ru';
@@ -973,7 +974,7 @@ function FilialCard({
             <button onClick={e => { e.stopPropagation(); setEditando(true); setNomeEdit(filial); setRegiaoEdit(regiao); }}
               style={{ background: 'none', border: `1px solid ${T.bdr}`, borderRadius: 6,
                 color: T.dim, cursor: 'pointer', padding: '3px 7px', fontSize: 11 }}>✏</button>
-            <button onClick={e => { e.stopPropagation(); if (cidades.length === 0 || window.confirm(pick(TXT.confirmRemoverFilial).replace('{f}', filial).replace('{n}', String(cidades.length)))) onRemoverFilial(); }}
+            <button onClick={async e => { e.stopPropagation(); if (cidades.length === 0 || await confirmDialog(pick(TXT.confirmRemoverFilial).replace('{f}', filial).replace('{n}', String(cidades.length)), '', { variant: 'danger' })) onRemoverFilial(); }}
               style={{ background: 'none', border: '1px solid rgba(239,68,68,.3)',
                 borderRadius: 6, color: '#ef4444', cursor: 'pointer', padding: '3px 7px', fontSize: 11 }}>🗑</button>
           </>

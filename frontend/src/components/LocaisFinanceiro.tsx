@@ -7,6 +7,7 @@ import { carregarLocaisSupabase } from '../lib/estacoes-supabase';
 import { uploadComRetry } from '../lib/uploadUtils';
 import { comprimirImagem } from '../lib/imageUtils';
 import { supabase } from '../lib/supabase';
+import { showToastGlobal } from './ui/ToastQueue';
 
 // ── i18n (padrão TermosUsoGate: objeto { pt, en, es, ru }, sem json) ─────────
 type Lang = 'pt' | 'en' | 'es' | 'ru';
@@ -508,7 +509,7 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
           display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
           <div>
             <div style={{ fontSize:15, fontWeight:700, color:'#dce8ff' }}>🏭 {pick(T.tituloPainel)}</div>
-            <div style={{ fontSize:10, color:'#4a5a7a', marginTop:2 }}>
+            <div style={{ fontSize:10, color:'#7a8ba8', marginTop:2 }}>
               {cidade} · {locais.length} {locais.length!==1?pick(T.localPlural):pick(T.localSingular)}
             </div>
           </div>
@@ -536,7 +537,7 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
           {aba==='locais' && (
             <div>
               {locais.filter(l=>l.ativo).length===0 ? (
-                <div style={{ padding:32, textAlign:'center', color:'#4a5a7a' }}>
+                <div style={{ padding:32, textAlign:'center', color:'#7a8ba8' }}>
                   <div style={{ fontSize:36, marginBottom:10 }}>🏭</div>
                   <div style={{ fontSize:13 }}>{pick(T.cliqueMapa)}</div>
                 </div>
@@ -558,7 +559,7 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
                         </div>
                         <div>
                           <div style={{ fontSize:13, fontWeight:700, color:'#dce8ff' }}>{local.nome}</div>
-                          <div style={{ fontSize:10, color:'#4a5a7a', marginTop:2 }}>
+                          <div style={{ fontSize:10, color:'#7a8ba8', marginTop:2 }}>
                             {pick(TIPO_LOCAL_LABEL[local.tipo])}{local.responsavel ? ' · '+local.responsavel : ''}
                           </div>
                           {local.endereco && (
@@ -633,7 +634,7 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
                   </button>
                 ))}
                 {locais.filter(l=>l.ativo).length===0 && (
-                  <div style={{ fontSize:11, color:'#4a5a7a' }}>{pick(T.adicioneLocalMapa)}</div>
+                  <div style={{ fontSize:11, color:'#7a8ba8' }}>{pick(T.adicioneLocalMapa)}</div>
                 )}
               </div>
 
@@ -662,7 +663,7 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
                     ].map(({label,v,c})=>(
                       <div key={label} style={{ background:'rgba(255,255,255,.04)', borderRadius:10,
                         padding:'10px 12px', border:'1px solid rgba(255,255,255,.06)' }}>
-                        <div style={{ fontSize:10, color:'#4a5a7a', marginBottom:4 }}>{label}</div>
+                        <div style={{ fontSize:10, color:'#7a8ba8', marginBottom:4 }}>{label}</div>
                         <div style={{ fontSize:12, fontWeight:700, color:c }}>{fmtBRL(v)}</div>
                       </div>
                     ))}
@@ -671,19 +672,19 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
                   {/* Contratos */}
                   {contratos.length>0 && (
                     <div style={{ padding:'0 14px 12px' }}>
-                      <div style={{ fontSize:10, color:'#4a5a7a', fontWeight:600, letterSpacing:'.06em', marginBottom:6 }}>📄 {pick(T.contratosCab)}</div>
+                      <div style={{ fontSize:10, color:'#7a8ba8', fontWeight:600, letterSpacing:'.06em', marginBottom:6 }}>📄 {pick(T.contratosCab)}</div>
                       {contratos.map(c=>(
                         <div key={c.id} style={{ padding:'10px 12px', borderRadius:8, marginBottom:6,
                           background:'rgba(139,92,246,.08)', border:'1px solid rgba(139,92,246,.2)',
                           display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                           <div>
                             <div style={{ fontSize:12, fontWeight:600, color:'#c4b5fd' }}>🏠 {pick(T.contratoAluguel)}</div>
-                            <div style={{ fontSize:10, color:'#4a5a7a', marginTop:2 }}>
+                            <div style={{ fontSize:10, color:'#7a8ba8', marginTop:2 }}>
                               {fmtBRL(c.valor)}{pick(T.porMes)}{c.diaVencimento}
                               {c.proprietario ? ' · '+c.proprietario : ''}
                               {c.indexador ? ' · '+c.indexador : ''}
                             </div>
-                            <div style={{ fontSize:10, color:'#4a5a7a' }}>
+                            <div style={{ fontSize:10, color:'#7a8ba8' }}>
                               {c.dataInicio}{c.dataFim?pick(T.ate)+c.dataFim:''}
                             </div>
                           </div>
@@ -700,11 +701,11 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
 
                   {/* Pagamentos */}
                   <div style={{ padding:'0 14px 24px' }}>
-                    <div style={{ fontSize:10, color:'#4a5a7a', fontWeight:600, letterSpacing:'.06em', marginBottom:8 }}>
+                    <div style={{ fontSize:10, color:'#7a8ba8', fontWeight:600, letterSpacing:'.06em', marginBottom:8 }}>
                       💳 {pick(T.pagamentosCab)}{mesAtual}
                     </div>
                     {pagsFilt.length===0 ? (
-                      <div style={{ padding:20, textAlign:'center', color:'#4a5a7a', fontSize:12 }}>
+                      <div style={{ padding:20, textAlign:'center', color:'#7a8ba8', fontSize:12 }}>
                         {pick(T.nenhumPagEm)}{mesAtual}
                       </div>
                     ) : pagsFilt.map(p=>{
@@ -723,7 +724,7 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
                             <div style={{ fontSize:12, fontWeight:600, color:'#dce8ff' }}>
                               {p.descricao||pick(TIPO_PAG_LABEL[p.tipo])}
                             </div>
-                            <div style={{ fontSize:10, color:'#4a5a7a', marginTop:1 }}>
+                            <div style={{ fontSize:10, color:'#7a8ba8', marginTop:1 }}>
                               {pick(T.vence)}{p.dataVencimento}
                               {p.leituraAtual&&p.leituraAnterior ? ` · ${p.leituraAtual-p.leituraAnterior} kWh` : ''}
                             </div>
@@ -761,10 +762,10 @@ export default function LocaisFinanceiro({ cidade, pais, onFechar, roleUsuario }
             <div style={{ padding:16 }}>
               <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:14 }}>
                 <input type="month" value={mesAtual} onChange={e=>setMesAtual(e.target.value)} style={inp2} />
-                <div style={{ fontSize:11, color:'#4a5a7a' }}>{pick(T.todosLocais)}{cidade}</div>
+                <div style={{ fontSize:11, color:'#7a8ba8' }}>{pick(T.todosLocais)}{cidade}</div>
               </div>
               {locais.filter(l=>l.ativo).length===0 ? (
-                <div style={{ textAlign:'center', color:'#4a5a7a', fontSize:12, padding:32 }}>{pick(T.nenhumLocalCad)}</div>
+                <div style={{ textAlign:'center', color:'#7a8ba8', fontSize:12, padding:32 }}>{pick(T.nenhumLocalCad)}</div>
               ) : locais.filter(l=>l.ativo).map(local=>(
                 <ResumoLocalRow key={local.id} local={local} mesAtual={mesAtual} fmtBRL={fmtBRL} />
               ))}
@@ -809,7 +810,7 @@ function ResumoLocalRow({ local, mesAtual, fmtBRL }: {
           <span style={{ fontSize:16 }}>{m.icon}</span>
           <div>
             <div style={{ fontSize:12, fontWeight:700, color:'#dce8ff' }}>{local.nome}</div>
-            <div style={{ fontSize:10, color:'#4a5a7a' }}>{pick(TIPO_LOCAL_LABEL[local.tipo])}</div>
+            <div style={{ fontSize:10, color:'#7a8ba8' }}>{pick(TIPO_LOCAL_LABEL[local.tipo])}</div>
           </div>
         </div>
         <div style={{ textAlign:'right' }}>
@@ -885,7 +886,7 @@ function ModalPagamento({ localId, mesAtual, editando, onFechar }:{
       const { error } = await supabase.from('pagamentos_locais').upsert(supaRow, { onConflict: 'id' });
       if (error) throw error;
       onFechar();
-    } catch(e:any) { alert(pick(T.erro)+e.message); }
+    } catch(e:any) { showToastGlobal(pick(T.erro)+e.message, 'erro'); }
     setBusy(false);
   };
 
@@ -902,7 +903,7 @@ function ModalPagamento({ localId, mesAtual, editando, onFechar }:{
 
         {/* Tipo */}
         <div style={{ marginBottom:12 }}>
-          <div style={{ fontSize:10, color:'#4a5a7a', marginBottom:6 }}>{pick(T.tipo)}</div>
+          <div style={{ fontSize:10, color:'#7a8ba8', marginBottom:6 }}>{pick(T.tipo)}</div>
           <div style={{ display:'flex', gap:5, flexWrap:'wrap' as const }}>
             {(Object.keys(TIPO_PAG_META) as TipoPagamento[]).map(k=>{
               const m=TIPO_PAG_META[k];
@@ -926,15 +927,15 @@ function ModalPagamento({ localId, mesAtual, editando, onFechar }:{
             <div style={{ fontSize:11, color:'#fbbf24', fontWeight:600, marginBottom:8 }}>⚡ {pick(T.medicaoRelogio)}</div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
               <div>
-                <label style={{ fontSize:9, color:'#4a5a7a', display:'block', marginBottom:3 }}>{pick(T.anteriorKwh)}</label>
+                <label style={{ fontSize:9, color:'#7a8ba8', display:'block', marginBottom:3 }}>{pick(T.anteriorKwh)}</label>
                 <input value={leitAnt} onChange={e=>setLeitAnt(e.target.value)} type="number" style={inp} />
               </div>
               <div>
-                <label style={{ fontSize:9, color:'#4a5a7a', display:'block', marginBottom:3 }}>{pick(T.atualKwh)}</label>
+                <label style={{ fontSize:9, color:'#7a8ba8', display:'block', marginBottom:3 }}>{pick(T.atualKwh)}</label>
                 <input value={leitAt}  onChange={e=>setLeitAt(e.target.value)}  type="number" style={inp} />
               </div>
               <div>
-                <label style={{ fontSize:9, color:'#4a5a7a', display:'block', marginBottom:3 }}>{pick(T.tarifaKwh)}</label>
+                <label style={{ fontSize:9, color:'#7a8ba8', display:'block', marginBottom:3 }}>{pick(T.tarifaKwh)}</label>
                 <input value={tarifa}  onChange={e=>setTarifa(e.target.value)}  type="number" step="0.01" style={inp} />
               </div>
             </div>
@@ -948,31 +949,31 @@ function ModalPagamento({ localId, mesAtual, editando, onFechar }:{
         )}
 
         <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-          <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.descricao)}</label>
+          <div><label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:4 }}>{pick(T.descricao)}</label>
             <input value={descricao} onChange={e=>setDescricao(e.target.value)} placeholder={pick(TIPO_PAG_LABEL[tipo])} style={inp} /></div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.valorRS)}</label>
+            <div><label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:4 }}>{pick(T.valorRS)}</label>
               <input value={vCalc!==null?vCalc.toFixed(2):valor} onChange={e=>setValor(e.target.value)}
                 type="number" step="0.01" readOnly={vCalc!==null} style={{ ...inp, opacity:vCalc!==null?0.7:1 }} /></div>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.competencia)}</label>
+            <div><label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:4 }}>{pick(T.competencia)}</label>
               <input value={comp} onChange={e=>setComp(e.target.value)} type="month" style={inp} /></div>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.vencimento)}</label>
+            <div><label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:4 }}>{pick(T.vencimento)}</label>
               <input value={venc} onChange={e=>setVenc(e.target.value)} type="date" style={inp} /></div>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.dataPagamento)}</label>
+            <div><label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:4 }}>{pick(T.dataPagamento)}</label>
               <input value={pago} onChange={e=>setPago(e.target.value)} type="date" style={inp} /></div>
           </div>
-          <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.status)}</label>
+          <div><label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:4 }}>{pick(T.status)}</label>
             <select value={status} onChange={e=>setStatus(e.target.value as StatusPagamento)} style={{ ...inp, cursor:'pointer' }}>
               {(Object.keys(STATUS_PAG) as StatusPagamento[]).map(k=>(
                 <option key={k} value={k}>{pick(STATUS_PAG_LABEL[k])}</option>
               ))}
             </select></div>
-          <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.observacao)}</label>
+          <div><label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:4 }}>{pick(T.observacao)}</label>
             <input value={obs} onChange={e=>setObs(e.target.value)} style={inp} /></div>
           <div>
-            <label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:6 }}>📎 {pick(T.comprovanteNf)}</label>
+            <label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:6 }}>📎 {pick(T.comprovanteNf)}</label>
             <label style={{ display:'inline-flex', alignItems:'center', gap:6, cursor:'pointer',
               padding:'7px 14px', borderRadius:8, background:'rgba(255,255,255,.06)',
               border:'1px solid rgba(255,255,255,.1)', color:'rgba(255,255,255,.6)', fontSize:11 }}>
@@ -1027,7 +1028,7 @@ function ModalContrato({ localId, onFechar }:{ localId:string; onFechar:()=>void
   };
 
   const salvar = async () => {
-    if (!valor||!dataInicio) { alert(pick(T.preenchaValorInicio)); return; }
+    if (!valor||!dataInicio) { showToastGlobal(pick(T.preenchaValorInicio), 'warn'); return; }
     setBusy(true);
     try {
       let docUrl = '';
@@ -1041,7 +1042,7 @@ function ModalContrato({ localId, onFechar }:{ localId:string; onFechar:()=>void
       }, { onConflict: 'id' });
       if (error) throw error;
       onFechar();
-    } catch(e:any) { alert(pick(T.erro)+e.message); }
+    } catch(e:any) { showToastGlobal(pick(T.erro)+e.message, 'erro'); }
     setBusy(false);
   };
 
@@ -1055,34 +1056,34 @@ function ModalContrato({ localId, onFechar }:{ localId:string; onFechar:()=>void
         <div style={{ fontSize:14, fontWeight:700, color:'#c4b5fd', marginBottom:16 }}>📄 {pick(T.contratoAluguelTit)}</div>
         <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
           <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:8 }}>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.valorMensalReq)}</label>
+            <div><label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:4 }}>{pick(T.valorMensalReq)}</label>
               <input value={valor} onChange={e=>setValor(e.target.value)} type="number" step="0.01" style={{ ...inp, width:'100%' }} /></div>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.diaVencto)}</label>
+            <div><label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:4 }}>{pick(T.diaVencto)}</label>
               <input value={dia} onChange={e=>setDia(e.target.value)} type="number" min="1" max="31" style={{ ...inp, width:'100%' }} /></div>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.inicioReq)}</label>
+            <div><label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:4 }}>{pick(T.inicioReq)}</label>
               <input value={dataInicio} onChange={e=>setDataInicio(e.target.value)} type="date" style={{ ...inp, width:'100%' }} /></div>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.fim)}</label>
+            <div><label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:4 }}>{pick(T.fim)}</label>
               <input value={dataFim} onChange={e=>setDataFim(e.target.value)} type="date" style={{ ...inp, width:'100%' }} /></div>
           </div>
-          <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.proprietarioLocador)}</label>
+          <div><label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:4 }}>{pick(T.proprietarioLocador)}</label>
             <input value={proprietario} onChange={e=>setProprietario(e.target.value)} style={inp} /></div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.telefoneEmail)}</label>
+            <div><label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:4 }}>{pick(T.telefoneEmail)}</label>
               <input value={contato} onChange={e=>setContato(e.target.value)} style={{ ...inp, width:'100%' }} /></div>
-            <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.indexador)}</label>
+            <div><label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:4 }}>{pick(T.indexador)}</label>
               <select value={indexador} onChange={e=>setIndexador(e.target.value)} style={{ ...inp, width:'100%', cursor:'pointer' }}>
                 {['IGPM','IPCA','INPC','IVAR','Fixo','Outro'].map(i=>(
                   <option key={i} value={i}>{i==='Fixo'?pick(T.fixo):i==='Outro'?pick(T.outro):i}</option>
                 ))}
               </select></div>
           </div>
-          <div><label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:4 }}>{pick(T.observacoes)}</label>
+          <div><label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:4 }}>{pick(T.observacoes)}</label>
             <textarea value={obs} onChange={e=>setObs(e.target.value)} rows={2}
               style={{ ...inp, resize:'none' }} /></div>
           <div>
-            <label style={{ fontSize:10, color:'#4a5a7a', display:'block', marginBottom:6 }}>📎 {pick(T.contratoDigitalizado)}</label>
+            <label style={{ fontSize:10, color:'#7a8ba8', display:'block', marginBottom:6 }}>📎 {pick(T.contratoDigitalizado)}</label>
             <label style={{ display:'inline-flex', alignItems:'center', gap:6, cursor:'pointer',
               padding:'7px 14px', borderRadius:8, background:'rgba(139,92,246,.08)',
               border:'1px solid rgba(139,92,246,.2)', color:'#a78bfa', fontSize:11 }}>

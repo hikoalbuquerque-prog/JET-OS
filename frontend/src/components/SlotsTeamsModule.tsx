@@ -14,6 +14,7 @@ import {
   fetchPrestadores, fetchPenalidadesList, salvarPenalidade, fetchDemandaGojet, logEscalaAudit,
   aceitarEscala, fetchMetricasEscala, overrideSlotEscala, cancelarSlotEscala,
 } from '../lib/escala-supabase';
+import { confirmDialog, promptDialog } from './ui/ConfirmDialog';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -99,7 +100,7 @@ const T = {
   blue:'#1a6fd4', bluel:'#307FE2',
   green:'#10b981', red:'#ef4444', yellow:'#f59e0b', yellowl:'#fbbf24',
   purple:'#7c3aed', orange:'#f97316', pink:'#ec4899',
-  txt:'#e2e8f0', dim:'#64748b', blur:'blur(12px)',
+  txt:'#e2e8f0', dim:'#8a96b0', blur:'blur(12px)',
 };
 
 const S = {
@@ -688,7 +689,7 @@ function AbaEscala({usuario,cidade}:AbaProps){
                       </div>
                       {podeAceitar&&(
                         <button onClick={async()=>{
-                          if(!window.confirm(`Aceitar slot ${sl.turno||''} ${hora}–${horaFim} em ${sl.zona||sl.zonaOrigem||''}?`)) return;
+                          if(!await confirmDialog('Aceitar slot', `Aceitar slot ${sl.turno||''} ${hora}–${horaFim} em ${sl.zona||sl.zonaOrigem||''}?`)) return;
                           try{
                             const r:any=await aceitarEscala(sl.id);
                             toast(r?.jaAceito?pick(TX.jaAceitou):pick(TX.aceitoOk));
@@ -703,7 +704,7 @@ function AbaEscala({usuario,cidade}:AbaProps){
                         <div style={{display:'flex',alignItems:'center',gap:6,marginTop:4}}>
                           <span style={{fontSize:10,color:T.green,fontWeight:700}}>✓ Aceito por você</span>
                           <button onClick={async()=>{
-                            if(!window.confirm('Desistir deste slot?')) return;
+                            if(!await confirmDialog('Desistir', 'Desistir deste slot?', {variant:'danger'})) return;
                             try{
                               const { error } = await supabase.from('slots_escala').update({
                                 status:'aberto', aceito_por:null, aceito_por_nome:null, aceito_em:null,
@@ -720,7 +721,7 @@ function AbaEscala({usuario,cidade}:AbaProps){
                           <span style={{fontSize:10,color:T.dim}}>Aceito: {sl.aceitoPorNome||'—'}</span>
                           {isAdmin&&podeCancelar&&(
                             <button onClick={async()=>{
-                              if(!window.confirm(`Remover ${sl.aceitoPorNome||'prestador'} deste slot?`)) return;
+                              if(!await confirmDialog('Remover prestador', `Remover ${sl.aceitoPorNome||'prestador'} deste slot?`, {variant:'danger'})) return;
                               try{
                                 const { error } = await supabase.from('slots_escala').update({
                                   status:'aberto', aceito_por:null, aceito_por_nome:null, aceito_em:null,
@@ -736,15 +737,15 @@ function AbaEscala({usuario,cidade}:AbaProps){
                       {isAdmin&&sl.status!=='Cancelado'&&(
                         <div style={{display:'flex',gap:4,marginTop:4}}>
                           <button onClick={async()=>{
-                            const motivo=window.prompt('Motivo do cancelamento:');
+                            const motivo=await promptDialog('Cancelar slot', {placeholder:'Motivo do cancelamento'});
                             if(!motivo) return;
                             try{await cancelarSlotEscala(sl.id,usuario.uid,motivo);toast('Slot cancelado');}
                             catch(e:any){toast(e?.message||'Erro','erro');}
                           }} style={{...S.btn(T.red,true),padding:'2px 6px',fontSize:9}}>Cancelar</button>
                           <button onClick={async()=>{
-                            const novaQtd=window.prompt('Nova qtd de vagas:',String(sl.qtdPessoas||1));
+                            const novaQtd=await promptDialog('Override de vagas', {placeholder:'Nova quantidade', defaultValue:String(sl.qtdPessoas||1)});
                             if(!novaQtd) return;
-                            const motivo=window.prompt('Motivo do override:');
+                            const motivo=await promptDialog('Motivo do override', {placeholder:'Motivo'});
                             if(!motivo) return;
                             try{await overrideSlotEscala(sl.id,{qtdPessoas:Number(novaQtd)},usuario.uid,motivo);toast('Override aplicado');}
                             catch(e:any){toast(e?.message||'Erro','erro');}
@@ -961,7 +962,7 @@ function AbaDisponibilidade({usuario,cidade}:AbaProps){
                 <td style={{...S.td,fontSize:11,color:T.dim}}>{(d.zonasDisponiveis||[]).slice(0,2).join(', ')}{(d.zonasDisponiveis||[]).length>2?'...':''}</td>
                 <td style={S.td}><div style={{display:'flex',gap:4}}>
                   <button onClick={()=>{setEditando(d);setForm({...d});setModal(true);}} style={{...S.btn(T.bluel,true),padding:'3px 8px',fontSize:11}}>✏</button>
-                  <button onClick={async()=>{if(d.id&&window.confirm(`${pick(TX.removerConfirm)} ${d.nome}?`)){ await delDisponibilidade(d.id); toast(pick(TX.removido));}}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
+                  <button onClick={async()=>{if(d.id&&await confirmDialog(pick(TX.removerConfirm), `${pick(TX.removerConfirm)} ${d.nome}?`, {variant:'danger'})){ await delDisponibilidade(d.id); toast(pick(TX.removido));}}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
                 </div></td>
               </tr>
             ))}

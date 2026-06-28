@@ -97,7 +97,7 @@ export function StreetViewModal({ lat, lng, nome, onClose, onCapturarFoto }: Pro
           {/* Info */}
           <div style={{ flex: 1, overflow: 'hidden' }}>
             {nome && <div style={{ fontSize: 12, fontWeight: 600, color: '#dce8ff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{nome}</div>}
-            <div style={{ fontSize: 10, color: '#4a5a7a', fontFamily: "'IBM Plex Mono',monospace" }}>
+            <div style={{ fontSize: 10, color: '#7a8ba8', fontFamily: "'IBM Plex Mono',monospace" }}>
               {lat.toFixed(6)}, {lng.toFixed(6)}
             </div>
           </div>
@@ -145,7 +145,7 @@ export function StreetViewModal({ lat, lng, nome, onClose, onCapturarFoto }: Pro
                       4. Volte aqui e clique <b style={{color:'#10b981'}}>📁 Usar imagem</b><br/>
                       5. Cole com <b style={{color:'#3d9bff'}}>Ctrl+V</b> ou arraste
                     </div>
-                    <button onClick={() => setShowCapHint(false)} style={{ marginTop: 8, width: '100%', padding: '4px', background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 4, color: '#4a5a7a', cursor: 'pointer', fontSize: 10 }}>
+                    <button onClick={() => setShowCapHint(false)} style={{ marginTop: 8, width: '100%', padding: '4px', background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 4, color: '#7a8ba8', cursor: 'pointer', fontSize: 10 }}>
                       Entendi
                     </button>
                   </div>
@@ -182,7 +182,7 @@ export function StreetViewModal({ lat, lng, nome, onClose, onCapturarFoto }: Pro
                 borderTopColor: '#3d9bff', borderRadius: '50%',
                 animation: 'spin .7s linear infinite',
               }}/>
-              <div style={{ fontSize: 12, color: '#4a5a7a' }}>
+              <div style={{ fontSize: 12, color: '#7a8ba8' }}>
                 {modo === 'sv' ? t('streetviewModal.loadingSV') : t('streetviewModal.loadingSat')}
               </div>
               <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
@@ -211,7 +211,7 @@ export function StreetViewModal({ lat, lng, nome, onClose, onCapturarFoto }: Pro
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           flexShrink: 0,
         }}>
-          <div style={{ fontSize: 10, color: '#4a5a7a' }}>
+          <div style={{ fontSize: 10, color: '#7a8ba8' }}>
             {modo === 'sv' ? t('streetviewModal.footerSV') : t('streetviewModal.footerSat')}
           </div>
           <div style={{ fontSize: 9, color: '#1c2535' }}>Google Maps Embed · gratuito</div>

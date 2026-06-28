@@ -3,6 +3,7 @@
 // Abas: Dashboard | Presença | Operadores | Slots | Tarefas | Desempenho | MEIs | CLT | Inventário | Telegram | Config
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { SkeletonTable, SkeletonPulseStyle } from './ui/Skeleton';
 import { useTranslation } from 'react-i18next';
 import { fetchUsuarios } from '../lib/usuarios-supabase';
 import {
@@ -22,6 +23,7 @@ import {
 } from '../lib/gestor-logistica-supabase';
 import { carregarTurnosLogisticaSupabase } from '../lib/onda-b-supabase';
 import LiveTrackingMap from './LiveTrackingMap';
+import { confirmDialog } from './ui/ConfirmDialog';
 import GpsHeatmapPanel from './GpsHeatmapPanel';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -506,7 +508,7 @@ const T = {
   blue:'#1a6fd4', bluel:'#307FE2',
   green:'#10b981', red:'#ef4444', yellow:'#f59e0b', yellowl:'#fbbf24',
   purple:'#7c3aed', orange:'#f97316',
-  txt:'#e2e8f0', dim:'#64748b', dim2:'#94a3b8', blur:'blur(12px)',
+  txt:'#e2e8f0', dim:'#8a96b0', dim2:'#94a3b8', blur:'blur(12px)',
 };
 
 const S = {
@@ -637,7 +639,7 @@ function CidadeSelector({
         ))}
       </select>
       {cidadeAtiva && (
-        <button onClick={() => onChange('')} style={{...S.btn(undefined,true),padding:'4px 8px',fontSize:10}}>✕</button>
+        <button onClick={() => onChange('')} aria-label={pick(TR.todasCidades)} style={{...S.btn(undefined,true),padding:'4px 8px',fontSize:10}}>✕</button>
       )}
     </div>
   );
@@ -1116,7 +1118,7 @@ function AbaSlots({usuario,cidade}:AbaProps){
             <div style={{display:'flex',alignItems:'flex-start',gap:10,marginBottom:8}}>
               <div style={{flex:1}}><span style={{...S.chip(T.purple),marginRight:6}}>{sl.turno}</span><span style={{...S.chip(T.bluel),marginRight:6}}>{sl.horaIni}–{sl.horaFim}</span><span style={{...S.chip(sl.tipo==='Charger'?T.yellow:T.green),marginRight:6}}>{sl.tipo||'—'}</span><b style={{color:T.txt}}>{sl.zona}</b></div>
               <span style={S.chip(slAb>0?T.yellow:T.green)}>{slAb>0?`${slAb} ${pick(TR.vagasLabel)}`:pick(TR.completo)}</span>
-              <button onClick={async()=>{if(window.confirm(pick(TR.excluir)))await deleteSlot(sl.id);}} style={{...S.btn(T.red,true),padding:'3px 7px',fontSize:11}}>🗑</button>
+              <button onClick={async()=>{if(await confirmDialog(pick(TR.excluir), '', {variant:'danger'}))await deleteSlot(sl.id);}} style={{...S.btn(T.red,true),padding:'3px 7px',fontSize:11}}>🗑</button>
             </div>
             {slAc.length===0?<div style={{fontSize:11,color:T.dim}}>{pick(TR.semAceites)}</div>:(
               <table style={{...S.table,fontSize:11}}>
@@ -1423,7 +1425,7 @@ function AbaMEIs({cidade}:AbaProps){
                 <td style={{...S.td,fontSize:11,color:T.dim}}>{m.cidade||cidade||'—'}</td>
                 <td style={S.td}><div style={{display:'flex',gap:4}}>
                   <button onClick={()=>{setEdit(m);setForm({...m});setSuspForm({ativo:!!(m.suspensoAte),inicio:m.suspensoInicio||'',ate:m.suspensoAte||'',motivo:m.motivoSuspensao||''});setModal(true);}} style={{...S.btn(T.bluel,true),padding:'3px 8px',fontSize:11}}>✏</button>
-                  <button onClick={async()=>{if(m.id&&window.confirm(`${pick(TR.removerNome)} ${m.nome}?`)){await deleteMei(m.id);toast(pick(TR.removido));}}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
+                  <button onClick={async()=>{if(m.id&&await confirmDialog(pick(TR.removerNome), m.nome+'?', {variant:'danger'})){await deleteMei(m.id);toast(pick(TR.removido));}}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
                 </div></td>
               </tr>
             );})}
@@ -1513,7 +1515,7 @@ function AbaCLT({cidade}:AbaProps){
                 <td style={S.td}><span style={S.chip(stCor(f.status||'ATIVO'))}>{f.status||'—'}</span></td><td style={S.td}>{f.diaFolga||'—'}</td>
                 <td style={S.td}><div style={{display:'flex',gap:4}}>
                   <button onClick={()=>{setEdit(f);setForm({...f});setModal(true);}} style={{...S.btn(T.bluel,true),padding:'3px 8px',fontSize:11}}>✏</button>
-                  <button onClick={async()=>{if(f.id&&window.confirm(`${pick(TR.removerNome)} ${f.nome}?`)){await deleteUsuario(f.id);toast(pick(TR.removido));}}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
+                  <button onClick={async()=>{if(f.id&&await confirmDialog(pick(TR.removerNome), f.nome+'?', {variant:'danger'})){await deleteUsuario(f.id);toast(pick(TR.removido));}}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
                 </div></td>
               </tr>
             ))}
@@ -1587,7 +1589,7 @@ function AbaInventario({cidade}:AbaProps){
               <tr key={item.id}><td style={{...S.td,fontWeight:600}}>{item.nome}</td><td style={{...S.td,fontFamily:'monospace',fontSize:11}}>{item.identificador||'—'}</td><td style={S.td}>{item.zona||'—'}</td><td style={S.td}><span style={S.chip(stCor(item.status))}>{item.status}</span></td><td style={{...S.td,fontSize:11,color:T.dim,maxWidth:160,overflow:'hidden',textOverflow:'ellipsis'}}>{item.observacao||'—'}</td>
               <td style={S.td}><div style={{display:'flex',gap:4}}>
                 <button onClick={()=>{setEdit(item);setForm({...item});setModal(true);}} style={{...S.btn(T.bluel,true),padding:'3px 8px',fontSize:11}}>✏</button>
-                <button onClick={async()=>{if(item.id&&window.confirm(pick(TR.remover)))await deleteInventario(item.id);}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
+                <button onClick={async()=>{if(item.id&&await confirmDialog(pick(TR.remover), '', {variant:'danger'}))await deleteInventario(item.id);}} style={{...S.btn(T.red,true),padding:'3px 8px',fontSize:11}}>🗑</button>
               </div></td></tr>
             ))}
           </tbody>
@@ -1784,7 +1786,7 @@ function AbaAlertas({cidade}:AbaProps){
 
   const filtrados=useMemo(()=>filtroTipo==='todos'?lista:lista.filter(a=>a.tipo===filtroTipo),[lista,filtroTipo]);
 
-  if(loading) return <div style={{padding:40,textAlign:'center',color:'rgba(255,255,255,.4)'}}>{pick(TR.carregando)}</div>;
+  if(loading) return <div style={{padding:16}}><SkeletonPulseStyle /><SkeletonTable rows={6} cols={4} /></div>;
 
   return(
     <div style={{maxWidth:780}}>

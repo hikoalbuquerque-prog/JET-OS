@@ -377,7 +377,7 @@ export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Pro
     : usuario.statusPrestador === 'inativo' ? pick(T.statusInativo)
     : pick(T.statusTraco);
 
-  const statusCor = COR_STATUS[usuario.statusPrestador ?? ''] ?? '#4a5a7a';
+  const statusCor = COR_STATUS[usuario.statusPrestador ?? ''] ?? '#7a8ba8';
 
   return (
     <div style={{
@@ -398,7 +398,7 @@ export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Pro
         }}>←</button>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: '#dce8ff' }}>{pick(T.meuPerfil)}</div>
-          <div style={{ fontSize: 11, color: '#4a5a7a' }}>
+          <div style={{ fontSize: 11, color: '#7a8ba8' }}>
             {cargoLabel(usuario.cargoPrestador) ?? usuario.cargoPrestador ?? pick(T.cargoPrestador)}
           </div>
         </div>
@@ -428,7 +428,7 @@ export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Pro
           }}>👤</div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: '#dce8ff', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{nome || usuario.nome}</div>
-            <div style={{ fontSize: 11, color: '#4a5a7a', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{usuario.email}</div>
+            <div style={{ fontSize: 11, color: '#7a8ba8', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{usuario.email}</div>
           </div>
           <div style={{
             padding: '3px 10px', borderRadius: 20, fontSize: 10, fontWeight: 700,
@@ -462,7 +462,7 @@ export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Pro
       {/* Content */}
       <div style={{ flex: 1, padding: '0 16px 24px', overflowY: 'auto' }}>
         {loading ? (
-          <div style={{ textAlign: 'center', color: '#4a5a7a', paddingTop: 40, fontSize: 13 }}>
+          <div style={{ textAlign: 'center', color: '#7a8ba8', paddingTop: 40, fontSize: 13 }}>
             {pick(T.carregando)}
           </div>
         ) : tab === 'dados' ? (
@@ -561,13 +561,13 @@ export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Pro
             }}>
               <div>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,.45)', fontWeight: 600 }}>{pick(T.procuracaoTitulo)}</div>
-                <div style={{ fontSize: 10, color: '#4a5a7a', marginTop: 2 }}>{pick(T.procuracaoSub)}</div>
+                <div style={{ fontSize: 10, color: '#7a8ba8', marginTop: 2 }}>{pick(T.procuracaoSub)}</div>
               </div>
               <div style={{
                 padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                background: (PROCURACAO_COR[procuracaoStatus] ?? '#4a5a7a') + '18',
-                color: PROCURACAO_COR[procuracaoStatus] ?? '#4a5a7a',
-                border: `1px solid ${(PROCURACAO_COR[procuracaoStatus] ?? '#4a5a7a')}44`,
+                background: (PROCURACAO_COR[procuracaoStatus] ?? '#7a8ba8') + '18',
+                color: PROCURACAO_COR[procuracaoStatus] ?? '#7a8ba8',
+                border: `1px solid ${(PROCURACAO_COR[procuracaoStatus] ?? '#7a8ba8')}44`,
               }}>{procuracaoLabel(procuracaoStatus) ?? '—'}</div>
             </div>
 
@@ -602,7 +602,7 @@ export default function TelaPrestadorPerfil({ usuario, onFechar, onLogout }: Pro
                 onChange={e => setNivelGovbr(e.target.value)}>
                 {NIVEIS_GOVBR.map(n => <option key={n} value={n}>{nivelGovbrLabel(n)}</option>)}
               </select>
-              <div style={{ fontSize: 10, color: '#4a5a7a', marginTop: 5, lineHeight: 1.4 }}>
+              <div style={{ fontSize: 10, color: '#7a8ba8', marginTop: 5, lineHeight: 1.4 }}>
                 {pick(T.govbrNotaP1)}<strong>{pick(T.govbrNotaPrata)}</strong>{pick(T.govbrNotaOu)}<strong>{pick(T.govbrNotaOuro)}</strong>{pick(T.govbrNotaP2)}
               </div>
             </div>

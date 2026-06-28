@@ -18,6 +18,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { fetchUsuario, escreverUsuarioSupabase } from './lib/usuarios-supabase';
 import { getEdgeCallable } from './lib/edge-functions';
+import { confirmDialog } from './components/ui/ConfirmDialog';
 
 // ─── i18n (pt/en/es/ru) — padrão objeto T + pick, sem json ─────────────────────
 
@@ -558,7 +559,7 @@ export default function TelegramVinculo({ usuario, modo = 'modal', onFechar, onV
 
   // ── Desvincular ──
   const desvincular = async () => {
-    if (!window.confirm(pick(T.confirmDesvincular))) return;
+    if (!await confirmDialog(pick(T.confirmDesvincular), '', { variant: 'danger' })) return;
     setBusy(true);
     try {
       await escreverUsuarioSupabase(usuario.uid, {

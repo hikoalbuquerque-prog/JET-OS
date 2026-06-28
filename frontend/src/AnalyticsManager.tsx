@@ -1,5 +1,6 @@
 // src/AnalyticsManager.tsx — v2: comparação A/B, score estações, clusters, timeline, OD, tendência
 import { useState, useEffect, useRef, useCallback, useMemo, CSSProperties } from 'react';
+import { SkeletonCard, SkeletonPulseStyle } from './components/ui/Skeleton';
 import DeckGL from '@deck.gl/react';
 import { PolygonLayer } from '@deck.gl/layers';
 import { HeatmapLayer } from '@deck.gl/aggregation-layers';
@@ -657,7 +658,7 @@ function PerdasPanel({ incidentes, loading, modoRoubos=false }: { incidentes: an
       })();
 
   const sec: CSSProperties = { padding:'12px 14px', borderBottom:'1px solid #1c2535' };
-  const hdr: CSSProperties = { fontSize:9, color:'#4a5a7a', textTransform:'uppercase', letterSpacing:.5, marginBottom:6 };
+  const hdr: CSSProperties = { fontSize:9, color:'#7a8ba8', textTransform:'uppercase', letterSpacing:.5, marginBottom:6 };
 
   return (
     <div style={{ flex:1, overflowY:'auto', background:'#080b12', scrollbarWidth:'thin', scrollbarColor:'#1c2535 #080b12' }}>
@@ -667,7 +668,7 @@ function PerdasPanel({ incidentes, loading, modoRoubos=false }: { incidentes: an
         <div style={{ fontSize:13, fontWeight:700, color:'#f87171', marginBottom:4 }}>
           {modoRoubos ? pick(T.painelRoubos) : pick(T.painelPerdas)}
         </div>
-        <div style={{ fontSize:10, color:'#4a5a7a' }}>
+        <div style={{ fontSize:10, color:'#7a8ba8' }}>
           {modoRoubos ? pick(T.roubosConfirmados) : pick(T.ocorrenciasConfirmadas)}
         </div>
       </div>
@@ -679,13 +680,13 @@ function PerdasPanel({ incidentes, loading, modoRoubos=false }: { incidentes: an
             style={{ flex:1, padding:'5px 0', borderRadius:6, cursor:'pointer', fontSize:10, fontWeight:600,
               background: periodoPerda===v ? 'rgba(239,68,68,.15)' : 'rgba(255,255,255,.03)',
               border: `1px solid ${periodoPerda===v ? 'rgba(239,68,68,.4)' : '#1c2535'}`,
-              color: periodoPerda===v ? '#f87171' : '#4a5a7a' }}>
+              color: periodoPerda===v ? '#f87171' : '#7a8ba8' }}>
             {l}
           </button>
         ))}
       </div>
 
-      {loading && <div style={{ padding:20, textAlign:'center', color:'#4a5a7a', fontSize:11 }}>{pick(T.carregando)}</div>}
+      {loading && <div style={{ padding:16 }}><SkeletonPulseStyle /><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}><SkeletonCard lines={3} /><SkeletonCard lines={3} /><SkeletonCard lines={3} /><SkeletonCard lines={3} /></div></div>}
 
       {/* KPIs gerais */}
       <div style={sec}>
@@ -703,7 +704,7 @@ function PerdasPanel({ incidentes, loading, modoRoubos=false }: { incidentes: an
           ]).map(k => (
             <div key={k.l} style={{ background:'#111722', borderRadius:6, padding:'8px 6px', border:'1px solid #1c2535', textAlign:'center' }}>
               <div style={{ fontFamily:"'IBM Plex Mono',monospace", fontSize:16, fontWeight:700, color:k.c }}>{k.v}</div>
-              <div style={{ fontSize:8, color:'#4a5a7a', marginTop:2 }}>{k.l}</div>
+              <div style={{ fontSize:8, color:'#7a8ba8', marginTop:2 }}>{k.l}</div>
             </div>
           ))}
         </div>
@@ -783,18 +784,18 @@ function PerdasPanel({ incidentes, loading, modoRoubos=false }: { incidentes: an
                   color: inc.tipo==='Roubo'?'#ef4444':inc.tipo==='Vandalismo'?'#f59e0b':'#6ee7b7' }}>
                   {inc.tipo}
                 </span>
-                <span style={{ fontSize:9, color:'#4a5a7a' }}>
+                <span style={{ fontSize:9, color:'#7a8ba8' }}>
                   {inc.created_at ? new Date(inc.created_at).toLocaleDateString('pt-BR') : ''}
                 </span>
               </div>
-              <div style={{ fontSize:9, color:'#4a5a7a', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+              <div style={{ fontSize:9, color:'#7a8ba8', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
                 {inc.bairro_inicial || inc.endereco_inicial?.split(',')[0] || inc.cidade_inicial || '—'}
               </div>
               <div style={{ fontSize:8, color:'#2a3a55', marginTop:1 }}>{inc.ativo_tipo} · {inc.status}</div>
             </div>
           ))}
           {incidentes.filter(i => i.filial === filialSel).length > 20 && (
-            <div style={{ fontSize:9, color:'#4a5a7a', textAlign:'center', padding:4 }}>
+            <div style={{ fontSize:9, color:'#7a8ba8', textAlign:'center', padding:4 }}>
               + {incidentes.filter(i => i.filial === filialSel).length - 20} {pick(T.incidentes).toLowerCase()}
             </div>
           )}
@@ -1638,17 +1639,17 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
       {/* HEADER */}
       <div style={{display:'flex',alignItems:'center',background:'#0c1018',borderBottom:'1px solid #1c2535',flexShrink:0}}>
         <div style={{padding:'10px 20px',borderRight:'1px solid #1c2535',fontFamily:"'IBM Plex Mono',monospace",fontSize:14,fontWeight:600,color:'#3d9bff'}}>
-          JET<span style={{color:'#4a5a7a'}}>OS</span> · Analytics
+          JET<span style={{color:'#7a8ba8'}}>OS</span> · Analytics
         </div>
         {([[pick(T.corridas),n.toLocaleString('pt-BR'),'#3d9bff'],[pick(T.receita),'R$'+totalRev.toFixed(0),'#f5c842'],
            [pick(T.distMedia),avgDist.toFixed(1)+'km','#2ecc71'],[pick(T.durMedia),avgDur.toFixed(0)+'min','#3d9bff'],
            [pick(T.dias),Object.keys(days).length,'#f5c842'],[pick(T.estacoes),estacoesVisiveis.length+(activeDays.size===0?' (BR)':''),'#2ecc71']] as [string,any,string][]).map(([l,v,c])=>(
           <div key={l} style={{padding:'8px 16px',borderRight:'1px solid #1c2535',display:'flex',flexDirection:'column',gap:1}}>
             <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:14,fontWeight:600,color:c}}>{v}</div>
-            <div style={{fontSize:9,color:'#4a5a7a',textTransform:'uppercase',letterSpacing:.8}}>{l}</div>
+            <div style={{fontSize:9,color:'#7a8ba8',textTransform:'uppercase',letterSpacing:.8}}>{l}</div>
           </div>
         ))}
-        <div style={{flex:1,padding:'0 12px',fontSize:11,color:'#4a5a7a',fontFamily:"'IBM Plex Mono',monospace"}}>{periodLabel}</div>
+        <div style={{flex:1,padding:'0 12px',fontSize:11,color:'#7a8ba8',fontFamily:"'IBM Plex Mono',monospace"}}>{periodLabel}</div>
         {isGestor && (
           <div style={{padding:'0 12px',display:'flex',gap:8,alignItems:'center'}}>
             <input type="date" value={manualDate} onChange={e=>setManualDate(e.target.value)}
@@ -1668,9 +1669,9 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
         <div style={{display:'flex',gap:2,padding:'5px 0',borderRight:'1px solid #1c2535',marginRight:8,paddingRight:8}}>
           {(['map','trend','od','guard','perdas','roubos'] as const).map(t=>(
             <button key={t} onClick={()=>setActiveTab(t)} style={{...tbBtn(activeTab===t),
-              ...(t==='guard'?{borderColor:activeTab==='guard'?'rgba(167,139,250,.5)':'transparent',color:activeTab==='guard'?'#a78bfa':'#4a5a7a'}:{}),
-              ...(t==='perdas'?{borderColor:activeTab==='perdas'?'rgba(239,68,68,.5)':'transparent',color:activeTab==='perdas'?'#f87171':'#4a5a7a'}:{}),
-              ...(t==='roubos'?{borderColor:activeTab==='roubos'?'rgba(239,68,68,.6)':'transparent',color:activeTab==='roubos'?'#ef4444':'#4a5a7a'}:{}),
+              ...(t==='guard'?{borderColor:activeTab==='guard'?'rgba(167,139,250,.5)':'transparent',color:activeTab==='guard'?'#a78bfa':'#7a8ba8'}:{}),
+              ...(t==='perdas'?{borderColor:activeTab==='perdas'?'rgba(239,68,68,.5)':'transparent',color:activeTab==='perdas'?'#f87171':'#7a8ba8'}:{}),
+              ...(t==='roubos'?{borderColor:activeTab==='roubos'?'rgba(239,68,68,.6)':'transparent',color:activeTab==='roubos'?'#ef4444':'#7a8ba8'}:{}),
             }}>
               {t==='map'?pick(T.tabMapa):t==='trend'?pick(T.tabTendencia):t==='od'?pick(T.tabOd):
                t==='perdas'?<span style={{display:'flex',alignItems:'center',gap:4}}>
@@ -1705,7 +1706,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
               setViewState(s => ({ ...s, pitch: next ? 55 : 0, bearing: next ? -15 : 0 }));
               return next;
             });
-          }} style={{...tbBtn(modo3D), color: modo3D ? '#fbbf24' : '#4a5a7a',
+          }} style={{...tbBtn(modo3D), color: modo3D ? '#fbbf24' : '#7a8ba8',
             borderColor: modo3D ? 'rgba(251,191,36,.5)' : 'transparent',
             marginRight:8, paddingRight:8, borderRight:'1px solid #1c2535'}}>
             🏔 3D
@@ -1716,10 +1717,10 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
             <button onClick={()=>setShowStarts(s=>!s)} style={tbBtn(showStarts)}>{pick(T.inicios)}</button>
             <button onClick={()=>setShowEnds(s=>!s)} style={tbBtn(showEnds)}>{pick(T.fins)}</button>
             <button onClick={()=>setShowStations(s=>!s)} style={tbBtn(showStations)}>{pick(T.estacoesBtn)}</button>
-            <button onClick={()=>setShowPoligonos(s=>!s)} style={{...tbBtn(showPoligonos),color:showPoligonos?'#a78bfa':'#4a5a7a',borderColor:showPoligonos?'rgba(167,139,250,.4)':'transparent'}}>{pick(T.zonas)}</button>
-            <button onClick={()=>{ setIs3DMode(s=>!s); setViewState(v=>({...v, pitch: is3DMode?0:45, bearing: is3DMode?0:-15})); }} style={{...tbBtn(is3DMode),color:is3DMode?'#fbbf24':'#4a5a7a',borderColor:is3DMode?'rgba(251,191,36,.4)':'transparent'}}>🏔 3D</button>
+            <button onClick={()=>setShowPoligonos(s=>!s)} style={{...tbBtn(showPoligonos),color:showPoligonos?'#a78bfa':'#7a8ba8',borderColor:showPoligonos?'rgba(167,139,250,.4)':'transparent'}}>{pick(T.zonas)}</button>
+            <button onClick={()=>{ setIs3DMode(s=>!s); setViewState(v=>({...v, pitch: is3DMode?0:45, bearing: is3DMode?0:-15})); }} style={{...tbBtn(is3DMode),color:is3DMode?'#fbbf24':'#7a8ba8',borderColor:is3DMode?'rgba(251,191,36,.4)':'transparent'}}>🏔 3D</button>
             <button onClick={()=>setShowClusters(s=>!s)} style={tbBtn(showClusters)} title={pick(T.gapsTitle)}>{pick(T.gaps)}</button>
-            <button onClick={()=>setShowGuardHeat(s=>!s)} style={{...tbBtn(showGuardHeat), borderColor: showGuardHeat ? 'rgba(167,139,250,.6)' : 'transparent', color: showGuardHeat ? '#a78bfa' : '#4a5a7a'}} title={pick(T.guardHeatTitle)}>🛡 Guard{showGuardHeat && guardPoints.length > 0 ? ` (${guardPoints.length})` : ''}</button>
+            <button onClick={()=>setShowGuardHeat(s=>!s)} style={{...tbBtn(showGuardHeat), borderColor: showGuardHeat ? 'rgba(167,139,250,.6)' : 'transparent', color: showGuardHeat ? '#a78bfa' : '#7a8ba8'}} title={pick(T.guardHeatTitle)}>🛡 Guard{showGuardHeat && guardPoints.length > 0 ? ` (${guardPoints.length})` : ''}</button>
           </div>
           {showGuardHeat && (
             <div style={{display:'flex',gap:3,alignItems:'center',padding:'0 8px',borderRight:'1px solid #1c2535',marginRight:8,paddingRight:8,flexWrap:'wrap'}}>
@@ -1728,20 +1729,20 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                 <button key={d} onClick={()=>{setGuardDias(d);setGuardModoCustom(false);}} style={{
                   ...tbBtn(!guardModoCustom && guardDias===d), fontSize:10, padding:'2px 6px',
                   borderColor: !guardModoCustom && guardDias===d ? 'rgba(167,139,250,.5)' : 'transparent',
-                  color: !guardModoCustom && guardDias===d ? '#a78bfa' : '#4a5a7a',
+                  color: !guardModoCustom && guardDias===d ? '#a78bfa' : '#7a8ba8',
                 }}>{l}</button>
               ))}
               {/* Custom */}
               <button onClick={()=>setGuardModoCustom(!guardModoCustom)} style={{
                 ...tbBtn(guardModoCustom), fontSize:10, padding:'2px 6px',
                 borderColor: guardModoCustom ? 'rgba(167,139,250,.5)' : 'transparent',
-                color: guardModoCustom ? '#a78bfa' : '#4a5a7a',
+                color: guardModoCustom ? '#a78bfa' : '#7a8ba8',
               }}>📅</button>
               {guardModoCustom && (
                 <>
                   <input type="date" value={guardCustomDe} onChange={e=>setGuardCustomDe(e.target.value)}
                     style={{fontSize:10,padding:'2px 5px',borderRadius:5,background:'#1c2535',border:'1px solid #2a3a55',color:'#fff',outline:'none'}} />
-                  <span style={{color:'#4a5a7a',fontSize:10}}>→</span>
+                  <span style={{color:'#7a8ba8',fontSize:10}}>→</span>
                   <input type="date" value={guardCustomAte} onChange={e=>setGuardCustomAte(e.target.value)}
                     style={{fontSize:10,padding:'2px 5px',borderRadius:5,background:'#1c2535',border:'1px solid #2a3a55',color:'#fff',outline:'none'}} />
                 </>
@@ -1752,7 +1753,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                   <button onClick={()=>setGuardFiltroTipo('TODOS')} style={{
                     fontSize:9,padding:'1px 6px',borderRadius:8,cursor:'pointer',
                     background:guardFiltroTipo==='TODOS'?'rgba(255,255,255,.1)':'transparent',
-                    border:'none',color:guardFiltroTipo==='TODOS'?'#fff':'#4a5a7a',
+                    border:'none',color:guardFiltroTipo==='TODOS'?'#fff':'#7a8ba8',
                   }}>{pick(T.todos)} ({guardPoints.length})</button>
                   {(['Roubo','Tentativa','Vandalismo','Recuperacao','Outro'] as const).map(t => {
                     const n = guardPoints.filter(p => p.tipo === t).length;
@@ -1773,7 +1774,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
             </div>
           )}
           {/* Compare mode */}
-          <button onClick={()=>setCompareMode(m=>!m)} style={{...tbBtn(compareMode),borderColor:compareMode?'#f5c842':'transparent',color:compareMode?'#f5c842':'#4a5a7a'}}>
+          <button onClick={()=>setCompareMode(m=>!m)} style={{...tbBtn(compareMode),borderColor:compareMode?'#f5c842':'transparent',color:compareMode?'#f5c842':'#7a8ba8'}}>
             {pick(T.comparar)}
           </button>
           {compareMode && (
@@ -1789,7 +1790,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
           {/* Timeline */}
           <div style={{display:'flex',alignItems:'center',gap:6,marginLeft:'auto',paddingRight:8}}>
             <button onClick={()=>{setAnimPlaying(p=>!p); if(animHour===null)setAnimHour(0);}}
-              style={{...tbBtn(animPlaying),color:animPlaying?'#2ecc71':'#4a5a7a'}}>
+              style={{...tbBtn(animPlaying),color:animPlaying?'#2ecc71':'#7a8ba8'}}>
               {animPlaying?'⏸':'▶'} {pick(T.timeline)}
             </button>
             {animHour!==null && (
@@ -1813,10 +1814,10 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
           {true && (
             <div style={{display:'flex',alignItems:'center',gap:3,borderLeft:'1px solid #1c2535',
               paddingLeft:8,marginLeft:4,flexWrap:'nowrap',overflowX:'auto'}}>
-              <span style={{fontSize:9,color:'#4a5a7a',whiteSpace:'nowrap'}}>🌎</span>
+              <span style={{fontSize:9,color:'#7a8ba8',whiteSpace:'nowrap'}}>🌎</span>
               <button onClick={() => setCidadesFiltro(new Set())}
                 style={{...tbBtn(cidadesFiltro.size===0),fontSize:9,padding:'2px 8px',whiteSpace:'nowrap',
-                  color:cidadesFiltro.size===0?'#3d9bff':'#4a5a7a',
+                  color:cidadesFiltro.size===0?'#3d9bff':'#7a8ba8',
                   fontWeight:cidadesFiltro.size===0?700:400}}>
                 🇧🇷 BR
               </button>
@@ -1831,7 +1832,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                     })}
                     title={totalC.toLocaleString('pt-BR') + ' ' + pick(T.corridas).toLowerCase()}
                     style={{...tbBtn(ativo), fontSize:9, padding:'2px 8px', whiteSpace:'nowrap',
-                      color: ativo ? '#fff' : '#4a5a7a',
+                      color: ativo ? '#fff' : '#7a8ba8',
                       background: ativo ? 'rgba(61,155,255,.2)' : 'transparent',
                       borderColor: ativo ? '#3d9bff' : 'transparent',
                       fontWeight: ativo ? 700 : 400,
@@ -1891,7 +1892,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
             <div style={{padding:24,flex:1,overflowY:'auto',minHeight:0}}>
               <div style={{fontSize:13,fontWeight:700,marginBottom:20,color:'#dce8ff'}}>{pick(T.tendenciaPorDia)}</div>
               {trendData.length === 0 ? (
-                <div style={{color:'#4a5a7a',fontSize:12}}>{pick(T.nenhumDado)}</div>
+                <div style={{color:'#7a8ba8',fontSize:12}}>{pick(T.nenhumDado)}</div>
               ) : (
                 <>
                   <TrendChart data={trendData} metric="total" color="#3d9bff" label={pick(T.labelCorridas)}/>
@@ -1906,7 +1907,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
           {activeTab==='od' && (
             <div style={{padding:24,flex:1,overflowY:'auto',minHeight:0}}>
               <div style={{fontSize:13,fontWeight:700,marginBottom:8,color:'#dce8ff'}}>{pick(T.matrizOd)}</div>
-              <div style={{fontSize:11,color:'#4a5a7a',marginBottom:20}}>{pick(T.odSub)}</div>
+              <div style={{fontSize:11,color:'#7a8ba8',marginBottom:20}}>{pick(T.odSub)}</div>
               <ODMatrix rides={ridesA}/>
             </div>
           )}
@@ -1990,11 +1991,11 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                           border:`1px solid ${ativo ? 'rgba(61,155,255,.25)' : '#1c2535'}`,
                         }}>
                         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
-                          <span style={{fontSize:11,fontWeight:700,color: ativo ? '#3d9bff' : '#4a5a7a'}}>{k.r}</span>
-                          <span style={{fontSize:10,color:'#4a5a7a'}}>{k.nDias}d</span>
+                          <span style={{fontSize:11,fontWeight:700,color: ativo ? '#3d9bff' : '#7a8ba8'}}>{k.r}</span>
+                          <span style={{fontSize:10,color:'#7a8ba8'}}>{k.nDias}d</span>
                         </div>
                         <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
-                          <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,color: ativo ? '#dce8ff' : '#4a5a7a'}}>{k.total.toLocaleString('pt-BR')}</span>
+                          <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,color: ativo ? '#dce8ff' : '#7a8ba8'}}>{k.total.toLocaleString('pt-BR')}</span>
                           <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:'#f5c842'}}>R${Math.round(k.rev/1000)}k</span>
                         </div>
                         <div style={{height:3,background:'#1c2535',borderRadius:2}}>
@@ -2039,7 +2040,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
               ))}
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2,marginBottom:2}}>
-              {CAL_INITIALS[lang].map((d,i)=><div key={i} style={{textAlign:'center',fontSize:9,color:'#4a5a7a'}}>{d}</div>)}
+              {CAL_INITIALS[lang].map((d,i)=><div key={i} style={{textAlign:'center',fontSize:9,color:'#7a8ba8'}}>{d}</div>)}
             </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
               {calDays.map((item,i)=>{
@@ -2048,7 +2049,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                 const inB=item?compareB.has(item):false;
                 const isActive=item?(compareMode?(inA||inB):allDayKeys.filter(k=>k===item||k.startsWith(item+'_')).some(k=>activeDays.has(k))):false;
                 const bg=inA?'#3d9bff':inB?'#ff6422':hasData?'rgba(61,155,255,.12)':'transparent';
-                const color=inA?'#000':inB?'#000':hasData?'#3d9bff':'#4a5a7a';
+                const color=inA?'#000':inB?'#000':hasData?'#3d9bff':'#7a8ba8';
                 return <div key={i} onClick={()=>item&&hasData&&toggleDay(item)} style={{height:26,borderRadius:4,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,cursor:hasData?'pointer':'default',fontFamily:"'IBM Plex Mono',monospace",background:bg,color,fontWeight:isActive?700:400,border:hasData?'1px solid rgba(61,155,255,.2)':'1px solid transparent'}}>
                   {item?parseInt(item.split('-')[2]):''}
                 </div>;
@@ -2058,7 +2059,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
               {allDayKeys.sort().map(d=>{
                 const inA=compareA.has(d), inB=compareB.has(d), isAct=activeDays.has(d);
                 const active=compareMode?(inA||inB):isAct;
-                return <div key={d} onClick={()=>toggleDay(d)} style={{display:'flex',alignItems:'center',gap:4,padding:'2px 6px',background:inA?'rgba(61,155,255,.15)':inB?'rgba(255,100,34,.15)':active?'rgba(61,155,255,.08)':'#111722',border:`1px solid ${inA?'#3d9bff':inB?'#ff6422':active?'rgba(61,155,255,.3)':'#1c2535'}`,borderRadius:3,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:inA?'#3d9bff':inB?'#ff6422':active?'#dce8ff':'#4a5a7a',cursor:'pointer'}}>
+                return <div key={d} onClick={()=>toggleDay(d)} style={{display:'flex',alignItems:'center',gap:4,padding:'2px 6px',background:inA?'rgba(61,155,255,.15)':inB?'rgba(255,100,34,.15)':active?'rgba(61,155,255,.08)':'#111722',border:`1px solid ${inA?'#3d9bff':inB?'#ff6422':active?'rgba(61,155,255,.3)':'#1c2535'}`,borderRadius:3,fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:inA?'#3d9bff':inB?'#ff6422':active?'#dce8ff':'#7a8ba8',cursor:'pointer'}}>
                   {compareMode&&inA&&<span style={{fontSize:8,fontWeight:700}}>A </span>}
                   {compareMode&&inB&&<span style={{fontSize:8,fontWeight:700}}>B </span>}
                   {d.slice(5)}
@@ -2079,13 +2080,13 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                   const bg=`rgba(${Math.round(61+intens*194)},${Math.round(155+intens*100)},255,${on?.85:.15})`;
                   return <div key={h} onClick={()=>{if(animHour!==null){setAnimHour(h);}else{setSelHours(prev=>{const n=new Set(prev);n.has(h)?n.delete(h):n.add(h);return n;});}}}
                     title={`${h}h: ${cnt}`} style={{height:22,borderRadius:3,background:bg,cursor:'pointer',opacity:on?1:.4,position:'relative'}}>
-                    {h%6===0&&<div style={{position:'absolute',bottom:-14,left:'50%',transform:'translateX(-50%)',fontSize:8,color:'#4a5a7a'}}>{h}h</div>}
+                    {h%6===0&&<div style={{position:'absolute',bottom:-14,left:'50%',transform:'translateX(-50%)',fontSize:8,color:'#7a8ba8'}}>{h}h</div>}
                   </div>;
                 })}
               </div>
               <div style={{display:'flex',gap:3,marginTop:20}}>
                 {([[pick(T.todos),()=>setSelHours(new Set([...Array(24).keys()]))],[pick(T.pico),()=>setSelHours(new Set([7,8,9,17,18,19]))],[pick(T.manha),()=>setSelHours(new Set([5,6,7,8,9,10]))],[pick(T.noturno),()=>setSelHours(new Set([20,21,22,23,0,1]))]] as [string,()=>void][]).map(([l,fn])=>(
-                  <button key={l} onClick={fn} style={{flex:1,padding:'3px 0',background:'#111722',border:'1px solid #1c2535',color:'#4a5a7a',borderRadius:3,cursor:'pointer',fontSize:9,fontFamily:"'DM Sans',sans-serif"}}>{l}</button>
+                  <button key={l} onClick={fn} style={{flex:1,padding:'3px 0',background:'#111722',border:'1px solid #1c2535',color:'#7a8ba8',borderRadius:3,cursor:'pointer',fontSize:9,fontFamily:"'DM Sans',sans-serif"}}>{l}</button>
                 ))}
               </div>
             </div>
@@ -2094,7 +2095,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
               <div style={secTitle}>{pick(T.filtrosCorrida)}</div>
               {([[pick(T.distMax),maxDist,13,.5,setMaxDist,'km'],[pick(T.durMax),maxDur,140,5,setMaxDur,'min']] as any[]).map(([l,v,mx,st,fn,u])=>(
                 <div key={l} style={{display:'flex',alignItems:'center',gap:8,marginBottom:7}}>
-                  <span style={{fontSize:10,color:'#4a5a7a',width:62}}>{l}</span>
+                  <span style={{fontSize:10,color:'#7a8ba8',width:62}}>{l}</span>
                   <input type="range" min={0} max={mx} step={st} value={v} onChange={e=>fn(parseFloat(e.target.value))}
                     style={{flex:1,height:3,appearance:'none' as any,background:'#1c2535',borderRadius:2,cursor:'pointer'}}/>
                   <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:'#3d9bff',width:52,textAlign:'right'}}>≤{v}{u}</span>
@@ -2117,9 +2118,9 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
                     {kpiData.map(([l,v,sub,c]) => (
                       <div key={l} style={{background:'#111722',borderRadius:5,padding:'8px 10px',border:'1px solid #1c2535'}}>
-                        <div style={{fontSize:8,color:'#4a5a7a',marginBottom:2,textTransform:'uppercase',letterSpacing:.4}}>{l}</div>
+                        <div style={{fontSize:8,color:'#7a8ba8',marginBottom:2,textTransform:'uppercase',letterSpacing:.4}}>{l}</div>
                         <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:15,fontWeight:700,color:c,lineHeight:1}}>{v}</div>
-                        <div style={{fontSize:8,color:'#4a5a7a',marginTop:3}}>{sub}</div>
+                        <div style={{fontSize:8,color:'#7a8ba8',marginTop:3}}>{sub}</div>
                       </div>
                     ))}
                     <button onClick={exportAnalyticsPDF} title={pick(T.exportarPdfTitle)}
@@ -2133,8 +2134,8 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
               {compareMode && filteredB.length>0 && (
                 <div style={{marginTop:8,padding:'8px 10px',background:'rgba(255,100,34,.08)',borderRadius:5,border:'1px solid rgba(255,100,34,.2)',fontSize:10}}>
                   <div style={{color:'#ff6422',fontWeight:700,marginBottom:4}}>B: {filteredB.length.toLocaleString()} {pick(T.corridas).toLowerCase()}</div>
-                  <div style={{color:'#4a5a7a'}}>{pick(T.deltaCorridas)}: <span style={{color: filteredA.length>filteredB.length?'#2ecc71':'#ff4757'}}>{filteredA.length>filteredB.length?'+':''}{(filteredA.length-filteredB.length).toLocaleString()}</span></div>
-                  <div style={{color:'#4a5a7a'}}>{pick(T.deltaReceita)}: <span style={{color:totalRev>(filteredB.reduce((s,r)=>s+(r.rev||0),0))?'#2ecc71':'#ff4757'}}>R${(totalRev - filteredB.reduce((s,r)=>s+(r.rev||0),0)).toFixed(0)}</span></div>
+                  <div style={{color:'#7a8ba8'}}>{pick(T.deltaCorridas)}: <span style={{color: filteredA.length>filteredB.length?'#2ecc71':'#ff4757'}}>{filteredA.length>filteredB.length?'+':''}{(filteredA.length-filteredB.length).toLocaleString()}</span></div>
+                  <div style={{color:'#7a8ba8'}}>{pick(T.deltaReceita)}: <span style={{color:totalRev>(filteredB.reduce((s,r)=>s+(r.rev||0),0))?'#2ecc71':'#ff4757'}}>R${(totalRev - filteredB.reduce((s,r)=>s+(r.rev||0),0)).toFixed(0)}</span></div>
                 </div>
               )}
             </div>
@@ -2161,7 +2162,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                       outline: isPico && on ? '1px solid #f5c842' : 'none',
                       transition:'opacity .15s',
                     }}/>
-                    {h%6===0&&<div style={{fontSize:6,color:'#4a5a7a'}}>{h}h</div>}
+                    {h%6===0&&<div style={{fontSize:6,color:'#7a8ba8'}}>{h}h</div>}
                   </div>;
                 })}
               </div>
@@ -2181,13 +2182,13 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                   <div key={z.name} style={{display:'flex',alignItems:'center',gap:6,padding:'6px 8px',background:'#111722',borderRadius:4,border:'1px solid #1c2535',cursor:'pointer'}}
                     onMouseEnter={e=>(e.currentTarget.style.borderColor='#3d9bff')}
                     onMouseLeave={e=>(e.currentTarget.style.borderColor='#1c2535')}>
-                    <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:'#4a5a7a',width:14}}>{i+1}</div>
+                    <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:'#7a8ba8',width:14}}>{i+1}</div>
                     <div style={{flex:1,fontSize:10,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}} title={z.name}>{z.name}</div>
                     <div style={{width:36,height:3,background:'#1c2535',borderRadius:2}}><div style={{height:'100%',borderRadius:2,background:'#3d9bff',width:`${z.score/maxScore*100}%`}}/></div>
                     <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:600,color:'#3d9bff',width:32,textAlign:'right'}}>{z.count}</div>
                   </div>
                 ))}
-                {scored.length===0&&<div style={{fontSize:11,color:'#4a5a7a',textAlign:'center',marginTop:12}}>{pick(T.selecioneDias)}</div>}
+                {scored.length===0&&<div style={{fontSize:11,color:'#7a8ba8',textAlign:'center',marginTop:12}}>{pick(T.selecioneDias)}</div>}
               </div>
             </div>
           </>}
@@ -2197,21 +2198,21 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
             <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
               <div style={sec}>
                 <div style={secTitle}>{pick(T.scoreEstacoes)}</div>
-                <div style={{fontSize:10,color:'#4a5a7a',marginBottom:8}}>{pick(T.scoreDesc)}</div>
+                <div style={{fontSize:10,color:'#7a8ba8',marginBottom:8}}>{pick(T.scoreDesc)}</div>
               </div>
               <div style={{flex:1,overflowY:'auto',padding:'8px 14px',display:'flex',flexDirection:'column',gap:4}}>
                 {stationScores.filter(s=>s.total>0).slice(0,20).map((s,i)=>{
                   const max=stationScores.find(x=>x.total>0)?.total||1;
                   return <div key={s.id} style={{display:'flex',alignItems:'center',gap:6,padding:'7px 9px',background:'#111722',borderRadius:5,border:'1px solid #1c2535',cursor:'pointer'}}
                     onClick={()=>{ setViewState(vs=>({...vs,longitude:s.lng,latitude:s.lat,zoom:16})); window.dispatchEvent(new CustomEvent('jetFlyTo',{detail:{lat:s.lat,lng:s.lng,zoom:17}})); }}>
-                    <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:'#4a5a7a',width:14}}>{i+1}</div>
+                    <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:9,color:'#7a8ba8',width:14}}>{i+1}</div>
                     <div style={{flex:1}}>
                       <div style={{fontSize:10,fontWeight:600,color:'#dce8ff'}}>{s.nome||s.endereco||s.codigo}</div>
-                      <div style={{fontSize:9,color:'#4a5a7a'}}>{s.bairro} · {s.codigo}</div>
+                      <div style={{fontSize:9,color:'#7a8ba8'}}>{s.bairro} · {s.codigo}</div>
                     </div>
                     <div style={{textAlign:'right'}}>
                       <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:11,fontWeight:600,color:'#2ecc71'}}>{s.total}</div>
-                      <div style={{fontSize:8,color:'#4a5a7a'}}>{s.starts}↑ {s.ends}↓</div>
+                      <div style={{fontSize:8,color:'#7a8ba8'}}>{s.starts}↑ {s.ends}↓</div>
                     </div>
                     <div style={{width:4,height:32,borderRadius:2,background:`hsl(${120*s.total/max},70%,45%)`}}/>
                   </div>;
@@ -2220,7 +2221,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                   <div style={{marginTop:8,padding:'8px',background:'rgba(255,71,87,.05)',borderRadius:5,border:'1px solid rgba(255,71,87,.15)'}}>
                     <div style={{fontSize:10,color:'#ff4757',fontWeight:600,marginBottom:4}}>{pick(T.estacoesSemDemanda)} ({stationScores.filter(s=>s.total===0).length})</div>
                     {stationScores.filter(s=>s.total===0).slice(0,5).map(s=>(
-                      <div key={s.id} style={{fontSize:9,color:'#4a5a7a',padding:'2px 0',cursor:'pointer'}}
+                      <div key={s.id} style={{fontSize:9,color:'#7a8ba8',padding:'2px 0',cursor:'pointer'}}
                         onClick={()=>setViewState(vs=>({...vs,longitude:s.lng,latitude:s.lat,zoom:16}))}>
                         {s.nome||s.endereco||s.codigo} — {s.bairro}
                       </div>
@@ -2236,13 +2237,13 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
             <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
               <div style={sec}>
                 <div style={secTitle}>{pick(T.gapsCobertura)}</div>
-                <div style={{fontSize:10,color:'#4a5a7a',marginBottom:8}}>{pick(T.gapsDesc)}</div>
-                <button onClick={()=>setShowClusters(true)} style={{...tbBtn(showClusters),fontSize:10,padding:'4px 10px',width:'100%',justifyContent:'center',borderColor:showClusters?'#ff4757':'#1c2535',color:showClusters?'#ff4757':'#4a5a7a'}}>
+                <div style={{fontSize:10,color:'#7a8ba8',marginBottom:8}}>{pick(T.gapsDesc)}</div>
+                <button onClick={()=>setShowClusters(true)} style={{...tbBtn(showClusters),fontSize:10,padding:'4px 10px',width:'100%',justifyContent:'center',borderColor:showClusters?'#ff4757':'#1c2535',color:showClusters?'#ff4757':'#7a8ba8'}}>
                   {showClusters?pick(T.mostrandoMapa):pick(T.mostrarMapa)}
                 </button>
               </div>
               <div style={{flex:1,overflowY:'auto',padding:'8px 14px',display:'flex',flexDirection:'column',gap:4}}>
-                {clusters.length===0 && <div style={{fontSize:11,color:'#4a5a7a',textAlign:'center',marginTop:16}}>
+                {clusters.length===0 && <div style={{fontSize:11,color:'#7a8ba8',textAlign:'center',marginTop:16}}>
                   {filtered.length===0?pick(T.selecioneAnalisar):pick(T.nenhumGap)}
                 </div>}
                 {clusters.slice(0,20).map((c,i)=>(
@@ -2251,7 +2252,7 @@ ${period.map(d=>{const dr=days[d]?.rides||[];const rev=dr.reduce((s:number,r:Rid
                     <div style={{width:28,height:28,borderRadius:'50%',background:'rgba(255,50,50,.2)',border:'2px solid #ff4757',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'IBM Plex Mono',monospace",fontSize:10,fontWeight:700,color:'#ff4757',flexShrink:0}}>{c.count}</div>
                     <div style={{flex:1}}>
                       <div style={{fontSize:10,color:'#dce8ff'}}>{c.lat.toFixed(4)}, {c.lng.toFixed(4)}</div>
-                      <div style={{fontSize:9,color:'#4a5a7a'}}>{pick(T.estacaoMaisProxima)}: {Math.round(c.nearestStation)}m</div>
+                      <div style={{fontSize:9,color:'#7a8ba8'}}>{pick(T.estacaoMaisProxima)}: {Math.round(c.nearestStation)}m</div>
                     </div>
                     <div style={{fontSize:9,color:'#f5c842',fontFamily:"'IBM Plex Mono',monospace"}}>+{Math.round(c.nearestStation)}m</div>
                   </div>
@@ -2322,11 +2323,11 @@ function TrendChart({ data, metric, color, label }: { data:{date:string,total:nu
           const v=d[metric], pct=(v-min)/(max-min||1)*100;
           return <div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',gap:2,cursor:'pointer'}} title={`${d.date}: ${v}`}>
             <div style={{width:'100%',borderRadius:'2px 2px 0 0',background:color,opacity:.8,minHeight:2,height:`${Math.max(pct,3)}%`,transition:'height .2s'}}/>
-            {data.length<=10&&<div style={{fontSize:7,color:'#4a5a7a',transform:'rotate(-45deg)',whiteSpace:'nowrap'}}>{d.date.slice(5)}</div>}
+            {data.length<=10&&<div style={{fontSize:7,color:'#7a8ba8',transform:'rotate(-45deg)',whiteSpace:'nowrap'}}>{d.date.slice(5)}</div>}
           </div>;
         })}
       </div>
-      <div style={{display:'flex',justifyContent:'space-between',marginTop:4,fontSize:9,color:'#4a5a7a',fontFamily:"'IBM Plex Mono',monospace"}}>
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:4,fontSize:9,color:'#7a8ba8',fontFamily:"'IBM Plex Mono',monospace"}}>
         <span>{metric==='dist'?min.toFixed(1):Math.round(min)}</span>
         <span style={{color}}>max: {metric==='dist'?max.toFixed(1):metric==='rev'?'R$'+max.toFixed(0):max}</span>
         <span>{metric==='dist'?max.toFixed(1):Math.round(max)}</span>
@@ -2345,11 +2346,11 @@ function ODMatrix({ rides }: { rides: Ride[] }) {
     if (!od[zs]) od[zs]={};
   });
   const zones = Object.keys(od).slice(0,8);
-  if (zones.length === 0) return <div style={{color:'#4a5a7a',fontSize:12}}>{pick(T.odSelDias)}</div>;
+  if (zones.length === 0) return <div style={{color:'#7a8ba8',fontSize:12}}>{pick(T.odSelDias)}</div>;
   const maxFlow = 1;
   return (
     <div style={{overflowX:'auto'}}>
-      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:12}}>
+      <div style={{fontSize:11,color:'#7a8ba8',marginBottom:12}}>
         {pick(T.odDesc)}
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:6}}>
@@ -2483,9 +2484,9 @@ function buildCalDays(y:number,m:number):(string|null)[]{
 }
 
 const sec:CSSProperties={padding:'12px 14px',borderBottom:'1px solid #1c2535'};
-const secTitle:CSSProperties={fontSize:9,fontWeight:700,textTransform:'uppercase',letterSpacing:1.2,color:'#4a5a7a',marginBottom:6};
-const tbBtn=(active:boolean):CSSProperties=>({padding:'4px 10px',borderRadius:4,border:`1px solid ${active?'#1c2535':'transparent'}`,cursor:'pointer',fontSize:11,fontWeight:600,background:active?'#111722':'transparent',color:active?'#dce8ff':'#4a5a7a',display:'flex',alignItems:'center',gap:5,fontFamily:"'DM Sans',sans-serif"});
-const calBtn:CSSProperties={background:'none',border:'none',color:'#4a5a7a',cursor:'pointer',fontSize:16,padding:'2px 6px',borderRadius:3};
+const secTitle:CSSProperties={fontSize:9,fontWeight:700,textTransform:'uppercase',letterSpacing:1.2,color:'#7a8ba8',marginBottom:6};
+const tbBtn=(active:boolean):CSSProperties=>({padding:'4px 10px',borderRadius:4,border:`1px solid ${active?'#1c2535':'transparent'}`,cursor:'pointer',fontSize:11,fontWeight:600,background:active?'#111722':'transparent',color:active?'#dce8ff':'#7a8ba8',display:'flex',alignItems:'center',gap:5,fontFamily:"'DM Sans',sans-serif"});
+const calBtn:CSSProperties={background:'none',border:'none',color:'#7a8ba8',cursor:'pointer',fontSize:16,padding:'2px 6px',borderRadius:3};
 
 // ── HORA COMPARATIVO ─────────────────────────────────────────────
 const COLORS = ['#3d9bff','#f5c842','#2ecc71','#ff6b35','#a78bfa','#f472b6','#34d399'];
@@ -2714,7 +2715,7 @@ function HoraComparativo({ days, activeDays, allDayKeys, mode, setMode }: {
             {/* X-axis labels */}
             <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', height: 18 }}>
               {Array.from({ length: 24 }, (_, h) => (
-                <div key={h} style={{ flex: 1, textAlign: 'center', fontSize: 7, color: '#4a5a7a', lineHeight: '18px' }}>
+                <div key={h} style={{ flex: 1, textAlign: 'center', fontSize: 7, color: '#7a8ba8', lineHeight: '18px' }}>
                   {h % 6 === 0 ? h + 'h' : ''}
                 </div>
               ))}
@@ -2741,7 +2742,7 @@ function HoraComparativo({ days, activeDays, allDayKeys, mode, setMode }: {
                     <span style={{ fontSize: 11, fontWeight: 700, color: s.color, fontFamily: "'IBM Plex Mono',monospace" }}>
                       {total}
                     </span>
-                    <span style={{ fontSize: 9, color: '#4a5a7a', marginLeft: 6 }}>
+                    <span style={{ fontSize: 9, color: '#7a8ba8', marginLeft: 6 }}>
                       {pick(T.picoLabel)}: {peak.h}h ({peak.v})
                     </span>
                   </div>
@@ -2809,7 +2810,7 @@ function GuardAnalyticsPanel({
   const tabBtn = (active:boolean, cor?:string): CSSProperties => ({
     padding:'5px 12px', borderRadius:6, border:'none', cursor:'pointer', fontSize:11,
     background: active ? (cor ? cor+'20' : 'rgba(167,139,250,.15)') : 'rgba(255,255,255,.04)',
-    color: active ? (cor || '#a78bfa') : '#4a5a7a', fontWeight: active ? 700 : 400,
+    color: active ? (cor || '#a78bfa') : '#7a8ba8', fontWeight: active ? 700 : 400,
   });
 
   return (
@@ -2817,7 +2818,7 @@ function GuardAnalyticsPanel({
 
       {/* ── Filtros período ──────────────────────────────────────── */}
       <div style={{ padding:'10px 14px', borderBottom:'1px solid #1c2535', display:'flex', gap:5, flexWrap:'wrap', alignItems:'center', flexShrink:0, background:'#0c1018' }}>
-        <span style={{ fontSize:10, color:'#4a5a7a', marginRight:4 }}>{pick(T.periodo)}:</span>
+        <span style={{ fontSize:10, color:'#7a8ba8', marginRight:4 }}>{pick(T.periodo)}:</span>
         {([{l:pick(T.hoje),d:1},{l:pick(T.ontem),d:2},{l:'7d',d:7},{l:'30d',d:30},{l:pick(T.total),d:0}] as {l:string;d:number}[]).map(({l,d}) => (
           <button key={d} onClick={()=>{setGuardDias(d);setGuardModoCustom(false);}} style={tabBtn(!guardModoCustom && guardDias===d)}>
             {l}
@@ -2827,13 +2828,13 @@ function GuardAnalyticsPanel({
         {guardModoCustom && <>
           <input type="date" value={guardCustomDe} onChange={e=>setGuardCustomDe(e.target.value)}
             style={{fontSize:10,padding:'4px 7px',borderRadius:6,background:'#1c2535',border:'1px solid #2a3a55',color:'#fff',outline:'none'}}/>
-          <span style={{color:'#4a5a7a',fontSize:10}}>→</span>
+          <span style={{color:'#7a8ba8',fontSize:10}}>→</span>
           <input type="date" value={guardCustomAte} onChange={e=>setGuardCustomAte(e.target.value)}
             style={{fontSize:10,padding:'4px 7px',borderRadius:6,background:'#1c2535',border:'1px solid #2a3a55',color:'#fff',outline:'none'}}/>
         </>}
         {/* Escopo: cidade selecionada ou Brasil todo */}
         <div style={{marginLeft:'auto',display:'flex',gap:5,alignItems:'center'}}>
-          <span style={{fontSize:9,color:'#4a5a7a',marginRight:2}}>{pick(T.escopo)}:</span>
+          <span style={{fontSize:9,color:'#7a8ba8',marginRight:2}}>{pick(T.escopo)}:</span>
           <button onClick={()=>setEscopoBrasil(false)} style={{...tabBtn(!escopoBrasil),padding:'3px 8px',fontSize:10}}>
             📍 {cidade || pick(T.cidade)}
           </button>
@@ -2870,7 +2871,7 @@ function GuardAnalyticsPanel({
           { label:pick(T.taxaResolucao), value:taxaRes+'%', cor: taxaRes>=80?'#22c55e':taxaRes>=50?'#eab308':'#ef4444' },
         ].map(k => (
           <div key={k.label} style={card}>
-            <div style={{fontSize:9,color:'#4a5a7a',marginBottom:3,textTransform:'uppercase'}}>{k.label}</div>
+            <div style={{fontSize:9,color:'#7a8ba8',marginBottom:3,textTransform:'uppercase'}}>{k.label}</div>
             <div style={{fontSize:20,fontWeight:700,color:k.cor,fontFamily:"'IBM Plex Mono',monospace"}}>{k.value}</div>
           </div>
         ))}
@@ -2934,7 +2935,7 @@ function GuardRankingEstacoes({ guardPoints, estacoes, card }: {
   }).filter(e => e.total > 0).sort((a,b) => b.total-a.total);
 
   if (ranking.length === 0) return (
-    <div style={{color:'#4a5a7a',fontSize:12,textAlign:'center',padding:32}}>
+    <div style={{color:'#7a8ba8',fontSize:12,textAlign:'center',padding:32}}>
       {pick(T.nenhumaOcorrEstacao)}<br/>
       <span style={{fontSize:10}}>{pick(T.raioBusca)}: {RAIO}m · {estacoes.length} {pick(T.estacoesVerificadas)}</span>
     </div>
@@ -2943,18 +2944,18 @@ function GuardRankingEstacoes({ guardPoints, estacoes, card }: {
   const max = ranking[0].total;
   return (
     <div>
-      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:12}}>
+      <div style={{fontSize:11,color:'#7a8ba8',marginBottom:12}}>
         {pick(T.estacoesCom)} ≤{RAIO}m · <strong style={{color:'#dce8ff'}}>{ranking.length}</strong> {pick(T.afetadas)}
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:6}}>
         {ranking.slice(0,20).map((e,i) => (
           <div key={e.id} style={{...card, display:'flex', alignItems:'center', gap:10}}>
-            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:'#4a5a7a',width:18,flexShrink:0}}>{i+1}</div>
+            <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:10,color:'#7a8ba8',width:18,flexShrink:0}}>{i+1}</div>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:11,fontWeight:600,color:'#dce8ff',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
                 {(e as any).privado?.nomeLocal || (e as any).endereco || e.bairro || e.codigo}
               </div>
-              <div style={{fontSize:9,color:'#4a5a7a',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+              <div style={{fontSize:9,color:'#7a8ba8',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
                 {e.codigo} · {e.bairro || (e as any).cidade_inicial || ''}
               </div>
               <div style={{display:'flex',gap:4,marginTop:3,flexWrap:'wrap'}}>
@@ -2996,7 +2997,7 @@ function GuardTendenciaSemanal({ guardPoints, card }: { guardPoints: GuardPoint[
 
   return (
     <div>
-      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:16}}>
+      <div style={{fontSize:11,color:'#7a8ba8',marginBottom:16}}>
         {pick(T.distPorTipo)}
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:10}}>
@@ -3019,7 +3020,7 @@ function GuardTendenciaSemanal({ guardPoints, card }: { guardPoints: GuardPoint[
       </div>
 
       {/* Status breakdown */}
-      <div style={{marginTop:24,fontSize:11,color:'#4a5a7a',marginBottom:12}}>{pick(T.statusOcorrencias)}</div>
+      <div style={{marginTop:24,fontSize:11,color:'#7a8ba8',marginBottom:12}}>{pick(T.statusOcorrencias)}</div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
         {[
           {l:pick(T.statusAberto),      cor:'#ef4444', v:guardPoints.filter(p=>p.status==='Aberto').length},
@@ -3028,7 +3029,7 @@ function GuardTendenciaSemanal({ guardPoints, card }: { guardPoints: GuardPoint[
           {l:pick(T.statusEncerrado),   cor:'#6b7280', v:guardPoints.filter(p=>p.status==='Encerrado').length},
         ].map(s => (
           <div key={s.l} style={{...card}}>
-            <div style={{fontSize:9,color:'#4a5a7a'}}>{s.l}</div>
+            <div style={{fontSize:9,color:'#7a8ba8'}}>{s.l}</div>
             <div style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:18,fontWeight:700,color:s.cor,marginTop:2}}>{s.v}</div>
             <div style={{height:3,background:'#1c2535',borderRadius:2,marginTop:6}}>
               <div style={{height:'100%',borderRadius:2,background:s.cor,width:`${guardPoints.length?s.v/guardPoints.length*100:0}%`}}/>
@@ -3072,14 +3073,14 @@ function GuardSLA({ guardPoints, porTipo, total, taxaRes, card }: {
         <div>
           <div style={{fontSize:12,color:'#dce8ff',fontWeight:700}}>{pick(T.taxaResolucaoTit)}</div>
           <div style={{fontSize:11,color:slaColor,fontWeight:600,marginTop:2}}>{slaLabel}</div>
-          <div style={{fontSize:10,color:'#4a5a7a',marginTop:4}}>
+          <div style={{fontSize:10,color:'#7a8ba8',marginTop:4}}>
             {resolvidos} {pick(T.deLabel)} {total} {pick(T.deOcorrResolvidas)}
           </div>
         </div>
       </div>
 
       {/* Funil de status */}
-      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:10}}>{pick(T.funilStatus)}</div>
+      <div style={{fontSize:11,color:'#7a8ba8',marginBottom:10}}>{pick(T.funilStatus)}</div>
       {[
         {l:pick(T.abertas),      v:abertos,    cor:'#ef4444', icon:'🔴'},
         {l:pick(T.emApuracao),  v:emApur,     cor:'#f97316', icon:'🟠'},
@@ -3101,7 +3102,7 @@ function GuardSLA({ guardPoints, porTipo, total, taxaRes, card }: {
       ))}
 
       {/* SLA por tipo */}
-      <div style={{fontSize:11,color:'#4a5a7a',marginTop:16,marginBottom:10}}>{pick(T.resolucaoPorTipo)}</div>
+      <div style={{fontSize:11,color:'#7a8ba8',marginTop:16,marginBottom:10}}>{pick(T.resolucaoPorTipo)}</div>
       {Object.entries(porTipo).sort((a,b)=>b[1]-a[1]).map(([tipo,n]) => {
         const res = guardPoints.filter(p=>p.tipo===tipo&&(p.status==='Encerrado'||p.status==='Recuperado')).length;
         const pct = n > 0 ? Math.round(res/n*100) : 0;
@@ -3111,7 +3112,7 @@ function GuardSLA({ guardPoints, porTipo, total, taxaRes, card }: {
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
               <span style={{fontSize:11,color:cor}}>{TIPO_EM_G[tipo]} {tipoLbl[tipo]||tipo}</span>
               <div style={{display:'flex',gap:6,alignItems:'center'}}>
-                <span style={{fontSize:9,color:'#4a5a7a'}}>{res}/{n}</span>
+                <span style={{fontSize:9,color:'#7a8ba8'}}>{res}/{n}</span>
                 <span style={{fontFamily:"'IBM Plex Mono',monospace",fontSize:12,fontWeight:700,color:pct>=80?'#22c55e':pct>=50?'#eab308':'#ef4444'}}>{pct}%</span>
               </div>
             </div>
@@ -3149,9 +3150,9 @@ function GuardHeatmapHorario({ guardPoints, filtered, card }: {
   return (
     <div>
       {/* Corridas por hora do dia */}
-      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:10}}>{pick(T.corridasPorHoraGuard)}</div>
+      <div style={{fontSize:11,color:'#7a8ba8',marginBottom:10}}>{pick(T.corridasPorHoraGuard)}</div>
       {filtered.length === 0 ? (
-        <div style={{...card,color:'#4a5a7a',fontSize:11,textAlign:'center',padding:16}}>
+        <div style={{...card,color:'#7a8ba8',fontSize:11,textAlign:'center',padding:16}}>
           {pick(T.selecioneVerCorridas)}
         </div>
       ) : (
@@ -3164,12 +3165,12 @@ function GuardHeatmapHorario({ guardPoints, filtered, card }: {
               return (
                 <div key={h} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',gap:1}} title={`${h}h: ${n} ${pick(T.corridas).toLowerCase()}`}>
                   <div style={{width:'100%',borderRadius:'1px 1px 0 0',background:isNight?'#3d9bff':'#22c55e',opacity:.7,minHeight:2,height:`${Math.max(pct,3)}%`}}/>
-                  {h%6===0&&<div style={{fontSize:7,color:'#4a5a7a'}}>{h}h</div>}
+                  {h%6===0&&<div style={{fontSize:7,color:'#7a8ba8'}}>{h}h</div>}
                 </div>
               );
             })}
           </div>
-          <div style={{display:'flex',gap:10,marginTop:6,fontSize:9,color:'#4a5a7a'}}>
+          <div style={{display:'flex',gap:10,marginTop:6,fontSize:9,color:'#7a8ba8'}}>
             <span>{pick(T.diaLegenda)}</span>
             <span>{pick(T.noiteLegenda)}</span>
           </div>
@@ -3177,7 +3178,7 @@ function GuardHeatmapHorario({ guardPoints, filtered, card }: {
       )}
 
       {/* Distribuição de ocorrências por tipo — volume */}
-      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:10}}>{pick(T.volumePorTipo)}</div>
+      <div style={{fontSize:11,color:'#7a8ba8',marginBottom:10}}>{pick(T.volumePorTipo)}</div>
       <div style={{...card,marginBottom:16}}>
         <div style={{display:'flex',alignItems:'flex-end',gap:3,height:60}}>
           {tiposAtivos.map(t => {
@@ -3187,7 +3188,7 @@ function GuardHeatmapHorario({ guardPoints, filtered, card }: {
               <div key={t} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',gap:2}} title={`${tipoLbl[t]||t}: ${n}`}>
                 <div style={{fontSize:8,color:TIPO_COR_G[t],fontWeight:700}}>{n}</div>
                 <div style={{width:'100%',borderRadius:'2px 2px 0 0',background:TIPO_COR_G[t],opacity:.8,minHeight:4,height:`${Math.max(pct,6)}%`}}/>
-                <div style={{fontSize:7,color:'#4a5a7a',whiteSpace:'nowrap'}}>{TIPO_EM_G[t]}</div>
+                <div style={{fontSize:7,color:'#7a8ba8',whiteSpace:'nowrap'}}>{TIPO_EM_G[t]}</div>
               </div>
             );
           })}
@@ -3195,10 +3196,10 @@ function GuardHeatmapHorario({ guardPoints, filtered, card }: {
       </div>
 
       {/* Grid 7 dias × tipo */}
-      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:10}}>{pick(T.padraoDiaSemana)}</div>
+      <div style={{fontSize:11,color:'#7a8ba8',marginBottom:10}}>{pick(T.padraoDiaSemana)}</div>
       <div style={{...card}}>
         <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}}>
-          {DIAS.map(d => <div key={d} style={{fontSize:8,color:'#4a5a7a',textAlign:'center',paddingBottom:4}}>{d}</div>)}
+          {DIAS.map(d => <div key={d} style={{fontSize:8,color:'#7a8ba8',textAlign:'center',paddingBottom:4}}>{d}</div>)}
           {DIAS.map((_,di) => {
             const fator = [0.8,1.2,1.1,1.0,1.3,1.5,1.4][di]; // padrão típico de semana
             const n = Math.round(guardPoints.length/7*fator);
@@ -3211,7 +3212,7 @@ function GuardHeatmapHorario({ guardPoints, filtered, card }: {
             );
           })}
         </div>
-        <div style={{fontSize:9,color:'#4a5a7a',marginTop:6,textAlign:'center'}}>
+        <div style={{fontSize:9,color:'#7a8ba8',marginTop:6,textAlign:'center'}}>
           {pick(T.distEstimada)}
         </div>
       </div>
@@ -3240,7 +3241,7 @@ function GuardRiscoPorZona({ guardPoints, card }: { guardPoints: GuardPoint[]; c
   const max = zonas[0]?.count || 1;
 
   if (zonas.length === 0) return (
-    <div style={{...card,color:'#4a5a7a',fontSize:11,textAlign:'center',padding:24}}>
+    <div style={{...card,color:'#7a8ba8',fontSize:11,textAlign:'center',padding:24}}>
       {pick(T.semDadosLoc)}
     </div>
   );
@@ -3250,7 +3251,7 @@ function GuardRiscoPorZona({ guardPoints, card }: { guardPoints: GuardPoint[]; c
 
   return (
     <div>
-      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:12}}>
+      <div style={{fontSize:11,color:'#7a8ba8',marginBottom:12}}>
         {pick(T.quadrantes)}
       </div>
       <div style={{display:'flex',flexDirection:'column',gap:6}}>
@@ -3263,7 +3264,7 @@ function GuardRiscoPorZona({ guardPoints, card }: { guardPoints: GuardPoint[]; c
               <div style={{flex:1,minWidth:0}}>
                 <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:3}}>
                   <span style={{fontSize:9,padding:'1px 6px',borderRadius:6,background:cor+'20',color:cor,fontWeight:700}}>{label}</span>
-                  <span style={{fontSize:9,color:'#4a5a7a',fontFamily:"'IBM Plex Mono',monospace"}}>{z.lat.toFixed(3)}, {z.lng.toFixed(3)}</span>
+                  <span style={{fontSize:9,color:'#7a8ba8',fontFamily:"'IBM Plex Mono',monospace"}}>{z.lat.toFixed(3)}, {z.lng.toFixed(3)}</span>
                 </div>
                 <div style={{display:'flex',gap:3,flexWrap:'wrap'}}>
                   {Object.entries(z.tipos).map(([t,n]) => (
@@ -3306,7 +3307,7 @@ function GuardCorrelacao({ guardPoints, filtered, card }: {
 
   return (
     <div>
-      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:12}}>
+      <div style={{fontSize:11,color:'#7a8ba8',marginBottom:12}}>
         {pick(T.relacaoVolume)}
       </div>
 
@@ -3319,7 +3320,7 @@ function GuardCorrelacao({ guardPoints, filtered, card }: {
           {l:pick(T.roubosPor1k),v:roubosPer1k,                         cor:'#ef4444'},
         ].map(k => (
           <div key={k.l} style={card}>
-            <div style={{fontSize:9,color:'#4a5a7a',marginBottom:3}}>{k.l}</div>
+            <div style={{fontSize:9,color:'#7a8ba8',marginBottom:3}}>{k.l}</div>
             <div style={{fontSize:20,fontWeight:700,color:k.cor,fontFamily:"'IBM Plex Mono',monospace"}}>{k.v}</div>
           </div>
         ))}
@@ -3327,7 +3328,7 @@ function GuardCorrelacao({ guardPoints, filtered, card }: {
 
       {/* Insight */}
       {totalRides === 0 ? (
-        <div style={{...card,color:'#4a5a7a',fontSize:11,textAlign:'center',padding:16}}>
+        <div style={{...card,color:'#7a8ba8',fontSize:11,textAlign:'center',padding:16}}>
           {pick(T.selecioneCorrelacao)}
         </div>
       ) : (
@@ -3340,14 +3341,14 @@ function GuardCorrelacao({ guardPoints, filtered, card }: {
                 ? `🟡 ${pick(T.taxaRouboModerada)} (${roubosPer1k}/1k ${pick(T.corridas).toLowerCase()}). ${pick(T.monitorarTendencia)}`
                 : `✅ ${pick(T.taxaRouboControlada)} (${roubosPer1k}/1k ${pick(T.corridas).toLowerCase()}).`}
           </div>
-          {totalRides > 0 && <div style={{fontSize:10,color:'#4a5a7a',marginTop:6}}>
+          {totalRides > 0 && <div style={{fontSize:10,color:'#7a8ba8',marginTop:6}}>
             {pick(T.horariosPicoCorridas)}: {peakHours}
           </div>}
         </div>
       )}
 
       {/* Breakdown final */}
-      <div style={{fontSize:11,color:'#4a5a7a',marginBottom:8}}>{pick(T.breakdownPorTipo)}</div>
+      <div style={{fontSize:11,color:'#7a8ba8',marginBottom:8}}>{pick(T.breakdownPorTipo)}</div>
       {['Roubo','Tentativa','Vandalismo','Recuperacao','Outro'].map(t => {
         const n = guardPoints.filter(p=>p.tipo===t).length;
         if (!n) return null;
@@ -3358,11 +3359,11 @@ function GuardCorrelacao({ guardPoints, filtered, card }: {
             <span style={{fontSize:16}}>{TIPO_EM_G[t]}</span>
             <div style={{flex:1}}>
               <span style={{fontSize:11,color:cor,fontWeight:600}}>{tipoLbl[t]||t}</span>
-              <span style={{fontSize:10,color:'#4a5a7a',marginLeft:8}}>{n} {pick(T.ocorrenciasLabel)}</span>
+              <span style={{fontSize:10,color:'#7a8ba8',marginLeft:8}}>{n} {pick(T.ocorrenciasLabel)}</span>
             </div>
             <div style={{textAlign:'right',fontFamily:"'IBM Plex Mono',monospace"}}>
               <div style={{fontSize:11,color:cor,fontWeight:700}}>{per1k}</div>
-              <div style={{fontSize:8,color:'#4a5a7a'}}>{pick(T.por1kCorridas)}</div>
+              <div style={{fontSize:8,color:'#7a8ba8'}}>{pick(T.por1kCorridas)}</div>
             </div>
           </div>
         );

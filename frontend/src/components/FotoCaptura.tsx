@@ -199,13 +199,13 @@ export function FotoCaptura({ context, origem = 'campo', lat, lng, estacaoId, es
               {fase === 'uploading' && pick(T.tituloEnviando)}
               {fase === 'done' && pick(T.tituloSalva)}
             </div>
-            <div style={{ fontSize: 10, color: '#4a5a7a', marginTop: 2 }}>
+            <div style={{ fontSize: 10, color: '#7a8ba8', marginTop: 2 }}>
               {context === 'novo' ? pick(T.novaEstacao) : `${pick(T.estacao)}${estacaoCodigo || estacaoId}`}
               {lat && lng ? ` · ${lat.toFixed(5)}, ${lng.toFixed(5)}` : ''}
             </div>
           </div>
           {fase !== 'uploading' && (
-            <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#4a5a7a', cursor: 'pointer', fontSize: 18 }}>✕</button>
+            <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#7a8ba8', cursor: 'pointer', fontSize: 18 }}>✕</button>
           )}
         </div>
 
@@ -239,13 +239,13 @@ export function FotoCaptura({ context, origem = 'campo', lat, lng, estacaoId, es
                 <span style={{ fontSize: 16 }}>📋</span>
                 <div>
                   <div style={{ fontSize: 11, color: '#3d9bff', fontWeight: 600 }}>{pick(T.colarImagem)}</div>
-                  <div style={{ fontSize: 10, color: '#4a5a7a' }}>{pick(T.colarDesc)}</div>
+                  <div style={{ fontSize: 10, color: '#7a8ba8' }}>{pick(T.colarDesc)}</div>
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: 'rgba(61,155,255,.04)', borderRadius: 8, border: '1px dashed rgba(61,155,255,.2)' }}>
                 <span style={{ fontSize: 16 }}>🖱</span>
                 <div>
-                  <div style={{ fontSize: 11, color: '#4a5a7a', fontWeight: 600 }}>{pick(T.arrasteAqui)}</div>
+                  <div style={{ fontSize: 11, color: '#7a8ba8', fontWeight: 600 }}>{pick(T.arrasteAqui)}</div>
                   <div style={{ fontSize: 10, color: '#2a3a5a' }}>{pick(T.arrasteDesc)}</div>
                 </div>
               </div>
@@ -299,7 +299,7 @@ export function FotoCaptura({ context, origem = 'campo', lat, lng, estacaoId, es
             {preview && <img src={preview} alt="" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 8 }} />}
             <div style={{ fontSize: 28 }}>✅</div>
             <div style={{ fontSize: 13, color: '#2ecc71', fontWeight: 600 }}>{pick(T.fotoSalva)}</div>
-            <div style={{ fontSize: 11, color: '#4a5a7a', textAlign: 'center' }}>
+            <div style={{ fontSize: 11, color: '#7a8ba8', textAlign: 'center' }}>
               {context === 'novo' ? pick(T.vinculadaNovo) : pick(T.vinculadaExist)}
             </div>
           </div>

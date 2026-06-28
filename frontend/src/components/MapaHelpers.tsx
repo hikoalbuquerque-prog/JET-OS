@@ -8,6 +8,7 @@ import { comprimirImagem } from '../lib/imageUtils';
 import { fnGeocodeForward } from '../lib/edge-functions';
 import i18n from '../i18n/index';
 import type { Estacao } from '../lib/app-utils';
+import { showToastGlobal } from './ui/ToastQueue';
 import { POIPanel } from './POIPanel';
 import type { POI } from './POIPanel';
 
@@ -120,7 +121,7 @@ export function FotoBotaoDrawer({ lat, lng, onFotoSalva }: {
       onFotoSalva(url, file);
     } catch (err) {
       console.error('[FotoBotao] upload error:', err);
-      alert('Erro ao enviar foto. Tente novamente.');
+      showToastGlobal('Erro ao enviar foto. Tente novamente.', 'erro');
     } finally {
       setLoading(false);
     }
@@ -137,11 +138,11 @@ export function FotoBotaoDrawer({ lat, lng, onFotoSalva }: {
         const base64 = reader.result as string;
         setPreview({ base64, file: compressed });
       };
-      reader.onerror = () => alert('Erro ao ler foto. Tente novamente.');
+      reader.onerror = () => showToastGlobal('Erro ao ler foto. Tente novamente.', 'erro');
       reader.readAsDataURL(compressed);
     } catch (err) {
       console.error('[FotoBotao] compressão falhou:', err);
-      alert('Erro ao processar foto. Tente novamente.');
+      showToastGlobal('Erro ao processar foto. Tente novamente.', 'erro');
     }
   };
 
@@ -316,7 +317,7 @@ export function GeoInputField({ onCoordChange, mapaLocRef, markerLocRef }: {
 
   return (
     <div style={{ marginBottom:8 }}>
-      <div style={{ fontSize:9, color:'#4a5a7a', marginBottom:4 }}>
+      <div style={{ fontSize:9, color:'#7a8ba8', marginBottom:4 }}>
         Cole as coordenadas completas (ex: <code style={{color:'#60a5fa'}}>-8.063116, -34.872091</code>)
       </div>
       <div style={{ display:'flex', gap:6 }}>
@@ -404,10 +405,10 @@ export function DrawerLocSelector({
           markerLocRef.current.setLatLng([d.lat, d.lng]);
         }
       } else {
-        alert('Endereço não encontrado. Tente ser mais específico.');
+        showToastGlobal('Endereço não encontrado. Tente ser mais específico.', 'warn');
       }
     } catch (e: any) {
-      alert('Erro ao buscar endereço: ' + e.message);
+      showToastGlobal('Erro ao buscar endereço: ' + e.message, 'erro');
     }
     setBuscandoLocEnd(false);
   };
@@ -426,7 +427,7 @@ export function DrawerLocSelector({
         mapaLocRef.current.setView([lat,lng],17);
         markerLocRef.current.setLatLng([lat,lng]);
       }
-    }, () => alert('GPS indisponível'));
+    }, () => showToastGlobal('GPS indisponível', 'warn'));
   };
 
   const inp: React.CSSProperties = {
@@ -500,7 +501,7 @@ export function DrawerLocSelector({
       {/* Coords atuais */}
       <div style={{ fontSize:9, color:'rgba(255,255,255,.25)', marginBottom:4 }}>
         📍 {latLng.lat.toFixed(6)}, {latLng.lng.toFixed(6)}
-        {geoLoading && <span style={{marginLeft:6,color:'#4a5a7a'}}>· geocodificando...</span>}
+        {geoLoading && <span style={{marginLeft:6,color:'#7a8ba8'}}>· geocodificando...</span>}
       </div>
     </div>
   );
@@ -1506,7 +1507,7 @@ export function POIGoogleDetalheModal({ poi, onFechar }: { poi: any; onFechar: (
     scrollbarWidth:'thin',scrollbarColor:'#1c2535 transparent',
   };
   const row: CSSProperties = { display:'flex',gap:8,padding:'8px 16px' };
-  const lbl: CSSProperties = { fontSize:9,color:'#4a5a7a',textTransform:'uppercase',letterSpacing:.5,fontWeight:700 };
+  const lbl: CSSProperties = { fontSize:9,color:'#7a8ba8',textTransform:'uppercase',letterSpacing:.5,fontWeight:700 };
 
   return (
     <div style={overlay} onClick={e => { if (e.target === e.currentTarget) onFechar(); }}>
@@ -1519,9 +1520,9 @@ export function POIGoogleDetalheModal({ poi, onFechar }: { poi: any; onFechar: (
               <div style={{ fontSize:14,fontWeight:700,color:'#dce8ff',marginBottom:2 }}>{poi.nome}</div>
               <div style={{ fontSize:10,color:'#fbbf24',fontWeight:600 }}>{poi.tipo}</div>
             </div>
-            <button onClick={onFechar} style={{ background:'none',border:'none',color:'#4a5a7a',fontSize:18,cursor:'pointer',padding:0 }}>✕</button>
+            <button onClick={onFechar} style={{ background:'none',border:'none',color:'#7a8ba8',fontSize:18,cursor:'pointer',padding:0 }}>✕</button>
           </div>
-          {poi.endereco && <div style={{ fontSize:10,color:'#4a5a7a',marginTop:4 }}>{poi.endereco}</div>}
+          {poi.endereco && <div style={{ fontSize:10,color:'#7a8ba8',marginTop:4 }}>{poi.endereco}</div>}
           {poi.rating && (
             <div style={{ fontSize:10,color:'#fbbf24',marginTop:4 }}>
               {'★'.repeat(Math.round(poi.rating))}{'☆'.repeat(5-Math.round(poi.rating))}
@@ -1572,7 +1573,7 @@ export function POIGoogleDetalheModal({ poi, onFechar }: { poi: any; onFechar: (
             {poi.lat.toFixed(6)}, {poi.lng.toFixed(6)}
           </div>
           {poi.salvoEm?.toDate && (
-            <div style={{ fontSize:9,color:'#4a5a7a',marginTop:6 }}>
+            <div style={{ fontSize:9,color:'#7a8ba8',marginTop:6 }}>
               Salvo em: {poi.salvoEm.toDate().toLocaleDateString('pt-BR')}
               {poi.fonte === 'google' ? ' · Google Places' : ' · OSM'}
             </div>
