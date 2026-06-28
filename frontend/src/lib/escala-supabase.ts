@@ -65,7 +65,8 @@ export async function fetchEscala(cidade?: string) {
     supabase.from('slot_aceites').select('*'),
     cidade ? supabase.from('disponibilidades').select('*').eq('cidade', cidade) : supabase.from('disponibilidades').select('*'),
     supabase.from('feriados').select('*'),
-    supabase.from('escala_config').select('*').eq('cidade', cidade || 'global').maybeSingle(),
+    supabase.from('escala_config').select('*').eq('cidade', cidade || 'global').maybeSingle()
+      .then(r => r.data ? r : supabase.from('escala_config').select('*').eq('cidade', 'global').maybeSingle()),
   ]);
   return {
     slots: (slotsR.data ?? []).map(mapSlot),
