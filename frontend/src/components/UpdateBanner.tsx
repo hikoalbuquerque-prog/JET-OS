@@ -67,12 +67,15 @@ export default function UpdateBanner() {
       try { await updater?.reload?.(); } catch { setAplicando(false); }
       return;
     }
-    // PWA: tell waiting SW to skipWaiting, then reload
     if (swReg?.waiting) {
       swReg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        window.location.reload();
+      }, { once: true });
+      setTimeout(() => window.location.reload(), 2000);
+    } else {
+      window.location.reload();
     }
-    // Reload after short delay to let SW activate
-    setTimeout(() => window.location.reload(), 500);
   };
 
   if (!disponivel) return null;
