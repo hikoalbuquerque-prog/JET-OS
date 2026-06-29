@@ -121,21 +121,20 @@ export async function fetchActivity(
   return data;
 }
 
-/** Busca o cityId GoJet para uma cidade pelo nome. Retrocompat com buscarCityIdSupabase. */
+/** Busca o cityId GoJet para uma cidade pelo nome. */
 export async function buscarCityId(cidade: string): Promise<string | null> {
   const { data } = await supabase
-    .from(TABLE)
-    .select('id')
-    .eq('nome', cidade)
+    .from('gojet_config')
+    .select('city_id')
+    .eq('cidade', cidade)
     .maybeSingle();
-  if (data?.id) return data.id;
-  // Fallback: busca parcial (case insensitive)
+  if (data?.city_id) return data.city_id;
   const { data: fuzzy } = await supabase
-    .from(TABLE)
-    .select('id, nome')
-    .ilike('nome', `%${cidade}%`)
+    .from('gojet_config')
+    .select('city_id, cidade')
+    .ilike('cidade', `%${cidade}%`)
     .limit(1);
-  return fuzzy?.[0]?.id ?? null;
+  return fuzzy?.[0]?.city_id ?? null;
 }
 
 // Retrocompatibilidade com gojet-config-supabase.ts

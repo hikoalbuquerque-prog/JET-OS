@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
-import { fetchGojetSnapshot } from '../lib/analytics-supabase';
 
 type Lang = 'pt' | 'en' | 'es' | 'ru';
 const T = {
@@ -52,8 +51,9 @@ export default function ComparativoCidades() {
       for (const c of cidades) {
         const cidade = c.nome;
         try {
-          const [snap, tRes, pRes] = await Promise.all([
-            fetchGojetSnapshot(cidade),
+          const [parkingsRes, bikesRes, tRes, pRes] = await Promise.all([
+            supabase.from('parkings').select('id, target_bikes_count').eq('cidade', cidade),
+            supabase.from('bikes').select('dados').eq('cidade', cidade),
             supabase.from('tarefas_logistica')
               .select('id', { count: 'exact', head: true })
               .eq('cidade', cidade)
@@ -63,9 +63,7 @@ export default function ComparativoCidades() {
               .eq('cidade', cidade),
           ]);
 
-          const parkings = (snap.parkings ?? []).filter((p: any) => Number.isFinite(p.latitude));
-          // Build bike counts
-          const bikesRes = await supabase.from('bikes').select('dados').limit(3000);
+          const parkings = parkingsRes.data ?? [];
           const bikesList = (bikesRes.data ?? []).map((r: any) => r.dados ?? {});
           const bikeCountPerParking: Record<string, number> = {};
           for (const b of bikesList) {
@@ -78,7 +76,7 @@ export default function ComparativoCidades() {
           for (const p of parkings) {
             const count = bikeCountPerParking[p.id] ?? 0;
             if (count === 0) vazios++;
-            const target = p.target_bikes_count ?? 3;
+            const target = (p as any).target_bikes_count ?? 3;
             if (count > target) excesso++;
           }
 

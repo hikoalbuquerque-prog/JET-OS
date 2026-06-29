@@ -95,7 +95,6 @@ interface TarefaRow {
   titulo?: string;
   parking_lat?: number | null;
   parking_lng?: number | null;
-  due_at?: string | null;
   rota_osrm?: string | null;
 }
 
@@ -133,7 +132,7 @@ export default function CommandCenter({ cidade }: Props) {
         .select('status_prestador')
         .eq('cidade', cidade),
       supabase.from('tarefas_logistica')
-        .select('id, status, criado_em, concluido_em, kind, titulo, parking_lat, parking_lng, due_at, rota_osrm')
+        .select('id, status, criado_em, concluido_em, kind, titulo, parking_lat, parking_lng, rota_osrm')
         .eq('cidade', cidade)
         .gte('criado_em', `${today}T00:00:00`),
       supabase.from('pontos_especiais')
@@ -742,7 +741,7 @@ export default function CommandCenter({ cidade }: Props) {
             .map(t => {
               const SLA_DEFAULT_MIN = 60;
               const elapsed = (Date.now() - new Date(t.criado_em).getTime()) / 60000;
-              const slaMin = t.due_at ? (new Date(t.due_at).getTime() - new Date(t.criado_em).getTime()) / 60000 : SLA_DEFAULT_MIN;
+              const slaMin = SLA_DEFAULT_MIN;
               return {
                 id: t.id || '', lat: t.parking_lat!, lng: t.parking_lng!,
                 titulo: t.titulo || t.kind || '', rota_osrm: t.rota_osrm,
