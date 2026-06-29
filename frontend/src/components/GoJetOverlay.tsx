@@ -696,6 +696,19 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
     return criadas;
   }, [cidade]);
 
+  // Carrega zones independente do cityId — basta ter cidade e visível
+  useEffect(() => {
+    if (!visivel || !cidade) return;
+    (async () => {
+      try {
+        const { data: zoneRows } = await supabase.from('zones')
+          .select('id, name, city, geometry, color')
+          .eq('city', cidade);
+        setZones(zoneRows ?? []);
+      } catch { setZones([]); }
+    })();
+  }, [visivel, cidade]);
+
   useEffect(() => {
     if (!visivel || !cityId) return;
     carregarSnapshot();
