@@ -1625,4 +1625,74 @@ CREATE TABLE IF NOT EXISTS public.cidade_config (
 - NÃO pausa automaticamente — scout decide
 - Migration 0106: colunas `pausado_em`, `motivo_pausa`, `clima_registro`
 
-*Atualizado em 2026-06-29. Referencia: sessão F0-F7 + T1-T5 + O1-O5 + F5 ROI + B5.x completo + CC 19 blocos + offline queue.*
+---
+
+### § Sessão 6 — GoJet Cities, Performance & Bug Fixes (2026-06-29)
+
+#### Fixes críticos
+
+| Bug | Causa raiz | Fix |
+|-----|------------|-----|
+| GoJet "não configurado" para cidades ativas | `buscarCityId` lia de `gojet_config` (tabela antiga), não `cidade_config` | Reescrito para ler de `cidade_config` onde `id` = GoJet city_id |
+| Sync GoJet falhava silenciosamente | Edge function `sync-gojet-cities` bloqueada por Cloudflare (server-side) | Migrado sync + importZonas para browser-side fetch (CORS aberto) |
+| Snapshot "não existe" + botão sem efeito | `fetchGojetSnapshot` lia de tabelas `parkings/bikes` (processo antigo), não de `gojet_snapshots` (onde scraper salva) | Reescrito para ler de `gojet_snapshots` com `id=latest_{cityId}` |
+| Cidades ativadas não aparecem no mapa | RPC `cidades_estacoes` só retornava cidades com estações em `estacoes` | RPC v2: UNION com `cidade_config` + `parkings` (via `unaccent`) + fallback lat/lng manual |
+| "São Paulo" e "Sao Paulo" duplicados | RPC retorna ambos (estacoes sem acento, cidade_config com) | Dedup NFD no frontend, prevalece nome acentuado |
+| Delete estação 400 Bad Request | `id.eq.{firebase_id}` — PostgREST rejeita non-UUID em coluna UUID | Helper `idFilter`: se UUID usa `id.eq OR firebase_id.eq`, senão só `firebase_id.eq` |
+| Belo Horizonte/Brasília sem coordenadas | `cidade_config` não tinha lat/lng, sem parkings nem estações | Migration 0108: colunas `lat`/`lng` + seed de coordenadas de 10 capitais |
+
+#### Migrations aplicadas
+
+- **0107** `rpc_cidades_estacoes_v2.sql` — RPC expandida: 3 UNIONs (estações + parkings accent-insensitive + lat/lng manual). `CREATE EXTENSION unaccent`.
+- **0108** `cidade_config_latlng.sql` — Colunas `lat`/`lng` em `cidade_config` + seed SP, SA, BC, BH, BSB, CWB, RJ, POA, FOR, SSA.
+
+#### Performance (bundle -65%)
+
+| Métrica | Antes | Depois |
+|---------|-------|--------|
+| Bundle principal (`index-*.js`) | 2,436 KB | 842 KB |
+| Chunks lazy-loaded | 0 | 25+ painéis |
+| Cache estações | nenhum | in-memory 5min TTL |
+| Cache RPC cidades | nenhum | sessionStorage 10min |
+
+**Lazy-loaded panels:** ZonasManager, UsuariosManager, DashboardManager, PainelConfiguracoes, MonitorPanel, TelegramVinculo, TelaPrestadorPerfil, AnalyticsManager, GuiaPanel, GoJetDashboard, GestorLogisticaPanel, PagamentosModule, PagamentosAdminPanel, SlotsTeamsModule, LiveWorkersPanel, PainelRoubos, GuardDashboard, PainelControlePerdasSeg, TarefasLogisticaModule, TurnoRegistro, GoJetAnalyticsPanel, ShiftPanel, GoJetOverlay, LocaisFinanceiro, POIPanel, StreetViewModal, FotoCaptura, FotoMedidas, CandidatosManager.
+
+#### Arquitetura — fluxo GoJet corrigido
+
+```
+Browser                        Supabase
+  │                               │
+  ├─ fetch GoJet /cities ────►    │
+  │  (CORS aberto)                │
+  ├─ upsert cidade_config ──────► │  (cidade_config.id = GoJet city_id)
+  │                               │
+  ├─ fetch GoJet /techzones ──►   │
+  ├─ upsert zones ──────────────► │  (zones.city = cityId ou nome)
+  │                               │
+  ├─ fetch GoJet /parkings ───►   │
+  ├─ fetch GoJet /bikes ──────►   │
+  ├─ upsert gojet_snapshots ───► │  (id = latest_{cityId} / bikes_latest_{cityId})
+  │                               │
+  ├─ fetchGojetSnapshot() ◄────── │  (lê gojet_snapshots)
+  └─ buscarCityId() ◄──────────── │  (lê cidade_config, não gojet_config)
+```
+
+**⚠ Edge function `sync-gojet-cities`**: ainda existe mas `sync` e `import-zones` actions estão obsoletas (browser-side agora). Só `fetch-activity` ainda usa a edge function (ML API).
+
+#### Limpeza
+
+- Removidos: `frontend/({`, `functions/{` (diretórios com nomes malformados), `teste.js`, `frontend_files.txt`, `functions_files.txt`, `firebase-debug.log`
+- Map pins: removido badge de contagem de estações
+- Seletor de cidades: badge só aparece se count > 0, removido sufixo "est."
+
+#### Arquivos modificados (commit `94ea584`)
+
+- `frontend/src/views/TelaMapa.tsx` — lazy imports, dedup cidades, idFilter, cache RPC, Suspense
+- `frontend/src/lib/cidade-config.ts` — sync/import browser-side, buscarCityId de cidade_config
+- `frontend/src/lib/analytics-supabase.ts` — fetchGojetSnapshot de gojet_snapshots
+- `frontend/src/lib/estacoes-supabase.ts` — cache in-memory 5min + invalidarCacheEstacoes
+- `frontend/src/components/GoJetOverlay.tsx` — zones query por nome ou cityId
+- `supabase/migrations/0107_rpc_cidades_estacoes_v2.sql`
+- `supabase/migrations/0108_cidade_config_latlng.sql`
+
+*Atualizado em 2026-06-29. Referencia: sessões F0-F7 + T1-T5 + O1-O5 + F5 ROI + B5.x + CC 19 blocos + offline queue + §6 GoJet/perf.*
