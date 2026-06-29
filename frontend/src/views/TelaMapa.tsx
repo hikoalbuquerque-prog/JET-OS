@@ -1,5 +1,5 @@
 ﻿// TelaMapa.tsx — Main map component extracted from App.tsx
-import { useState, useEffect, useRef, useCallback, CSSProperties, startTransition } from 'react';
+import { useState, useEffect, useRef, useCallback, CSSProperties, startTransition, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { fnGerarCroqui, fnGerarStreetView, fnAnalisarCalcada, fnBuscarPOIs } from '../lib/edge-functions';
 import { carregarOcorrenciasSupabase } from '../lib/ocorrencias-supabase';
@@ -9,48 +9,57 @@ import { comprimirImagem, capturarFotoNativa } from '../lib/imageUtils';
 import { isAndroidNative } from '../lib/gps-native';
 import { carregarEstacoesSupabase, carregarZonasSupabase } from '../lib/estacoes-supabase';
 import { supabase } from '../lib/supabase';
-import ZonasManager from '../ZonasManager';
 import { useCidadesExpansao, CidadeExpansaoModal, STATUS_META, type CidadeExpansao } from '../CidadesExpansao';
 import { showToastGlobal } from '../components/ui/ToastQueue';
-import UsuariosManager from '../UsuariosManager';
-import DashboardManager from '../DashboardManager';
-import PainelConfiguracoes from '../components/PainelConfiguracoes';
-import MonitorPanel from '../MonitorPanel';
-import TelegramVinculo, { useTelegramVinculado } from '../TelegramVinculo';
-import TelaPrestadorPerfil from '../TelaPrestadorPerfil';
-import AnalyticsManager from '../AnalyticsManager';
-import { POIPanel, POIMapFilter, POIActionsPopup, POI_META } from '../components/POIPanel';
-import { StreetViewModal } from '../components/StreetViewModal';
-import { FotoCaptura } from '../components/FotoCaptura';
-import { FotoMedidas } from '../components/FotoMedidas';
-import { CandidatosManager } from '../components/CandidatosManager';
-import LocaisFinanceiro, { LocalOperacionalModal, useLocaisOperacionais, TIPO_LOCAL_META } from '../components/LocaisFinanceiro';
-import { GoJetOverlay } from '../components/GoJetOverlay';
 import { buscarCityId as buscarCityIdSupabase } from '../lib/cidade-config';
-import GoJetDashboard from '../components/GoJetDashboard';
-import GestorLogisticaPanel from '../components/GestorLogisticaPanel';
-import PagamentosModule from '../components/PagamentosModule';
-import PagamentosAdminPanel from '../components/PagamentosAdminPanel';
-import SlotsTeamsModule from '../components/SlotsTeamsModule';
-import LiveWorkersPanel from '../components/LiveWorkersPanel';
-import PainelRoubos from '../components/PainelRoubos';
-import GuardDashboard from '../components/GuardDashboard';
-import PainelControlePerdasSeg from '../components/PainelControlePerdasSeg';
-import TarefasLogisticaModule from '../components/TarefasLogisticaModule';
-import TurnoRegistro from '../components/TurnoRegistro';
-import GoJetAnalyticsPanel from '../components/GoJetAnalyticsPanel';
-import ShiftPanel from '../components/ShiftPanel';
-import UpdateBanner from '../components/UpdateBanner';
+import { POIMapFilter, POI_META } from '../components/POIPanel';
 import { useShiftNotifications, formatTurnoToast } from '../components/ShiftNotifications';
+import { useLocaisOperacionais, TIPO_LOCAL_META } from '../components/LocaisFinanceiro';
+import { useTelegramVinculado } from '../TelegramVinculo';
+import { DrawerAdd, ZonaEditModal, ZonaFormModal, LangSelector } from '../components/MapaHelpers';
+import { Toast, CentralNotificacoes, NovaOcorrenciaInline, GuardOverlay, DocPublicoModal } from '../components/AppShell';
+import UpdateBanner from '../components/UpdateBanner';
+import type { Usuario, Estacao } from '../lib/app-utils';
+import { COORDS_CIDADES, CIDADES, calcAreaKm2, pontoNoPoli, sanitizarFotoUrl, fixDriveUrl } from '../lib/app-utils';
 import type { LocalOperacional, TipoLocal } from '../components/LocaisFinanceiro';
 import type { Candidato } from '../components/CandidatosManager';
 import type { POI } from '../components/POIPanel';
-import GuiaPanel from '../GuiaPanel';
-import { DrawerAdd, ZonaEditModal, ZonaFormModal, LangSelector } from '../components/MapaHelpers';
-import { Toast, CentralNotificacoes, NovaOcorrenciaInline, GuardOverlay } from '../components/AppShell';
-import type { Usuario, Estacao } from '../lib/app-utils';
-import { COORDS_CIDADES, CIDADES, calcAreaKm2, pontoNoPoli, sanitizarFotoUrl, fixDriveUrl } from '../lib/app-utils';
-import { DocPublicoModal } from '../components/AppShell';
+
+// Lazy-loaded panels (only parsed when opened)
+const ZonasManager = lazy(() => import('../ZonasManager'));
+const UsuariosManager = lazy(() => import('../UsuariosManager'));
+const DashboardManager = lazy(() => import('../DashboardManager'));
+const PainelConfiguracoes = lazy(() => import('../components/PainelConfiguracoes'));
+const MonitorPanel = lazy(() => import('../MonitorPanel'));
+const TelegramVinculo = lazy(() => import('../TelegramVinculo'));
+const TelaPrestadorPerfil = lazy(() => import('../TelaPrestadorPerfil'));
+const AnalyticsManager = lazy(() => import('../AnalyticsManager'));
+const GuiaPanel = lazy(() => import('../GuiaPanel'));
+const GoJetDashboard = lazy(() => import('../components/GoJetDashboard'));
+const GestorLogisticaPanel = lazy(() => import('../components/GestorLogisticaPanel'));
+const PagamentosModule = lazy(() => import('../components/PagamentosModule'));
+const PagamentosAdminPanel = lazy(() => import('../components/PagamentosAdminPanel'));
+const SlotsTeamsModule = lazy(() => import('../components/SlotsTeamsModule'));
+const LiveWorkersPanel = lazy(() => import('../components/LiveWorkersPanel'));
+const PainelRoubos = lazy(() => import('../components/PainelRoubos'));
+const GuardDashboard = lazy(() => import('../components/GuardDashboard'));
+const PainelControlePerdasSeg = lazy(() => import('../components/PainelControlePerdasSeg'));
+const TarefasLogisticaModule = lazy(() => import('../components/TarefasLogisticaModule'));
+const TurnoRegistro = lazy(() => import('../components/TurnoRegistro'));
+const GoJetAnalyticsPanel = lazy(() => import('../components/GoJetAnalyticsPanel'));
+const ShiftPanel = lazy(() => import('../components/ShiftPanel'));
+const GoJetOverlay = lazy(() => import('../components/GoJetOverlay').then(m => ({ default: m.GoJetOverlay })));
+const LocaisFinanceiro = lazy(() => import('../components/LocaisFinanceiro'));
+const LocalOperacionalModal = lazy(() => import('../components/LocaisFinanceiro').then(m => ({ default: m.LocalOperacionalModal })));
+const POIPanel = lazy(() => import('../components/POIPanel').then(m => ({ default: m.POIPanel })));
+const POIActionsPopup = lazy(() => import('../components/POIPanel').then(m => ({ default: m.POIActionsPopup })));
+const StreetViewModal = lazy(() => import('../components/StreetViewModal').then(m => ({ default: m.StreetViewModal })));
+const FotoCaptura = lazy(() => import('../components/FotoCaptura').then(m => ({ default: m.FotoCaptura })));
+const FotoMedidas = lazy(() => import('../components/FotoMedidas').then(m => ({ default: m.FotoMedidas })));
+const CandidatosManager = lazy(() => import('../components/CandidatosManager').then(m => ({ default: m.CandidatosManager })));
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const idFilter = (id: string) => UUID_RE.test(id) ? `id.eq.${id},firebase_id.eq.${id}` : `firebase_id.eq.${id}`;
 
 // Compressão HEIC-safe (ver lib/imageUtils). Converte HEIC→JPEG antes de comprimir,
 // evitando o bug de foto "quebrada" (HEIC enviado como .jpg que o WebView não renderiza).
@@ -533,7 +542,7 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
             const { data: rows } = await supabase
               .from('estacoes')
               .select('id,imagens')
-              .or(`id.eq.${id},firebase_id.eq.${id}`)
+              .or(idFilter(id))
               .limit(1);
             const row = rows?.[0];
             const { error: supErr } = row
@@ -552,7 +561,7 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
               return;
             }
             // Fallback Supabase
-            await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(`id.eq.${id},firebase_id.eq.${id}`);
+            await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(idFilter(id));
             updateLocal(id, url);
             showToast('Foto com medidas salva!', 'success');
           } catch (err: any) {
@@ -911,12 +920,12 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
 
     // Handlers para botões no popup
     (window as any)._editZona = async (id: string) => {
-      const { data } = await supabase.from('poligonos').select('*').or(`id.eq.${id},firebase_id.eq.${id}`).limit(1).single();
+      const { data } = await supabase.from('poligonos').select('*').or(idFilter(id)).limit(1).single();
       if (data) setZonaEditando(data);
     };
     (window as any)._deleteZona = async (id: string, nome: string) => {
       if (!confirm('Excluir zona "' + nome + '"?')) return;
-      const { error } = await supabase.from('poligonos').delete().or(`id.eq.${id},firebase_id.eq.${id}`);
+      const { error } = await supabase.from('poligonos').delete().or(idFilter(id));
       if (error) throw error;
       showToast('Zona excluída', 'success');
       setPoligonosOn(false); setTimeout(() => setPoligonosOn(true), 100);
@@ -961,21 +970,48 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
       })).sort((a,b) => b.count - a.count);
 
     const mapa: Record<string, {lats: number[]; lngs: number[]; count: number; pais: string}> = {};
+    const normKey = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+    const canonNames: Record<string, string> = {};
 
-    // Supabase: cidades agrupadas via RPC (evita limite de 1000 rows do PostgREST)
+    // Supabase: cidades agrupadas via RPC (cache sessionStorage 10min)
     const supaProm = (async () => {
-      const { data, error } = await supabase.rpc('cidades_estacoes');
+      let data: any[] | null = null;
+      try {
+        const ck = 'jet_cidades_estacoes';
+        const raw = sessionStorage.getItem(ck);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Date.now() - parsed.ts < 10 * 60 * 1000) data = parsed.data;
+        }
+      } catch {}
+      if (!data) {
+        const res = await supabase.rpc('cidades_estacoes');
+        data = res.data;
+        try { sessionStorage.setItem('jet_cidades_estacoes', JSON.stringify({ data, ts: Date.now() })); } catch {}
+      }
       if (data) {
         for (const r of data as any[]) {
           if (!r.cidade || !r.lat || !r.lng) continue;
           const p = r.pais || 'BR';
           if (!userIsAdmin && !paisesDoUsuario.includes(p)) continue;
-          mapa[r.cidade] = { lats: [r.lat], lngs: [r.lng], count: r.count, pais: p };
+          const key = normKey(r.cidade);
+          // Prefer accented name over unaccented
+          if (!canonNames[key] || r.cidade !== normKey(r.cidade)) canonNames[key] = r.cidade;
+          const name = canonNames[key];
+          if (mapa[name]) {
+            mapa[name].count += r.count;
+          } else {
+            // Remove previous unaccented duplicate if exists
+            const oldName = Object.keys(mapa).find(k => normKey(k) === key && k !== name);
+            if (oldName) { mapa[name] = mapa[oldName]; mapa[name].count += r.count; delete mapa[oldName]; }
+            else mapa[name] = { lats: [r.lat], lngs: [r.lng], count: r.count, pais: p };
+          }
         }
       }
     })().catch((e) => { console.error('[TelaMapa] Supabase catch:', e); });
 
     await supaProm;
+
     setCidadesReais(mapaToLista(mapa));
   })(); }, [pais]);
 
@@ -1021,7 +1057,6 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
         white-space:nowrap;cursor:pointer;
         display:flex;align-items:center;gap:4px">
         <span>${c.cidade}</span>
-        <span style="background:rgba(255,255,255,.25);border-radius:8px;padding:1px 5px;font-size:8px">${c.count}</span>
       </div>`;
 
       const marker = L.marker([c.lat, c.lng], {
@@ -1541,7 +1576,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
     (window as any)._svSaveFn = async (id: string, url: string) => {
       const e = estacoesRef.current.find(x => x.id === id);
       if (!e) return;
-      const { error: supErr } = await supabase.from('estacoes').update({ imagens: { ...((e as any).imagens || {}), streetView: url } }).or(`id.eq.${id},firebase_id.eq.${id}`);
+      const { error: supErr } = await supabase.from('estacoes').update({ imagens: { ...((e as any).imagens || {}), streetView: url } }).or(idFilter(id));
       if (!supErr) {
         const est = estacoesRef.current.find((x: any) => x.id === id);
         if (est) (est as any).imagens = { ...((est as any).imagens || {}), streetView: url };
@@ -1569,7 +1604,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
           const r = await fnGerarStreetView()({ codigo: e.codigo, lat: e.lat, lng: e.lng });
           const d = (r.data || r) as { url?: string; fonte?: string };
           if (d.url) {
-            await supabase.from('estacoes').update({ imagens: { ...((e as any).imagens || {}), streetView: d.url } }).or(`id.eq.${e.id},firebase_id.eq.${e.id}`);
+            await supabase.from('estacoes').update({ imagens: { ...((e as any).imagens || {}), streetView: d.url } }).or(idFilter(e.id));
             (e as any).imagens = { ...((e as any).imagens || {}), streetView: d.url };
             ok++;
           } else { fail++; }
@@ -1606,7 +1641,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
             const r = await fnGerarStreetView()({ codigo: e.codigo, lat: e.lat, lng: e.lng });
             const d = (r.data || r) as { url?: string; fonte?: string };
             if (d.url) {
-              await supabase.from('estacoes').update({ imagens: { ...((e as any).imagens || {}), streetView: d.url } }).or(`id.eq.${e.id},firebase_id.eq.${e.id}`);
+              await supabase.from('estacoes').update({ imagens: { ...((e as any).imagens || {}), streetView: d.url } }).or(idFilter(e.id));
               (e as any).imagens = { ...((e as any).imagens || {}), streetView: d.url };
               ok++;
             } else { fail++; }
@@ -1667,7 +1702,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
       if (!e) return;
       if (!confirm(t('popup.deleteConfirm', { codigo: e.codigo }))) return;
       try {
-        const { error } = await supabase.from('estacoes').delete().or(`id.eq.${id},firebase_id.eq.${id}`);
+        const { error } = await supabase.from('estacoes').delete().or(idFilter(id));
         if (error) throw error;
         setEstacoes(prev => prev.filter((x: any) => x.id !== id));
         leafletRef.current?.closePopup();
@@ -1734,7 +1769,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         map.off('click', (window as any).__reposHandler);
         (window as any).__reposHandler = null;
         try {
-          const { error } = await supabase.from('estacoes').update({ lat: ev.latlng.lat, lng: ev.latlng.lng }).or(`codigo.eq.${codigo},firebase_id.eq.${codigo}`);
+          const { error } = await supabase.from('estacoes').update({ lat: ev.latlng.lat, lng: ev.latlng.lng }).or(idFilter(codigo));
           if (error) throw error;
           setEstacoes((prev: any[]) => prev.map((s: any) =>
             s.codigo === codigo ? { ...s, lat: ev.latlng.lat, lng: ev.latlng.lng } : s
@@ -1885,7 +1920,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
             atualizadoEm: new Date().toISOString()
           };
 
-          const { error } = await supabase.from('estacoes').update(patch).or(`id.eq.${id},firebase_id.eq.${id},codigo.eq.${dados.codigo}`);
+          const { error } = await supabase.from('estacoes').update(patch).or(`${idFilter(id)},codigo.eq.${dados.codigo}`);
           if (error) throw error;
 
           setEstacoes(prev => prev.map(e => e.codigo === dados.codigo ? { ...e, ...patch, imagens: { ...e.imagens, foto: fotoUrl || e.imagens?.foto } } : e));
@@ -1932,7 +1967,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
       const { error } = await supabase.from('poligonos').update({
         ...dados,
         atualizadoEm: new Date().toISOString()
-      }).or(`id.eq.${id},firebase_id.eq.${id}`);
+      }).or(idFilter(id));
       if (error) throw error;
       setZonaEditando(null);
       setPoligonosOn(false); setTimeout(() => setPoligonosOn(true), 150);
@@ -1944,7 +1979,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
   // Exclui zona
   const excluirZona = async (id: string) => {
     try {
-      const { error } = await supabase.from('poligonos').delete().or(`id.eq.${id},firebase_id.eq.${id}`);
+      const { error } = await supabase.from('poligonos').delete().or(idFilter(id));
       if (error) throw error;
       setZonaEditando(null);
       if (poligonosOn) { setPoligonosOn(false); setTimeout(() => setPoligonosOn(true), 100); }
@@ -1980,6 +2015,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
   };
 
   return (
+    <Suspense fallback={null}>
     <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden', fontFamily: 'Inter,sans-serif' }}>
       {/* MAPA */}
       <div ref={mapRef} id="leaflet-map" style={{ width: '100%', height: '100%' }} />
@@ -2845,10 +2881,10 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                               {c.cidade}
                             </span>
                           </div>
-                          <span style={{ fontSize:10, color:'#60a5fa', background:'rgba(48,127,226,.15)',
+                          {c.count > 0 && <span style={{ fontSize:10, color:'#60a5fa', background:'rgba(48,127,226,.15)',
                             border:'1px solid rgba(48,127,226,.2)', borderRadius:10, padding:'1px 7px' }}>
-                            {c.count} est.
-                          </span>
+                            {c.count}
+                          </span>}
                         </div>
                       );
                         })}
@@ -2999,7 +3035,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
               showToast('Colando imagem...', 'info');
               const comp = await comprimir(file);
               const url = await uploadComRetry(comp, 'estacoes/fotos/' + id + '_' + Date.now() + '.jpg');
-              await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(`id.eq.${id},firebase_id.eq.${id}`);
+              await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(idFilter(id));
               const est = estacoesRef.current.find((x: any) => x.id === id);
               if (est) (est as any).imagens = { ...((est as any).imagens || {}), foto: url };
               showToast('Foto colada e salva!', 'success');
@@ -3024,7 +3060,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                       try {
                         const comp = await comprimir(file);
                         const url = await uploadComRetry(comp, 'estacoes/fotos/' + id + '_' + Date.now() + '.jpg');
-                        await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(`id.eq.${id},firebase_id.eq.${id}`);
+                        await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(idFilter(id));
                         const est = estacoesRef.current.find((x: any) => x.id === id);
                         if (est) (est as any).imagens = { ...((est as any).imagens || {}), foto: url };
                         showToast('Foto salva!', 'success');
@@ -3041,7 +3077,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                     try {
                       const comp = await comprimir(file);
                       const url = await uploadComRetry(comp, 'estacoes/fotos/' + id + '_' + Date.now() + '.jpg');
-                      await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(`id.eq.${id},firebase_id.eq.${id}`);
+                      await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(idFilter(id));
                       const est = estacoesRef.current.find((x: any) => x.id === id);
                       if (est) (est as any).imagens = { ...((est as any).imagens || {}), foto: url };
                       showToast('Foto salva!', 'success');
@@ -3060,7 +3096,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                     try {
                       const comp = await comprimir(file);
                       const url = await uploadComRetry(comp, 'estacoes/fotos/' + id + '_' + Date.now() + '.jpg');
-                      await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(`id.eq.${id},firebase_id.eq.${id}`);
+                      await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(idFilter(id));
                       const est = estacoesRef.current.find((x: any) => x.id === id);
                       if (est) (est as any).imagens = { ...((est as any).imagens || {}), foto: url };
                       showToast('Foto salva!', 'success');
@@ -3084,7 +3120,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
                     const id = fotoCapturaCtx.estacaoId!;
                     const comp = await comprimir(file);
                     const url = await uploadComRetry(comp, 'estacoes/fotos/' + id + '_' + Date.now() + '.jpg');
-                    await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(`id.eq.${id},firebase_id.eq.${id}`);
+                    await supabase.from('estacoes').update({ imagens: { ...((estacoesRef.current.find(x => x.id === id) as any)?.imagens || {}), foto: url } }).or(idFilter(id));
                     const est = estacoesRef.current.find((x: any) => x.id === id);
                     if (est) (est as any).imagens = { ...((est as any).imagens || {}), foto: url };
                     showToast('Foto colada e salva!', 'success');
@@ -3132,7 +3168,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
             const fetchRes = await fetch(base64Anotado);
             const blob = await fetchRes.blob();
             const url = await uploadComRetry(blob, 'estacoes/fotos/' + Date.now() + '_medida.jpg');
-            const { data: rows } = await supabase.from('estacoes').select('id,imagens').or(`id.eq.${est.id},firebase_id.eq.${est.id}`).limit(1);
+            const { data: rows } = await supabase.from('estacoes').select('id,imagens').or(idFilter(est.id)).limit(1);
             const row = rows?.[0];
             if (row) {
               await supabase.from('estacoes').update({ imagens: { ...(row.imagens || {}), foto: url } }).eq('id', row.id);
@@ -3796,6 +3832,7 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
         />
       )}
     </div>
+    </Suspense>
   );
 }
 

@@ -95,29 +95,21 @@ export async function fetchPerdas(opts: {
 export async function fetchGojetSnapshot(cidade: string): Promise<{
   parkings: any[]; bikes: any[]; savedAtMs: number | null;
 }> {
-  const { data: cfg } = await supabase.from('gojet_config').select('city_id').eq('cidade', cidade).maybeSingle();
-  const cityId = (cfg as any)?.city_id;
+  const { buscarCityId } = await import('./cidade-config');
+  const cityId = await buscarCityId(cidade);
   if (!cityId) return { parkings: [], bikes: [], savedAtMs: null };
 
-  const pageAll = async (tbl: string, cols: string): Promise<any[]> => {
-    const out: any[] = []; let from = 0; const N = 1000;
-    for (;;) {
-      const { data, error } = await supabase.from(tbl).select(cols).eq('city_id', cityId).range(from, from + N - 1);
-      if (error) throw new Error(`${tbl}: ${error.message}`);
-      out.push(...(data ?? []));
-      if (!data || data.length < N) break;
-      from += N;
-    }
-    return out;
-  };
+  // Read from gojet_snapshots (written by browser-side scraper)
+  const [snapP, snapB] = await Promise.all([
+    supabase.from('gojet_snapshots').select('parkings, saved_at').eq('id', `latest_${cityId}`).maybeSingle(),
+    supabase.from('gojet_snapshots').select('bikes, saved_at').eq('id', `bikes_latest_${cityId}`).maybeSingle(),
+  ]);
 
-  const pr = await pageAll('parkings', 'dados, bikes_disponiveis, atualizado_em');
-  const br = await pageAll('bikes', 'dados');
-  const parkings = pr.map((r) => ({ ...(r.dados ?? {}), availableCount: r.bikes_disponiveis }));
-  const bikes = br.map((r) => r.dados ?? {});
-  const savedAtMs = pr.reduce((m: number | null, r: any) => {
-    const t = Date.parse(r.atualizado_em); return (!m || t > m) ? t : m;
-  }, null as number | null);
+  const parkings = (snapP.data?.parkings as any[]) ?? [];
+  const bikes = (snapB.data?.bikes as any[]) ?? [];
+  const savedAtMs = snapP.data?.saved_at ? Date.parse(snapP.data.saved_at)
+    : snapB.data?.saved_at ? Date.parse(snapB.data.saved_at) : null;
+
   return { parkings, bikes, savedAtMs };
 }
 

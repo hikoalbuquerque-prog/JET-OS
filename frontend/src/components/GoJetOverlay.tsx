@@ -587,11 +587,11 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
       setBikes(enrichedBikes);
       setAtualizadoEm(new Date());
 
-      // Carregar zones da tabela zones (polígonos GeoJSON por cidade)
+      // Carregar zones da tabela zones (por nome ou cityId)
       try {
         const { data: zoneRows } = await supabase.from('zones')
           .select('id, name, city, geometry, color')
-          .eq('city', cidade);
+          .or(`city.eq.${cidade},city.eq.${cityId}`);
         if (zoneRows && zoneRows.length > 0) setZones(zoneRows);
         else setZones([]);
       } catch { setZones([]); }

@@ -13,6 +13,29 @@ Sessao de overhaul completo de UX no Jet OS. Foram eliminados todos os `alert()`
 
 ---
 
+## 1.1 GoJet API — Referência Rápida
+
+**Base URL:** `https://logistic.gojet.app`  
+**CORS:** aberto (funciona direto do browser, sem auth)
+
+| Endpoint | Método | Descrição |
+|---|---|---|
+| `/api/v0/urent/cities` | GET | Lista cidades: `{id, name, timezone}` |
+| `/api/v0/urent/parkings?city_id=X&page=N&limit=1000` | GET | Parkings paginado (estações) |
+| `/api/v0/urent/bikes?city_id=X&page=N&limit=1000` | GET | Bikes paginado (6 páginas para SP) |
+| `/api/v0/urent/techzones?city_id=X` | GET | Lista zonas técnicas: `{id, name}` (10 zonas SP) |
+| `/api/v0/urent/techzones/{zone_id}` | GET | Detalhe zona: `{name, coordinates: [{lat,lon}...]}` — **polígono completo** |
+| `/api/v0/ml/techzones/{zone_id}/activity?start=...&end=...` | GET | Aluguéis por ponto/hora: `[{parking_id, starts, finishes}]` |
+
+**City IDs em produção:**
+- Santo André: `67ab79f4cd4d3cbb07a0c02e`
+- São Paulo: `669f89ebd06775867c31b984`
+- Balneário Camboriú: `659410d8ec1dc43990626c21`
+
+**Endpoints que NÃO existem:** `/rentals`, `/trips`, `/statistics` (404)
+
+---
+
 ## 2. Componentes Novos
 
 ### `frontend/src/components/ui/ConfirmDialog.tsx`

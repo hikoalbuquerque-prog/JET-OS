@@ -12,9 +12,14 @@ export const mapaProviderSupabase = (): boolean => {
   return (import.meta.env.VITE_MAPA_PROVIDER as string) !== 'firebase';
 };
 
-// Carrega as estações de uma cidade do Supabase, no MESMO formato que o app usa
-// (id = firebase_id, p/ compatibilidade com os writes que ainda vão pro Firestore).
+// In-memory cache with TTL (stale-while-revalidate)
+const cache: Record<string, { data: any[]; ts: number }> = {};
+const CACHE_TTL = 5 * 60 * 1000; // 5 min
+
 export async function carregarEstacoesSupabase(cidade?: string): Promise<any[]> {
+  const key = `est_${cidade ?? '_all'}`;
+  const cached = cache[key];
+  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
   const PAGE = 1000;
   let all: any[] = [];
   let from = 0;
@@ -28,12 +33,19 @@ export async function carregarEstacoesSupabase(cidade?: string): Promise<any[]> 
     if (data.length < PAGE) break;
     from += PAGE;
   }
-  return all.map((r: any) => ({
+  const result = all.map((r: any) => ({
     id: r.firebase_id ?? r.id,
     codigo: r.codigo, cidade: r.cidade, pais: r.pais, bairro: r.bairro, endereco: r.endereco,
     tipo: r.tipo, status: r.status, imagens: r.imagens ?? {}, croquiStatus: r.croqui_status,
     lat: r.lat, lng: r.lng,
   }));
+  cache[key] = { data: result, ts: Date.now() };
+  return result;
+}
+
+export function invalidarCacheEstacoes(cidade?: string) {
+  if (cidade) delete cache[`est_${cidade}`];
+  else Object.keys(cache).filter(k => k.startsWith('est_')).forEach(k => delete cache[k]);
 }
 
 // ── Zonas (polígonos) — lê zonas_geo (GeoJSON) e reconstrói os vértices [{lat,lng}] ──
