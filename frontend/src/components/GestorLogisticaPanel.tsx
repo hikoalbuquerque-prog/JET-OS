@@ -25,6 +25,12 @@ import { carregarTurnosLogisticaSupabase } from '../lib/onda-b-supabase';
 import LiveTrackingMap from './LiveTrackingMap';
 import { confirmDialog } from './ui/ConfirmDialog';
 import GpsHeatmapPanel from './GpsHeatmapPanel';
+import PrestadorStatusPanel from './PrestadorStatusPanel';
+import CommandCenter from './CommandCenter';
+import CalendarioOpsEspeciais from './CalendarioOpsEspeciais';
+import ExportPanel from './ExportPanel';
+import ComparativoCidades from './ComparativoCidades';
+import { supabase } from '../lib/supabase';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -35,7 +41,7 @@ interface Usuario {
 interface Props {
   usuario: Usuario; onFechar: () => void; cidade?: string;
 }
-type AbaId = 'dashboard'|'presenca'|'operadores'|'slots'|'tarefas'|'desempenho'|'meis'|'clt'|'inventario'|'telegram'|'config'|'gojet_config'|'alertas'|'rastreamento'|'heatmap';
+type AbaId = 'dashboard'|'command_center'|'comparativo'|'presenca'|'operadores'|'slots'|'tarefas'|'desempenho'|'meis'|'clt'|'inventario'|'telegram'|'config'|'gojet_config'|'alertas'|'rastreamento'|'heatmap'|'calendario'|'exportar';
 
 interface Funcionario {
   id?: string; nome: string; cpf: string; cargo: string; turno: string;
@@ -124,6 +130,10 @@ const TR = {
   abaClt:        { pt:'👥 CLT', en:'👥 Staff', es:'👥 Personal', ru:'👥 Штат' },
   abaInventario: { pt:'📦 Inventário', en:'📦 Inventory', es:'📦 Inventario', ru:'📦 Инвентарь' },
   abaTelegram:   { pt:'📱 Telegram', en:'📱 Telegram', es:'📱 Telegram', ru:'📱 Telegram' },
+  abaCommandCenter: { pt:'🎯 Command Center', en:'🎯 Command Center', es:'🎯 Centro de Comando', ru:'🎯 Командный центр' },
+  abaCalendario: { pt:'📅 Calendário', en:'📅 Calendar', es:'📅 Calendario', ru:'📅 Календарь' },
+  abaExportar:   { pt:'📤 Exportar', en:'📤 Export', es:'📤 Exportar', ru:'📤 Экспорт' },
+  abaComparativo:{ pt:'🌎 Comparativo', en:'🌎 Compare', es:'🌎 Comparativo', ru:'🌎 Сравнение' },
   abaAlertas:    { pt:'🔔 Alertas', en:'🔔 Alerts', es:'🔔 Alertas', ru:'🔔 Оповещения' },
   abaConfig:     { pt:'⚙️ Config', en:'⚙️ Settings', es:'⚙️ Config', ru:'⚙️ Настройки' },
   abaGoJet:      { pt:'🛴 GoJet', en:'🛴 GoJet', es:'🛴 GoJet', ru:'🛴 GoJet' },
@@ -579,13 +589,16 @@ const DIAS_SEM=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'
 const ROLES_ADMIN=['admin','supergestor'];
 
 const ABAS_ALL:{id:AbaId;trKey:keyof typeof TR;soAdmin?:boolean}[]=[
-  {id:'dashboard', trKey:'abaDashboard' },{id:'presenca',   trKey:'abaPresenca'  },
+  {id:'dashboard', trKey:'abaDashboard' },{id:'command_center', trKey:'abaCommandCenter'},{id:'comparativo', trKey:'abaComparativo', soAdmin:true},
+  {id:'presenca',   trKey:'abaPresenca'  },
   {id:'operadores',trKey:'abaOperadores'},{id:'slots',      trKey:'abaSlots'      },
   {id:'tarefas',   trKey:'abaTarefas'   },{id:'desempenho', trKey:'abaDesempenho'},
   {id:'meis',      trKey:'abaMeis'      },{id:'clt',        trKey:'abaClt'        },
   {id:'inventario',  trKey:'abaInventario' },{id:'telegram',     trKey:'abaTelegram',   soAdmin:true},
   {id:'alertas',     trKey:'abaAlertas',   soAdmin:true},
   {id:'config',      trKey:'abaConfig',    soAdmin:true},
+  {id:'calendario',     trKey:'abaCalendario',   soAdmin:true},
+  {id:'exportar',       trKey:'abaExportar',     soAdmin:true},
   {id:'gojet_config',  trKey:'abaGoJet',        soAdmin:true},
   {id:'rastreamento',  trKey:'abaRastreamento', soAdmin:false},
   {id:'heatmap',       trKey:'abaHeatmap',      soAdmin:true},
@@ -716,6 +729,7 @@ export default function GestorLogisticaPanel({usuario, onFechar, cidade: cidadeI
       ) : (
         <div style={S.body}>
           {aba==='dashboard'  &&<AbaDashboard  {...ctx}/>}
+          {aba==='command_center' && <CommandCenter cidade={cidadeAtiva} />}
           {aba==='presenca'   &&<AbaPresenca   {...ctx}/>}
           {aba==='operadores' &&<AbaOperadores {...ctx}/>}
           {aba==='slots'      &&<AbaSlots      {...ctx}/>}
@@ -727,6 +741,9 @@ export default function GestorLogisticaPanel({usuario, onFechar, cidade: cidadeI
           {aba==='alertas'      &&<AbaAlertas      {...ctx}/>}
           {aba==='telegram'     &&<AbaTelegram     {...ctx}/>}
           {aba==='config'       &&<AbaConfig       {...ctx}/>}
+          {aba==='calendario'   && <CalendarioOpsEspeciais cidade={cidadeAtiva} usuario={usuario} />}
+          {aba==='exportar'     && <ExportPanel cidade={cidadeAtiva} />}
+          {aba==='comparativo' && <ComparativoCidades />}
           {aba==='gojet_config' &&<AbaGoJetConfig  {...ctx}/>}
         </div>
       )}
@@ -963,6 +980,8 @@ function AbaOperadores({usuario,cidade}:AbaProps){
 
   return(
     <div>
+      <PrestadorStatusPanel cidade={cidade} />
+      <div style={{height:14}}/>
       <div style={{display:'flex',gap:8,marginBottom:14}}>
         <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder={pick(TR.buscarOperador)} style={{...S.inp,marginBottom:0,flex:1}}/>
         <span style={{fontSize:12,color:T.dim,alignSelf:'center'}}>{filtrados.length} {pick(TR.operadores)}{cidade&&` · ${cidade}`}</span>
@@ -1764,11 +1783,20 @@ function AbaAlertas({cidade}:AbaProps){
   const [lista,setLista]=useState<MonitorAlerta[]>([]);
   const [loading,setLoading]=useState(true);
   const [filtroTipo,setFiltroTipo]=useState('todos');
+  const [fraudAlerts,setFraudAlerts]=useState<any[]>([]);
 
   useEffect(()=>{
     setLoading(true);
     fetchAlertas(cidade).then(a=>{setLista(a as MonitorAlerta[]);setLoading(false);}).catch(()=>setLoading(false));
     const u=subscribeAlertas(cidade,a=>{setLista(a as MonitorAlerta[]);setLoading(false);},15000);
+    // O2: Load fraud alerts from audit_log
+    Promise.resolve(supabase.from('audit_log')
+      .select('*')
+      .eq('entidade','fraude_suspeita')
+      .order('criado_em',{ascending:false})
+      .limit(20))
+      .then(({data})=>setFraudAlerts(data??[]))
+      .catch(()=>{});
     return u;
   },[cidade]);
 
@@ -1788,8 +1816,38 @@ function AbaAlertas({cidade}:AbaProps){
 
   if(loading) return <div style={{padding:16}}><SkeletonPulseStyle /><SkeletonTable rows={6} cols={4} /></div>;
 
+  const FRAUD_LABELS: Record<string,{label:string;cor:string}>={
+    velocidade_suspeita:{label:'Velocidade suspeita',cor:'#ef4444'},
+    swap_excessivo:{label:'Swap excessivo',cor:'#f59e0b'},
+    gps_estatico:{label:'GPS estático',cor:'#8b5cf6'},
+  };
+
   return(
     <div style={{maxWidth:780}}>
+      {/* O2: Fraud alerts */}
+      {fraudAlerts.length>0&&(
+        <div style={{marginBottom:20}}>
+          <div style={{fontSize:13,fontWeight:700,color:'#ef4444',marginBottom:10}}>🚨 Alertas de fraude (últimos 20)</div>
+          <div style={{display:'flex',flexDirection:'column',gap:6}}>
+            {fraudAlerts.map((a:any)=>{
+              const info=FRAUD_LABELS[a.acao]??{label:a.acao,cor:'#6b7280'};
+              const dados=a.dados??{};
+              const ts=a.criado_em?new Date(a.criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+              return(
+                <div key={a.id} style={{background:'rgba(239,68,68,.06)',border:'1px solid rgba(239,68,68,.15)',borderLeft:`3px solid ${info.cor}`,borderRadius:8,padding:'10px 14px'}}>
+                  <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:4}}>
+                    <span style={{background:info.cor+'22',color:info.cor,padding:'2px 8px',borderRadius:10,fontSize:10,fontWeight:700}}>{info.label}</span>
+                    <span style={{fontSize:10,color:'rgba(255,255,255,.3)'}}>{ts}</span>
+                  </div>
+                  <div style={{fontSize:11,color:'#dce8ff'}}>{dados.scout_nome??a.entidade_id}</div>
+                  <div style={{fontSize:10,color:'rgba(255,255,255,.4)',marginTop:2}}>{dados.msg??''}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap',alignItems:'center'}}>
         <div style={{fontSize:13,fontWeight:700,color:'#dce8ff',flex:1}}>{pick(TR.histAlertas)}</div>
         <div style={{display:'flex',gap:4}}>

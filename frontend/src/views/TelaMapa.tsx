@@ -26,7 +26,7 @@ import { FotoMedidas } from '../components/FotoMedidas';
 import { CandidatosManager } from '../components/CandidatosManager';
 import LocaisFinanceiro, { LocalOperacionalModal, useLocaisOperacionais, TIPO_LOCAL_META } from '../components/LocaisFinanceiro';
 import { GoJetOverlay } from '../components/GoJetOverlay';
-import { buscarCityIdSupabase } from '../lib/gojet-config-supabase';
+import { buscarCityId as buscarCityIdSupabase } from '../lib/cidade-config';
 import GoJetDashboard from '../components/GoJetDashboard';
 import GestorLogisticaPanel from '../components/GestorLogisticaPanel';
 import PagamentosModule from '../components/PagamentosModule';
@@ -68,6 +68,9 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
   const [kpis, setKpis] = useState({ ativas: 0, ocAbertas: 0, procurando: 0, roubos: 0 });
   const [notifList, setNotifList] = useState<Array<{id:string;msg:string;tipo:string;ts:number}>>([]);
   const [showNotif, setShowNotif] = useState(false);
+
+  if (!usuario) return null;
+
   const isGestorApp    = ['admin','gestor','gestor_seg'].includes(usuario.role);
   const isLogisticaApp = ['admin','gestor','supergestor','logistica','campo','gestor_log'].includes(usuario.role);
 
@@ -105,15 +108,22 @@ function TelaMapa({ usuario, onLogout }: { usuario: Usuario; onLogout: () => voi
 
   // Notificações — Supabase
   useEffect(() => {
-    supabase.from('notificacoes_app').select('*').order('ts', { ascending: false }).limit(50)
-      .then(({ data }) => { if (data) setNotifList(data as any); });
+    if (!usuario?.uid) return;
+    const mapNotifs = (data: any[]) => (data || []).map((n: any) => ({
+      id: String(n.id), msg: n.mensagem || n.corpo || n.titulo || '', tipo: n.tipo || 'info',
+      ts: n.ts ? new Date(n.ts).getTime() : (n.criado_em ? new Date(n.criado_em).getTime() : Date.now()),
+      lida: !!n.lida,
+    }));
+    const fetchNotifs = () => supabase.from('notificacoes_app').select('*')
+      .or(`uid.eq.${usuario.uid},uid.is.null`)
+      .order('ts', { ascending: false }).limit(50)
+      .then(({ data }) => { if (data) setNotifList(mapNotifs(data)); });
+    fetchNotifs();
     const chan = supabase.channel('notif-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notificacoes_app' }, () => {
-        supabase.from('notificacoes_app').select('*').order('ts', { ascending: false }).limit(50)
-          .then(({ data }) => { if (data) setNotifList(data as any); });
-      }).subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notificacoes_app' }, () => fetchNotifs())
+      .subscribe();
     return () => { supabase.removeChannel(chan); };
-  }, []);
+  }, [usuario?.uid]);
 
   const mapRef      = useRef<HTMLDivElement>(null);
   const leafletRef  = useRef<L.Map | null>(null);
@@ -3535,8 +3545,8 @@ const isSvFoto = !fotoReal && !!e.imagens?.streetView;
       )}
 
       {/* Painel de configurações unificado — admin */}
-      {painelConfig && usuario.role === 'admin' && (
-        <PainelConfiguracoes onFechar={() => setPainelConfig(false)} cidadeAtual={cidade} />
+      {painelConfig && ['admin', 'supergestor', 'gestor'].includes(usuario.role) && (
+        <PainelConfiguracoes onFechar={() => setPainelConfig(false)} cidadeAtual={cidade} autorUid={usuario.uid} autorNome={usuario.nome} />
       )}
 
       {/* Perfil do prestador */}

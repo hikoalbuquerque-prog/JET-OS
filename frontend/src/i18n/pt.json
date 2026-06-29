@@ -714,6 +714,29 @@
             "titulo": "Telegram",
             "desc": "Envio direto por cidade/grupo. Templates por cargo. Confirmação de slot em massa.",
             "dica": "Configure Chat ID em Config → Telegram."
+          },
+          {
+            "titulo": "Command Center",
+            "desc": "Dashboard operacional com 19 blocos: KPIs, mapa live, bateria, score de saúde, previsão de demanda, ROI, capacidade por turno. Atualiza a cada 60s.",
+            "dica": "Filtro por zona disponível. Previsão de demanda usa média de 28 dias por dia da semana × hora."
+          },
+          {
+            "titulo": "Comparativo entre cidades",
+            "desc": "Tabela lado a lado: pontos, bikes, vazios, excesso, tarefas do dia, scouts ativos. Apenas admin.",
+            "dica": "Útil para reuniões de diretoria — mostra todas as cidades em uma tela."
+          },
+          {
+            "titulo": "Calendário",
+            "desc": "Eventos especiais (feriados, manutenção, sazonalidade) que afetam operação. CRUD com datas e tipo.",
+            "dica": "Eventos ativos aparecem no Command Center como pontos especiais."
+          },
+          {
+            "titulo": "Exportar",
+            "desc": "5 exports CSV: snapshots, tarefas hoje, tarefas 7d, prestadores, eventos. UTF-8 BOM para Excel."
+          },
+          {
+            "titulo": "Alertas",
+            "desc": "Alertas operacionais (bateria, ponto zerado) + alertas de fraude (velocidade suspeita, swap excessivo, GPS estático). Fraude não bloqueia scout — decisão do gestor."
           }
         ]
       },

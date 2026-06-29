@@ -48,6 +48,8 @@ const T = {
   roleGestorLabel:     { pt: '⚙ Gestor', en: '⚙ Manager', es: '⚙ Gestor', ru: '⚙ Менеджер' },
   roleGestorDesc:      { pt: 'Acesso completo', en: 'Full access', es: 'Acceso completo', ru: 'Полный доступ' },
   roleGestorSegLabel:  { pt: '🛡⚙ Gest.Seg', en: '🛡⚙ Security Mgr', es: '🛡⚙ Gest.Seg', ru: '🛡⚙ Менеджер охраны' },
+  roleSupergestorLabel:{ pt: '👑 Supergestor', en: '👑 Super Manager', es: '👑 Supergestor', ru: '👑 Суперменеджер' },
+  roleSupergestorDesc: { pt: 'Acesso máximo abaixo de admin', en: 'Top access below admin', es: 'Acceso máximo debajo de admin', ru: 'Максимальный доступ ниже админа' },
 
   // Cidades
   cidadesAtuacaoTitulo: { pt: '🏙 Cidades de atuação', en: '🏙 Operating cities', es: '🏙 Ciudades de actuación', ru: '🏙 Города работы' },
@@ -56,6 +58,8 @@ const T = {
   cidadesViewerDesc:    { pt: 'Viewer só vê dados das cidades selecionadas.', en: 'Viewer only sees data from the selected cities.', es: 'El viewer solo ve datos de las ciudades seleccionadas.', ru: 'Просмотр видит данные только выбранных городов.' },
   cidadesLogTitulo:     { pt: '🚚 Cidades que gerencia (Logística)', en: '🚚 Cities it manages (Logistics)', es: '🚚 Ciudades que gestiona (Logística)', ru: '🚚 Города под управлением (Логистика)' },
   cidadesLogDesc:       { pt: 'Ag. Logística vê tarefas e pedidos apenas das cidades selecionadas.', en: 'Logistics agent sees tasks and orders only from the selected cities.', es: 'El agente de logística ve tareas y pedidos solo de las ciudades seleccionadas.', ru: 'Логист видит задачи и заказы только выбранных городов.' },
+  cidadesAtuacaoGenTitulo: { pt: '🏙 Cidades permitidas', en: '🏙 Allowed cities', es: '🏙 Ciudades permitidas', ru: '🏙 Разрешённые города' },
+  cidadesAtuacaoGenDesc:  { pt: 'Usuário só terá acesso aos dados das cidades selecionadas.', en: 'User will only access data from the selected cities.', es: 'El usuario solo tendrá acceso a los datos de las ciudades seleccionadas.', ru: 'Пользователь будет видеть данные только выбранных городов.' },
 
   // CidadesSeletor (componente)
   todas:               { pt: 'Todas', en: 'All', es: 'Todas', ru: 'Все' },
@@ -91,6 +95,7 @@ const T = {
   fGestor:          { pt: 'Gestor', en: 'Manager', es: 'Gestor', ru: 'Менеджер' },
   fGestorLog:       { pt: 'Gest. Log.', en: 'Logistics Mgr', es: 'Gest. Log.', ru: 'Менеджер логистики' },
   fGestorSeg:       { pt: 'Gest. Seg', en: 'Security Mgr', es: 'Gest. Seg', ru: 'Менеджер охраны' },
+  fSupergestor:     { pt: 'Supergestor', en: 'Super Manager', es: 'Supergestor', ru: 'Суперменеджер' },
   fGuard:           { pt: 'Guard', en: 'Guard', es: 'Guard', ru: 'Guard' },
   fCampo:           { pt: 'Campo', en: 'Field', es: 'Campo', ru: 'Поле' },
   fLogistica:       { pt: 'Logística', en: 'Logistics', es: 'Logística', ru: 'Логистика' },
@@ -299,15 +304,22 @@ export default function UsuariosManager({
   const [currentUid, setCurrentUid] = useState<string | undefined>();
   useEffect(() => { supabase.auth.getUser().then(({ data }) => setCurrentUid(data.user?.id)); }, []);
 
-  // Carrega cidades reais que têm estações (Supabase)
+  // Carrega cidades de múltiplas fontes: estações + usuários + fallback
   useEffect(() => {
     (async () => {
       try {
-        const lista = await carregarCidadesSupabase();
-        if (lista.length > 0) setCidadesReais(lista);
-      } catch {
-        // mantém CIDADES_FALLBACK
-      }
+        const set = new Set<string>();
+        CIDADES_FALLBACK.forEach(c => set.add(c));
+        try {
+          const lista = await carregarCidadesSupabase();
+          lista.forEach(c => set.add(c));
+        } catch {}
+        try {
+          const { data } = await supabase.from('usuarios').select('cidade');
+          (data || []).forEach((u: any) => { if (u.cidade?.trim()) set.add(u.cidade.trim()); });
+        } catch {}
+        setCidadesReais(Array.from(set).sort());
+      } catch {}
     })();
   }, []);
 
@@ -327,8 +339,6 @@ export default function UsuariosManager({
   }, []);
 
   useEffect(() => {
-    if (aba !== 'usuarios') return;
-
     const carregarUsuarios = async () => {
       try {
         // gestor_seg só vê guards; outros gestores veem todos
@@ -342,7 +352,7 @@ export default function UsuariosManager({
     };
 
     carregarUsuarios();
-  }, [aba]);
+  }, []);
 
   const podeVerSolicitacao = (req: SolicitacaoPrestador, role: string): boolean => {
     const cargo = req.cargo;
@@ -540,20 +550,20 @@ export default function UsuariosManager({
           paddingLeft: 24
         }}>
           <button onClick={() => setAba('solicitacoes')} style={{
-            background: 'none', border: 'none', 
+            background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
             padding: '12px 16px', fontSize: 14, fontWeight: 600,
             color: aba === 'solicitacoes' ? '#6366f1' : 'rgba(255,255,255,.4)',
-            borderBottom: aba === 'solicitacoes' ? '2px solid #6366f1' : 'none',
-            cursor: 'pointer'
+            borderBottom: aba === 'solicitacoes' ? '2px solid #6366f1' : '2px solid transparent',
+            cursor: 'pointer', outline: 'none',
           }}>
             {pick(T.abaSolicitacoes)} ({solicitacoes.length})
           </button>
           <button onClick={() => setAba('usuarios')} style={{
-            background: 'none', border: 'none',
+            background: 'none', borderTop: 'none', borderLeft: 'none', borderRight: 'none',
             padding: '12px 16px', fontSize: 14, fontWeight: 600,
             color: aba === 'usuarios' ? '#6366f1' : 'rgba(255,255,255,.4)',
-            borderBottom: aba === 'usuarios' ? '2px solid #6366f1' : 'none',
-            cursor: 'pointer'
+            borderBottom: aba === 'usuarios' ? '2px solid #6366f1' : '2px solid transparent',
+            cursor: 'pointer', outline: 'none',
           }}>
             {pick(T.abaUsuarios)} ({usuarios.length})
           </button>
@@ -815,13 +825,15 @@ export default function UsuariosManager({
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       {([
-                        { role: 'guard',     label: pick(T.roleGuardLabel)     },
-                        { role: 'campo',     label: pick(T.roleCampoLabel)     },
-                        { role: 'logistica', label: pick(T.roleLogisticaLabel) },
-                        { role: 'promotor',  label: pick(T.rolePromotorLabel)  },
-                        { role: 'viewer',    label: pick(T.roleViewerLabel)    },
-                        { role: 'gestor',    label: pick(T.roleGestorLabel)    },
-                        { role: 'gestor_seg',label: pick(T.roleGestorSegLabel) },
+                        { role: 'guard',       label: pick(T.roleGuardLabel)       },
+                        { role: 'campo',       label: pick(T.roleCampoLabel)       },
+                        { role: 'logistica',   label: pick(T.roleLogisticaLabel)   },
+                        { role: 'promotor',    label: pick(T.rolePromotorLabel)    },
+                        { role: 'viewer',      label: pick(T.roleViewerLabel)      },
+                        { role: 'gestor_log',  label: pick(T.roleGestorLogLabel)   },
+                        { role: 'gestor',      label: pick(T.roleGestorLabel)      },
+                        { role: 'gestor_seg',  label: pick(T.roleGestorSegLabel)   },
+                        { role: 'supergestor', label: pick(T.roleSupergestorLabel) },
                       ] as { role: string; label: string }[]).map(({ role, label }) => (
                         <button key={role}
                           onClick={() => setUsuarioSelecionado({ ...usuarioSelecionado, role })}
@@ -838,27 +850,24 @@ export default function UsuariosManager({
                     </div>
                   </div>
 
-                  {/* ── Cidades Viewer ────────────────────── */}
-                  {(usuarioSelecionado.role === 'viewer') && (
+                  {/* ── Cidades por role ────────────────────── */}
+                  {!['admin', 'supergestor'].includes(usuarioSelecionado.role) && (
                     <CidadesSeletor
-                      titulo={pick(T.cidadesViewerTitulo)}
-                      descricao={pick(T.cidadesViewerDesc)}
-                      cor="#3b82f6"
+                      titulo={usuarioSelecionado.role === 'viewer' ? pick(T.cidadesViewerTitulo)
+                        : usuarioSelecionado.role === 'logistica' ? pick(T.cidadesLogTitulo)
+                        : pick(T.cidadesAtuacaoGenTitulo)}
+                      descricao={usuarioSelecionado.role === 'viewer' ? pick(T.cidadesViewerDesc)
+                        : usuarioSelecionado.role === 'logistica' ? pick(T.cidadesLogDesc)
+                        : pick(T.cidadesAtuacaoGenDesc)}
+                      cor={usuarioSelecionado.role === 'viewer' ? '#3b82f6'
+                        : usuarioSelecionado.role === 'logistica' ? '#10b981' : '#8b5cf6'}
                       cidades={cidadesReais}
-                      selecionadas={usuarioSelecionado.cidadesPermitidas || []}
-                      onChange={novas => setUsuarioSelecionado({ ...usuarioSelecionado, cidadesPermitidas: novas })}
-                    />
-                  )}
-
-                  {/* ── Cidades Ag. Logística ─────────────── */}
-                  {(usuarioSelecionado.role === 'logistica') && (
-                    <CidadesSeletor
-                      titulo={pick(T.cidadesLogTitulo)}
-                      descricao={pick(T.cidadesLogDesc)}
-                      cor="#10b981"
-                      cidades={cidadesReais}
-                      selecionadas={usuarioSelecionado.cidadesGerenciaLog || []}
-                      onChange={novas => setUsuarioSelecionado({ ...usuarioSelecionado, cidadesGerenciaLog: novas })}
+                      selecionadas={usuarioSelecionado.role === 'logistica'
+                        ? (usuarioSelecionado.cidadesGerenciaLog || [])
+                        : (usuarioSelecionado.cidadesPermitidas || [])}
+                      onChange={novas => setUsuarioSelecionado(usuarioSelecionado.role === 'logistica'
+                        ? { ...usuarioSelecionado, cidadesGerenciaLog: novas }
+                        : { ...usuarioSelecionado, cidadesPermitidas: novas })}
                     />
                   )}
 
@@ -949,6 +958,7 @@ export default function UsuariosManager({
                       <option value="gestor"     style={{ background: '#0d1521', color: '#dce8ff' }}>{pick(T.fGestor)}</option>
                       <option value="gestor_log" style={{ background: '#0d1521', color: '#dce8ff' }}>{pick(T.fGestorLog)}</option>
                       <option value="gestor_seg" style={{ background: '#0d1521', color: '#dce8ff' }}>{pick(T.fGestorSeg)}</option>
+                      <option value="supergestor" style={{ background: '#0d1521', color: '#dce8ff' }}>{pick(T.fSupergestor)}</option>
                       <option value="guard"     style={{ background: '#0d1521', color: '#dce8ff' }}>{pick(T.fGuard)}</option>
                       <option value="campo"     style={{ background: '#0d1521', color: '#dce8ff' }}>{pick(T.fCampo)}</option>
                       <option value="logistica" style={{ background: '#0d1521', color: '#dce8ff' }}>{pick(T.fLogistica)}</option>

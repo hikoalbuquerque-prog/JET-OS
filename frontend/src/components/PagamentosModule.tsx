@@ -353,6 +353,24 @@ const T = {
     es: 'Error al enviar la factura: ',
     ru: 'Ошибка отправки счёта: ',
   },
+  ganhosHoje: {
+    pt: 'Ganhos de hoje',
+    en: "Today's earnings",
+    es: 'Ganancias de hoy',
+    ru: 'Заработок сегодня',
+  },
+  tarefasHoje: {
+    pt: 'tarefas concluídas',
+    en: 'tasks completed',
+    es: 'tareas completadas',
+    ru: 'задач завершено',
+  },
+  disclaimerGanhos: {
+    pt: 'Valor estimado. Sujeito a verificação semanal antes do pagamento.',
+    en: 'Estimated value. Subject to weekly verification before payment.',
+    es: 'Valor estimado. Sujeto a verificación semanal antes del pago.',
+    ru: 'Оценочная сумма. Подлежит еженедельной проверке перед оплатой.',
+  },
   tenteNovamente: {
     pt: 'tente novamente',
     en: 'please try again',
@@ -512,6 +530,10 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
   const [loadingHistorico, setLoadingHistorico] = useState(false);
   const [uploadingHistoricoId, setUploadingHistoricoId] = useState<string | null>(null);
 
+  // F7: Daily earnings state
+  const [tarefasHoje, setTarefasHoje] = useState(0);
+  const [valorHoje, setValorHoje] = useState(0);
+
   const cidade = usuario.cidade ?? 'default';
   const cargo = usuario.cargoPrestador ?? usuario.role ?? '';
 
@@ -564,6 +586,19 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
       } else {
         setRegistroSemana(null);
       }
+
+      // F7: Daily earnings
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const { count: countHoje } = await supabase
+        .from('tarefas_logistica')
+        .select('id', { count: 'exact', head: true })
+        .eq('assignee_uid', usuario.uid)
+        .eq('status', 'concluida')
+        .gte('concluido_em', todayStart.toISOString());
+      const ch = countHoje ?? 0;
+      setTarefasHoje(ch);
+      setValorHoje(ch * valorUni);
     } catch (e: any) {
       setErrorAtual(e?.message ?? pick(T.erroCarregarDados));
     } finally {
@@ -1089,6 +1124,28 @@ export default function PagamentosModule({ usuario, onFechar }: Props) {
               {tab === 'atual' ? pick(T.abaSemanaAtual) : pick(T.abaHistorico)}
             </button>
           ))}
+        </div>
+
+        {/* F7: Daily earnings card */}
+        <div style={{
+          margin: '12px 16px 0', padding: '12px 16px', borderRadius: 10,
+          background: 'linear-gradient(135deg, rgba(16,185,129,.12), rgba(59,130,246,.08))',
+          border: '1px solid rgba(16,185,129,.2)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <div style={{ fontSize: 11, color: '#10b981', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.5px' }}>
+              {pick(T.ganhosHoje)}
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#10b981', fontFamily: 'monospace' }}>
+              R$ {formatCurrency(valorHoje)}
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', marginTop: 4 }}>
+            {tarefasHoje} {pick(T.tarefasHoje)}
+          </div>
+          <div style={{ fontSize: 9, color: 'rgba(255,255,255,.25)', marginTop: 6, fontStyle: 'italic' }}>
+            {pick(T.disclaimerGanhos)}
+          </div>
         </div>
 
         {/* Body */}

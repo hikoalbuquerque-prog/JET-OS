@@ -163,7 +163,7 @@ interface ConfigGlobal {
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
-const CIDADES_BR = [
+const CIDADES_FALLBACK = [
   'São Paulo','Curitiba','Rio de Janeiro','Belo Horizonte',
   'Porto Alegre','Fortaleza','Recife','Salvador','Manaus','Brasília',
 ];
@@ -555,6 +555,24 @@ export default function TelegramConfigPanel({ onFechar, inline }: Props) {
   const [salvando, setSalvando] = useState(false);
   const [salvoMsg, setSalvoMsg] = useState('');
   const [salvoErro, setSalvoErro] = useState(false);
+  const [cidadesDinamicas, setCidadesDinamicas] = useState<string[]>(CIDADES_FALLBACK);
+
+  // Carrega cidades de estações + gojet_config + usuários
+  useEffect(() => {
+    (async () => {
+      const set = new Set<string>();
+      CIDADES_FALLBACK.forEach(c => set.add(c));
+      try {
+        const { data: est } = await supabase.from('estacoes').select('cidade');
+        (est || []).forEach((r: any) => { if (r.cidade?.trim()) set.add(r.cidade.trim()); });
+      } catch {}
+      try {
+        const { data: gj } = await supabase.from('gojet_config').select('cidade');
+        (gj || []).forEach((r: any) => { if (r.cidade?.trim()) set.add(r.cidade.trim()); });
+      } catch {}
+      setCidadesDinamicas(Array.from(set).sort());
+    })();
+  }, []);
 
   // ── Load ──
   useEffect(() => {
@@ -687,7 +705,7 @@ export default function TelegramConfigPanel({ onFechar, inline }: Props) {
         {pick(T.cidades)}
       </div>
 
-      {CIDADES_BR.map(cidade => {
+      {cidadesDinamicas.map(cidade => {
         const chave = cidade.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_').toLowerCase();
         const gc = gruposConfigurados(chave);
         const ativo = view.tipo === 'cidade' && view.cidade === chave;
@@ -755,7 +773,7 @@ export default function TelegramConfigPanel({ onFechar, inline }: Props) {
 
         {/* Cidades configuradas */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-          {CIDADES_BR.slice(0, 6).map(cidade => {
+          {cidadesDinamicas.slice(0, 6).map(cidade => {
             const chave = cidade.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_').toLowerCase();
             const cfg = cidadeConfig(chave);
             const temGrupos = Object.keys(cfg.grupos).length > 0;
@@ -900,7 +918,7 @@ export default function TelegramConfigPanel({ onFechar, inline }: Props) {
   );
 
   const renderCidade = (cidadeKey: string) => {
-    const nomeExibicao = CIDADES_BR.find(c =>
+    const nomeExibicao = cidadesDinamicas.find(c =>
       c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_').toLowerCase() === cidadeKey
     ) ?? cidadeKey;
     const cfg = cidadeConfig(cidadeKey);

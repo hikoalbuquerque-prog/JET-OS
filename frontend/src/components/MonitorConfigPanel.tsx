@@ -113,7 +113,7 @@ export function MonitorConfigPanel({ cidade, onFechar, inline }: Props) {
   useEffect(() => {
     (async () => {
       try {
-        const { data, error } = await supabase.from('monitor_config').select('*').eq('cidade', cidade).single();
+        const { data, error } = await supabase.from('monitor_config').select('*').eq('cidade', cidade).maybeSingle();
         if (error || !data) setConfig(DEFAULT_CONFIG);
         else setConfig({ M1: data.m1, M2: data.m2, M3: data.m3 } as MonitorConfig);
       } catch { setConfig(DEFAULT_CONFIG); }

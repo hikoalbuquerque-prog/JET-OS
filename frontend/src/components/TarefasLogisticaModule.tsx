@@ -94,6 +94,13 @@ export interface TarefaLogistica {
   due_at?: any; // Timestamp | null — prazo da tarefa
   // Para "mudar destino"
   destinoAlteradoEm?: any;
+  // Bike tracking (F1)
+  bike_id_atual?: string | null;
+  gojet_verified?: boolean | null;  // null=pendente, true=ok, false=fail
+  gojet_verified_at?: any;
+  bike_ids?: string[] | null;
+  eta_minutos?: number | null;
+  rota_osrm?: string | null;
 }
 
 interface Props {
@@ -537,6 +544,12 @@ export default function TarefasLogisticaModule({
             bateriaPercent: r.bateria_percent,
             due_at: r.due_at,
             destinoAlteradoEm: r.destino_alterado_em,
+            bike_id_atual: r.bike_id_atual,
+            gojet_verified: r.gojet_verified,
+            gojet_verified_at: r.gojet_verified_at,
+            bike_ids: r.bike_ids,
+            eta_minutos: r.eta_minutos,
+            rota_osrm: r.rota_osrm,
           })) as TarefaLogistica[];
           setTarefas(mapped);
           setLoading(false);
@@ -1056,6 +1069,22 @@ function TarefaCard({ tarefa, onClick, compact, showAssignee }: {
           <span style={{ fontSize: 8, background: 'rgba(59,130,246,.2)', color: '#60a5fa',
             padding: '1px 4px', borderRadius: 3, fontWeight: 700 }}>AUTO</span>
         )}
+        {tarefa.bike_id_atual && (
+          <span style={{ fontSize: 8, background: 'rgba(139,92,246,.15)', color: '#a78bfa',
+            padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>🛴 {tarefa.bike_id_atual}</span>
+        )}
+        {tarefa.gojet_verified === true && (
+          <span style={{ fontSize: 8, background: 'rgba(34,197,94,.15)', color: '#22c55e',
+            padding: '1px 4px', borderRadius: 3, fontWeight: 700 }}>✅</span>
+        )}
+        {tarefa.gojet_verified === false && (
+          <span style={{ fontSize: 8, background: 'rgba(239,68,68,.15)', color: '#ef4444',
+            padding: '1px 4px', borderRadius: 3, fontWeight: 700 }}>❌</span>
+        )}
+        {tarefa.eta_minutos != null && tarefa.eta_minutos > 0 && (
+          <span style={{ fontSize: 8, background: 'rgba(59,130,246,.15)', color: '#60a5fa',
+            padding: '1px 4px', borderRadius: 3, fontWeight: 600 }}>🕐 {tarefa.eta_minutos}min</span>
+        )}
         <div style={{ flex: 1, fontSize: 12, fontWeight: 600, color: '#dce8ff',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {tarefa.titulo}
@@ -1180,6 +1209,9 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
           geradoPorGoJet: data.gerado_por_gojet, slotId: data.slot_id,
           bateriaPercent: data.bateria_percent, due_at: data.due_at,
           destinoAlteradoEm: data.destino_alterado_em,
+          bike_id_atual: data.bike_id_atual, gojet_verified: data.gojet_verified,
+          gojet_verified_at: data.gojet_verified_at, bike_ids: data.bike_ids,
+          eta_minutos: data.eta_minutos, rota_osrm: data.rota_osrm,
         } as TarefaLogistica);
       }
     };
@@ -1498,6 +1530,95 @@ function TarefaDetalhe({ tarefa: tarefaInicial, usuario, agentes, onVoltar, onAt
                 style={{ ...S.btn('#ef4444', true), width: '100%', marginTop: 8 }}>
                 {pick(T.cancelarTarefa)}
               </button>
+            )}
+
+            {/* Auto-atribuir — tarefas pendentes sem assignee */}
+            {isAdminRole(usuario.role) && tarefa.status === 'pendente' && !tarefa.assigneeUid && (
+              <button disabled={busy} onClick={async () => {
+                setBusy(true);
+                try {
+                  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/assign-tarefa`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+                    body: JSON.stringify({ tarefa_id: tarefa.id }),
+                  });
+                  const j = await res.json();
+                  if (!res.ok) { setErro(j.error || 'Erro'); }
+                  else { setOk(`Atribuído${j.eta_minutos ? ` · ETA ${j.eta_minutos}min` : ''}`); }
+                } catch (e: any) { setErro(e.message); }
+                setBusy(false);
+              }} style={{ ...S.btn('#8b5cf6'), width: '100%', marginTop: 8 }}>
+                {busy ? '...' : '🎯 Auto-Atribuir (scout mais próximo)'}
+              </button>
+            )}
+
+            {/* O3: Pausa climática — scout pode pausar por clima */}
+            {tarefa.status === 'em_execucao' && tarefa.assigneeUid === usuario.uid && (
+              <button disabled={busy} onClick={async () => {
+                setBusy(true); setErro(''); setOk('');
+                try {
+                  // Fetch current weather
+                  const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+                    navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 })
+                  ).catch(() => null);
+                  let clima: any = null;
+                  if (pos) {
+                    const wRes = await fetch(
+                      `https://api.open-meteo.com/v1/forecast?latitude=${pos.coords.latitude}&longitude=${pos.coords.longitude}&current_weather=true`
+                    ).then(r => r.json()).catch(() => null);
+                    if (wRes?.current_weather) {
+                      clima = { temp: wRes.current_weather.temperature, code: wRes.current_weather.weathercode, windspeed: wRes.current_weather.windspeed };
+                    }
+                  }
+                  await supabase.from('tarefas_logistica').update({
+                    pausado_em: new Date().toISOString(),
+                    motivo_pausa: 'clima',
+                    clima_registro: clima,
+                  }).eq('id', tarefa.id);
+                  setOk('Pausado por clima. Retome quando quiser.');
+                } catch (e: any) { setErro(e.message); }
+                setBusy(false);
+              }} style={{ ...S.ghost, width: '100%', marginTop: 6, fontSize: 10, color: '#60a5fa' }}>
+                {busy ? '...' : '🌧 Pausar por clima'}
+              </button>
+            )}
+
+            {/* O1: Handoff entre turnos — scout com tarefa em_execucao */}
+            {tarefa.status === 'em_execucao' && tarefa.assigneeUid === usuario.uid && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                <button disabled={busy} onClick={async () => {
+                  setBusy(true); setErro(''); setOk('');
+                  try {
+                    const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/handoff-turno`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+                      body: JSON.stringify({ tarefa_id: tarefa.id, decisao: 'finalizar', scout_uid: usuario.uid }),
+                    });
+                    const j = await res.json();
+                    if (!res.ok) setErro(j.error || 'Erro');
+                    else setOk('Overtime ativado (+30min SLA)');
+                  } catch (e: any) { setErro(e.message); }
+                  setBusy(false);
+                }} style={{ ...S.btn('#f59e0b'), flex: 1, fontSize: 11 }}>
+                  {busy ? '...' : '⏰ Finalizar (overtime)'}
+                </button>
+                <button disabled={busy} onClick={async () => {
+                  setBusy(true); setErro(''); setOk('');
+                  try {
+                    const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/handoff-turno`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}` },
+                      body: JSON.stringify({ tarefa_id: tarefa.id, decisao: 'passar', scout_uid: usuario.uid }),
+                    });
+                    const j = await res.json();
+                    if (!res.ok) setErro(j.error || 'Erro');
+                    else setOk('Tarefa passada para próximo turno');
+                  } catch (e: any) { setErro(e.message); }
+                  setBusy(false);
+                }} style={{ ...S.btn('#3b82f6'), flex: 1, fontSize: 11 }}>
+                  {busy ? '...' : '🔄 Passar adiante'}
+                </button>
+              </div>
             )}
 
             {/* Reatribuição — apenas admins/gestores, tarefas não concluídas */}

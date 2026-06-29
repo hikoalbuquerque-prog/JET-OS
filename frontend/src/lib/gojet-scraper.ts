@@ -7,8 +7,6 @@ import { supabase } from './supabase';
 
 const GOJET_BASE = 'https://logistic.gojet.app/api/v0/urent';
 const LIMIT = 1000;
-const PARKING_CHUNK = 3000;
-const BIKE_CHUNK    = 2000;
 
 async function fetchAllPages<T>(endpoint: string, cityId: string): Promise<T[]> {
   let page = 1;
@@ -34,24 +32,22 @@ async function salvarNoSupabase(
 ): Promise<void> {
   const now = new Date().toISOString();
 
-  // Upsert parkings snapshot
   const { error: errP } = await supabase.from('gojet_snapshots').upsert({
     id: `latest_${cityId}`,
     parkings,
     city_id: cityId,
     cidade,
-    total: parkings.length,
+    total_parkings: parkings.length,
     saved_at: now,
   }, { onConflict: 'id' });
   if (errP) console.error('[gojet-scraper] erro ao salvar parkings:', errP);
 
-  // Upsert bikes snapshot
   const { error: errB } = await supabase.from('gojet_snapshots').upsert({
     id: `bikes_latest_${cityId}`,
     bikes,
     city_id: cityId,
     cidade,
-    total: bikes.length,
+    total_bikes: bikes.length,
     saved_at: now,
   }, { onConflict: 'id' });
   if (errB) console.error('[gojet-scraper] erro ao salvar bikes:', errB);

@@ -77,9 +77,19 @@ function _start() {
     if (session?.user) {
       try {
         const u = session.user;
+        // Se o token expirou, tentar refresh antes de carregar perfil
+        const expiresAt = session.expires_at ? session.expires_at * 1000 : 0;
+        if (expiresAt && expiresAt < Date.now()) {
+          console.log('[auth] token expirado, tentando refresh...');
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          if (!refreshed?.session) {
+            console.warn('[auth] refresh falhou — forçando re-login');
+            _set({ user: null, usuario: null, loading: false, erro: null });
+            return;
+          }
+        }
         const usuario = await _loadProfile(u.id);
         if (usuario) {
-          // Shim: componentes que ainda leem user.uid (Firebase User) — criamos um objeto compatível
           const userShim = { uid: usuario.uid, email: u.email } as unknown as User;
           _set({ user: userShim, usuario, loading: false, erro: null });
           console.log('[auth] sessão Supabase ativa, perfil:', usuario.nome, usuario.role);
@@ -87,9 +97,22 @@ function _start() {
           console.warn('[auth] perfil não encontrado para', u.id);
           _set({ user: null, usuario: null, loading: false, erro: 'Perfil não encontrado.' });
         }
-      } catch (e) {
+      } catch (e: any) {
+        // JWT expired → tentar refresh uma vez
+        if (e?.message?.includes('JWT expired') || e?.message?.includes('401')) {
+          console.log('[auth] JWT expired no perfil, tentando refresh...');
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          if (refreshed?.session) {
+            const usuario = await _loadProfile(session.user.id);
+            if (usuario) {
+              const userShim = { uid: usuario.uid, email: session.user.email } as unknown as User;
+              _set({ user: userShim, usuario, loading: false, erro: null });
+              return;
+            }
+          }
+        }
         console.error('[auth] erro ao carregar perfil:', e);
-        _set({ user: null, usuario: null, loading: false, erro: 'Erro ao carregar perfil.' });
+        _set({ user: null, usuario: null, loading: false, erro: null });
       }
     } else {
       _set({ user: null, usuario: null, loading: false, erro: null });
@@ -129,18 +152,34 @@ function useGlobalAuth(): AuthState {
 async function login(email: string, senha: string) {
   _set({ erro: null, loading: true });
   try {
+    // Limpar sessão expirada para evitar que o JWT velho interfira
+    await supabase.auth.signOut().catch(() => {});
+
+    // Helper: chama auth-login via fetch direto com anon key (sem JWT expirado)
+    const _supaUrl = (import.meta.env.VITE_SUPABASE_URL as string).replace(/\/$/, '');
+    const _anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+    const invokeAuthLogin = async () => {
+      const res = await fetch(`${_supaUrl}/functions/v1/auth-login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'apikey': _anonKey, 'Authorization': `Bearer ${_anonKey}` },
+        body: JSON.stringify({ email, password: senha }),
+      });
+      if (!res.ok) throw new Error(`auth-login ${res.status}`);
+      return res.json();
+    };
+
     // 1. Sessão B (GPS nativo) — refresh token separado, sobrevive a reload
     try {
-      const { data: dataB } = await supabase.functions.invoke('auth-login', { body: { email, password: senha } });
-      const sessB = (dataB as any)?.session;
+      const dataB = await invokeAuthLogin();
+      const sessB = dataB?.session;
       if (sessB?.refresh_token) {
         try { localStorage.setItem(SUPA_REFRESH_KEY, sessB.refresh_token); } catch { /* */ }
       }
     } catch (e: any) { console.warn('[auth] sessão GPS (B) falhou:', e?.message); }
 
     // 2. Sessão A (JS) — auth-login faz migração preguiçosa Firebase→Supabase
-    const { data, error } = await supabase.functions.invoke('auth-login', { body: { email, password: senha } });
-    if (error) throw new Error(error.message || 'auth-login falhou');
+    const data = await invokeAuthLogin();
+    const error = null;
     const errCode = (data as any)?.error;
     if (errCode === 'user_not_provisioned') {
       throw new Error('Usuário não provisionado no Supabase. Contate o administrador.');

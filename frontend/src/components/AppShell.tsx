@@ -561,14 +561,8 @@ export function TelaLogin({ onLogin }: { onLogin: (e: string, s: string) => Prom
       </div>
       <div style={{ width: 360, padding: '0 20px' }}>
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
-          <div style={{ width: 64, height: 64, borderRadius: 16, margin: '0 auto 16px',
-            background: 'linear-gradient(135deg,#1a6fd4,#307FE2)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="white">
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-            </svg>
-          </div>
-          <h1 style={{ color: '#fff', fontSize: 22, fontWeight: 700 }}>Jet OS</h1>
+          <img src="/icon.svg" alt="JET OS" style={{ width: 110, height: 110, margin: '0 auto 12px', display: 'block' }} />
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,.35)', letterSpacing: '.5px' }}>By Henrique Albuquerque</div>
         </div>
 
         <ApkBanner />

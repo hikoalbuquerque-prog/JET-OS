@@ -1,283 +1,260 @@
 // frontend/src/components/GoJetCidadesPanel.tsx
-// Painel admin para configurar quais cidades têm integração GoJet.
-// Salva em Supabase: gojet_config
-//
-// Uso no DashboardManager (aba configurações):
-//   import GoJetCidadesPanel from './components/GoJetCidadesPanel';
-//   <GoJetCidadesPanel />
+// Painel admin para gerenciar cidades GoJet.
+// Puxa lista automaticamente da API GoJet via Edge Function.
+// Admin ativa/desativa cidades. Ao ativar, importa zonas automaticamente.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { onGojetConfigChange, salvarGojetConfigSupabase, removerGojetConfigSupabase } from '../lib/gojet-config-supabase';
-import { supabase } from '../lib/supabase';
+import {
+  type CidadeConfig,
+  carregarCidadeConfig,
+  toggleCidadeAtiva,
+  syncCidadesGoJet,
+  importZonas,
+  atualizarConfigCidade,
+  onCidadeConfigChange,
+} from '../lib/cidade-config';
+import { showToastGlobal } from './ui/ToastQueue';
+import { confirmDialog } from './ui/ConfirmDialog';
 
 const T = {
-  cidadesGoJet:       { pt: '🗺 Cidades GoJet',                                    en: '🗺 GoJet Cities',                                          es: '🗺 Ciudades GoJet',                                       ru: '🗺 Города GoJet' },
-  carregando:         { pt: 'Carregando...',                                       en: 'Loading...',                                               es: 'Cargando...',                                             ru: 'Загрузка...' },
-  nenhumaCidade:      { pt: 'Nenhuma cidade configurada.',                         en: 'No cities configured.',                                    es: 'Ninguna ciudad configurada.',                             ru: 'Нет настроенных городов.' },
-  editarCidade:       { pt: 'Editar cidade',                                       en: 'Edit city',                                                es: 'Editar ciudad',                                           ru: 'Редактировать город' },
-  novaCidade:         { pt: 'Nova cidade',                                         en: 'New city',                                                 es: 'Nueva ciudad',                                            ru: 'Новый город' },
-  nomeDaCidade:       { pt: 'Nome da cidade',                                      en: 'City name',                                                es: 'Nombre de la ciudad',                                     ru: 'Название города' },
-  selecionarCidade:   { pt: '— Selecionar cidade —',                               en: '— Select city —',                                          es: '— Seleccionar ciudad —',                                  ru: '— Выбрать город —' },
-  digitarManual:      { pt: '✏️ Digitar manualmente...',                           en: '✏️ Enter manually...',                                     es: '✏️ Escribir manualmente...',                              ru: '✏️ Ввести вручную...' },
-  exRecife:           { pt: 'Ex: Recife',                                          en: 'E.g.: Recife',                                             es: 'Ej.: Recife',                                             ru: 'Напр.: Recife' },
-  digiteNomeExato:    { pt: 'Digite o nome da cidade exatamente como cadastrada',   en: 'Enter the city name exactly as registered',              es: 'Escriba el nombre de la ciudad exactamente como registrada',  ru: 'Введите название города точно как зарегистрировано' },
-  cityIdGoJet:        { pt: 'City ID (GoJet)',                                     en: 'City ID (GoJet)',                                          es: 'City ID (GoJet)',                                         ru: 'City ID (GoJet)' },
-  exCityId:           { pt: 'Ex: 669f89ebd06775867c31b984',                        en: 'E.g.: 669f89ebd06775867c31b984',                           es: 'Ej.: 669f89ebd06775867c31b984',                           ru: 'Напр.: 669f89ebd06775867c31b984' },
-  dicaCityId:         { pt: '💡 Abrir map.gojet.app → selecionar cidade → copiar o ?cid= da URL', en: '💡 Open map.gojet.app → select city → copy the ?cid= from the URL', es: '💡 Abrir map.gojet.app → seleccionar ciudad → copiar el ?cid= de la URL', ru: '💡 Откройте map.gojet.app → выберите город → скопируйте ?cid= из URL' },
-  ativoOverlay:       { pt: 'Ativo (aparece no overlay GoJet)',                    en: 'Active (shown in the GoJet overlay)',                      es: 'Activo (aparece en el overlay GoJet)',                    ru: 'Активен (отображается в слое GoJet)' },
-  cancelar:           { pt: 'Cancelar',                                            en: 'Cancel',                                                   es: 'Cancelar',                                                ru: 'Отмена' },
-  salvando:           { pt: 'Salvando...',                                         en: 'Saving...',                                                es: 'Guardando...',                                            ru: 'Сохранение...' },
-  salvar:             { pt: '✓ Salvar',                                            en: '✓ Save',                                                   es: '✓ Guardar',                                               ru: '✓ Сохранить' },
-  adicionarCidade:    { pt: '+ Adicionar cidade',                                  en: '+ Add city',                                               es: '+ Agregar ciudad',                                        ru: '+ Добавить город' },
-  erroObrigatorio:    { pt: 'Nome e City ID são obrigatórios',                     en: 'Name and City ID are required',                            es: 'Nombre y City ID son obligatorios',                       ru: 'Имя и City ID обязательны' },
-  confirmRemover:     { pt: 'Remover',                                             en: 'Remove',                                                   es: 'Eliminar',                                                ru: 'Удалить' },
+  title:      { pt: '🌐 Cidades GoJet', en: '🌐 GoJet Cities', es: '🌐 Ciudades GoJet', ru: '🌐 Города GoJet' },
+  ativas:     { pt: 'Ativas', en: 'Active', es: 'Activas', ru: 'Активные' },
+  inativas:   { pt: 'Inativas', en: 'Inactive', es: 'Inactivas', ru: 'Неактивные' },
+  novas:      { pt: 'Novas', en: 'New', es: 'Nuevas', ru: 'Новые' },
+  sync:       { pt: '🔄 Sincronizar', en: '🔄 Sync', es: '🔄 Sincronizar', ru: '🔄 Синхронизировать' },
+  syncing:    { pt: 'Sincronizando...', en: 'Syncing...', es: 'Sincronizando...', ru: 'Синхронизация...' },
+  syncOk:     { pt: 'Sincronizado!', en: 'Synced!', es: '¡Sincronizado!', ru: 'Синхронизировано!' },
+  importando: { pt: 'Importando zonas...', en: 'Importing zones...', es: 'Importando zonas...', ru: 'Импорт зон...' },
+  zones:      { pt: 'zonas', en: 'zones', es: 'zonas', ru: 'зон' },
+  bikes:      { pt: 'bikes', en: 'bikes', es: 'bikes', ru: 'байков' },
+  semSync:    { pt: 'Nunca sincronizado. Clique em Sincronizar.', en: 'Never synced. Click Sync.', es: 'Nunca sincronizado. Haz clic en Sincronizar.', ru: 'Никогда не синхронизировалось. Нажмите Синхронизировать.' },
+  config:     { pt: '⚙ Configuração', en: '⚙ Settings', es: '⚙ Configuración', ru: '⚙ Настройки' },
+  limiteDefault: { pt: 'Limite padrão (bikes/ponto)', en: 'Default limit (bikes/point)', es: 'Límite por defecto (bikes/punto)', ru: 'Лимит по умолчанию (байков/точка)' },
+  salvar:     { pt: 'Salvar', en: 'Save', es: 'Guardar', ru: 'Сохранить' },
+  confirmarAtivar: { pt: 'Ativar cidade?', en: 'Activate city?', es: '¿Activar ciudad?', ru: 'Активировать город?' },
+  msgAtivar:  { pt: 'Zonas serão importadas automaticamente do GoJet.', en: 'Zones will be imported automatically from GoJet.', es: 'Las zonas se importarán automáticamente de GoJet.', ru: 'Зоны будут импортированы автоматически из GoJet.' },
+  removida:   { pt: 'Removida do GoJet', en: 'Removed from GoJet', es: 'Eliminada de GoJet', ru: 'Удалён из GoJet' },
+  ultimaSync: { pt: 'Última sync', en: 'Last sync', es: 'Última sync', ru: 'Последняя синхронизация' },
+  reImport:   { pt: 'Re-importar zonas', en: 'Re-import zones', es: 'Re-importar zonas', ru: 'Повторный импорт зон' },
 };
 
-interface GoJetCidade {
-  id: string;          // nome da cidade (doc id)
-  cityId: string;      // GoJet city_id
-  nome: string;        // nome legível
-  ativo: boolean;
-}
-
-// Cidades conhecidas (seed inicial)
-const SEED: Omit<GoJetCidade, 'id'>[] = [
-  { cityId: '669f89ebd06775867c31b984', nome: 'São Paulo',    ativo: true  },
-  { cityId: '67ab79f4cd4d3cbb07a0c02e', nome: 'Santo André',  ativo: false },
-];
+type Lang = 'pt' | 'en' | 'es' | 'ru';
 
 export default function GoJetCidadesPanel() {
   const { i18n } = useTranslation();
-  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
-  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
+  const lang = ((i18n.language || 'pt').slice(0, 2)) as Lang;
+  const pick = (o: Record<Lang, string>) => o[lang] ?? o.pt;
 
-  const [cidades,           setCidades]           = useState<GoJetCidade[]>([]);
-  const [cidadesDisponiveis, setCidadesDisponiveis] = useState<string[]>([]);
-  const [loading,           setLoading]           = useState(true);
-  const [editando,          setEditando]          = useState<GoJetCidade | null>(null);
-  const [nova,              setNova]              = useState(false);
-  const [form,              setForm]              = useState({ nome: '', cityId: '', ativo: true });
-  const [salvando,          setSalvando]          = useState(false);
-  const [erro,              setErro]              = useState('');
-
-  // Carrega cidades disponíveis do Supabase (estações cadastradas)
-  useEffect(() => {
-    supabase.from('estacoes_geo').select('cidade').then(({ data }) => {
-      const set = new Set<string>();
-      (data ?? []).forEach((r: any) => {
-        const c = r.cidade;
-        if (c && typeof c === 'string') set.add(c.trim());
-      });
-      setCidadesDisponiveis(Array.from(set).sort());
-    });
-  }, []);
+  const [cidades, setCidades] = useState<CidadeConfig[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [tab, setTab] = useState<'ativas' | 'inativas' | 'novas'>('ativas');
+  const [configOpen, setConfigOpen] = useState<string | null>(null);
+  const [configForm, setConfigForm] = useState<Record<string, any>>({});
 
   useEffect(() => {
-    return onGojetConfigChange(lista => {
-      setCidades(lista);
+    return onCidadeConfigChange(list => {
+      setCidades(list);
       setLoading(false);
-
-      // Seed inicial se vazio
-      if (lista.length === 0) {
-        Promise.all(SEED.map(s =>
-          salvarGojetConfigSupabase(s.nome, s.cityId, s.ativo)
-        )).catch(() => {});
-      }
     });
   }, []);
 
-  const salvar = async () => {
-    if (!form.nome.trim() || !form.cityId.trim()) {
-      setErro(pick(T.erroObrigatorio));
-      return;
-    }
-    setSalvando(true);
-    setErro('');
+  const ativas = cidades.filter(c => c.ativo && !c.gojet_removida);
+  const inativas = cidades.filter(c => !c.ativo && !c.gojet_removida);
+  const novas = cidades.filter(c => !c.ativo && !c.gojet_removida && !c.ultima_sync);
+  const counts = { ativas: ativas.length, inativas: inativas.length, novas: novas.length };
+
+  const doSync = useCallback(async () => {
+    setSyncing(true);
     try {
-      const nome = form.nome.trim();
-      const cityId = form.cityId.trim();
-      await salvarGojetConfigSupabase(nome, cityId, form.ativo);
-      setNova(false);
-      setEditando(null);
-      setForm({ nome: '', cityId: '', ativo: true });
+      const res = await syncCidadesGoJet();
+      showToastGlobal(`${pick(T.syncOk)} ${res.total} cidades. ${res.novas} novas.`, 'success');
     } catch (e: any) {
-      setErro(e.message);
+      showToastGlobal(`Sync erro: ${e.message}`, 'error');
     } finally {
-      setSalvando(false);
+      setSyncing(false);
     }
-  };
+  }, [lang]);
 
-  const remover = async (id: string) => {
-    if (!confirm(`${pick(T.confirmRemover)} ${id}?`)) return;
-    await removerGojetConfigSupabase(id);
-  };
+  const doToggle = useCallback(async (c: CidadeConfig) => {
+    if (!c.ativo) {
+      const ok = await confirmDialog(pick(T.confirmarAtivar), pick(T.msgAtivar));
+      if (!ok) return;
+    }
+    try {
+      await toggleCidadeAtiva(c.id, !c.ativo);
+      if (!c.ativo) showToastGlobal(`${c.nome} ativada! Importando zonas...`, 'success');
+    } catch (e: any) {
+      showToastGlobal(`Erro: ${e.message}`, 'error');
+    }
+  }, [lang]);
 
-  const toggleAtivo = async (c: GoJetCidade) => {
-    await salvarGojetConfigSupabase(c.id, c.cityId, !c.ativo);
-  };
+  const doReImport = useCallback(async (cityId: string) => {
+    showToastGlobal(pick(T.importando), 'info');
+    try {
+      const res = await importZonas(cityId);
+      showToastGlobal(`${res.imported} zonas importadas!`, 'success');
+    } catch (e: any) {
+      showToastGlobal(`Erro: ${e.message}`, 'error');
+    }
+  }, [lang]);
 
-  const iniciarEditar = (c: GoJetCidade) => {
-    setEditando(c);
-    setNova(true);
-    setForm({ nome: c.nome, cityId: c.cityId, ativo: c.ativo });
-  };
+  const doSaveConfig = useCallback(async (id: string) => {
+    try {
+      await atualizarConfigCidade(id, configForm);
+      showToastGlobal('Config salva!', 'success');
+      setConfigOpen(null);
+    } catch (e: any) {
+      showToastGlobal(`Erro: ${e.message}`, 'error');
+    }
+  }, [configForm]);
+
+  const filtered = tab === 'ativas' ? ativas : tab === 'novas' ? novas : inativas;
 
   const S = {
-    section: {
-      background: '#0d1521', border: '1px solid rgba(255,255,255,.08)',
-      borderRadius: 10, padding: 14, marginBottom: 12,
+    container: { background: '#0d1521', borderRadius: 10, padding: 14 } as React.CSSProperties,
+    header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 } as React.CSSProperties,
+    title: { fontSize: 13, fontWeight: 700, color: '#dce8ff' } as React.CSSProperties,
+    tabs: { display: 'flex', gap: 4, marginBottom: 10 } as React.CSSProperties,
+    tab: (active: boolean) => ({
+      padding: '4px 10px', borderRadius: 12, border: 'none', fontSize: 11, fontWeight: 600,
+      cursor: 'pointer', background: active ? '#10b981' : 'rgba(255,255,255,.08)',
+      color: active ? '#fff' : 'rgba(255,255,255,.5)',
+    }),
+    row: { display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,.05)' } as React.CSSProperties,
+    toggle: (on: boolean) => ({
+      width: 34, height: 18, borderRadius: 9, cursor: 'pointer', flexShrink: 0,
+      background: on ? '#10b981' : 'rgba(255,255,255,.1)', position: 'relative' as const, transition: 'background .2s',
+    }),
+    toggleDot: (on: boolean) => ({
+      position: 'absolute' as const, top: 2, left: on ? 18 : 2,
+      width: 14, height: 14, borderRadius: 7, background: '#fff', transition: 'left .2s',
+    }),
+    badge: (color: string) => ({
+      fontSize: 9, padding: '1px 5px', borderRadius: 3, fontWeight: 600,
+      background: `${color}30`, color,
+    }),
+    syncBtn: {
+      padding: '5px 10px', borderRadius: 6, border: 'none', fontSize: 11, fontWeight: 600,
+      cursor: 'pointer', background: '#3b82f6', color: '#fff',
     } as React.CSSProperties,
-    title: {
-      fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,.35)',
-      textTransform: 'uppercase' as const, letterSpacing: 1, marginBottom: 10,
-    },
-    row: {
-      display: 'flex', alignItems: 'center', gap: 8,
-      padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,.05)',
+    configSection: {
+      background: 'rgba(255,255,255,.03)', borderRadius: 6, padding: 10, marginTop: 6,
+      borderLeft: '3px solid #3b82f6',
     } as React.CSSProperties,
     inp: {
-      width: '100%', padding: '8px 10px', borderRadius: 7,
+      width: 80, padding: '4px 6px', borderRadius: 4,
       background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)',
-      color: '#dce8ff', fontSize: 12, outline: 'none', boxSizing: 'border-box' as const,
-      marginBottom: 8,
-    },
-    lbl: {
-      fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,.4)',
-      display: 'block' as const, marginBottom: 4,
-      textTransform: 'uppercase' as const, letterSpacing: 0.5,
-    },
-    btn: (cor: string) => ({
-      padding: '7px 12px', borderRadius: 7, border: 'none',
-      background: cor, color: '#fff', fontSize: 11, fontWeight: 600,
-      cursor: 'pointer',
+      color: '#dce8ff', fontSize: 12, outline: 'none',
+    } as React.CSSProperties,
+    miniBtn: (color: string) => ({
+      padding: '3px 8px', borderRadius: 4, border: 'none', fontSize: 10,
+      cursor: 'pointer', background: color, color: '#fff', fontWeight: 600,
     }),
   };
 
   return (
-    <div>
-      <div style={S.title}>{pick(T.cidadesGoJet)}</div>
-
-      {/* Lista */}
-      <div style={S.section}>
-        {loading ? (
-          <div style={{ color: 'rgba(255,255,255,.3)', fontSize: 12 }}>{pick(T.carregando)}</div>
-        ) : cidades.length === 0 ? (
-          <div style={{ color: 'rgba(255,255,255,.3)', fontSize: 12 }}>
-            {pick(T.nenhumaCidade)}
-          </div>
-        ) : cidades.map(c => (
-          <div key={c.id} style={S.row}>
-            {/* Toggle ativo */}
-            <div
-              onClick={() => toggleAtivo(c)}
-              style={{
-                width: 32, height: 18, borderRadius: 9, cursor: 'pointer', flexShrink: 0,
-                background: c.ativo ? '#10b981' : 'rgba(255,255,255,.1)',
-                position: 'relative', transition: 'background .2s',
-              }}>
-              <div style={{
-                position: 'absolute', top: 2,
-                left: c.ativo ? 16 : 2,
-                width: 14, height: 14, borderRadius: 7,
-                background: '#fff', transition: 'left .2s',
-              }} />
-            </div>
-
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#dce8ff' }}>{c.nome}</div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', fontFamily: 'monospace' }}>
-                {c.cityId}
-              </div>
-            </div>
-
-            <button onClick={() => iniciarEditar(c)} style={S.btn('rgba(255,255,255,.08)')}>
-              ✏️
-            </button>
-            <button onClick={() => remover(c.id)} style={S.btn('rgba(239,68,68,.15)')}>
-              🗑
-            </button>
-          </div>
-        ))}
+    <div style={S.container}>
+      <div style={S.header}>
+        <div style={S.title}>{pick(T.title)}</div>
+        <button
+          onClick={doSync}
+          disabled={syncing}
+          style={{ ...S.syncBtn, opacity: syncing ? 0.5 : 1 }}
+        >
+          {syncing ? pick(T.syncing) : pick(T.sync)}
+        </button>
       </div>
 
-      {/* Formulário novo/editar */}
-      {nova ? (
-        <div style={S.section}>
-          <div style={S.title}>{editando ? pick(T.editarCidade) : pick(T.novaCidade)}</div>
-
-          <label style={S.lbl}>{pick(T.nomeDaCidade)}</label>
-          {editando ? (
-            // Editando — nome não pode mudar (é o doc ID)
-            <div style={{ ...S.inp, color: 'rgba(255,255,255,.4)', cursor: 'not-allowed' }}>
-              {form.nome}
-            </div>
-          ) : cidadesDisponiveis.length > 0 ? (
-            // Dropdown com cidades que têm estações
-            <select
-              style={{ ...S.inp, cursor: 'pointer' }}
-              value={form.nome}
-              onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
-            >
-              <option value="">{pick(T.selecionarCidade)}</option>
-              {cidadesDisponiveis
-                .filter(c => !cidades.find(gc => gc.nome === c)) // esconde já configuradas
-                .map(c => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              <option value="__manual__">{pick(T.digitarManual)}</option>
-            </select>
-          ) : (
-            <input style={S.inp} value={form.nome}
-              placeholder={pick(T.exRecife)}
-              onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
-          )}
-          {form.nome === '__manual__' && (
-            <input style={{ ...S.inp, marginTop: 6 }}
-              placeholder={pick(T.digiteNomeExato)}
-              autoFocus
-              onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
-          )}
-
-          <label style={S.lbl}>{pick(T.cityIdGoJet)}</label>
-          <input style={S.inp} value={form.cityId}
-            placeholder={pick(T.exCityId)}
-            onChange={e => setForm(f => ({ ...f, cityId: e.target.value }))} />
-
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', marginBottom: 8 }}>
-            {pick(T.dicaCityId)}
-          </div>
-
-          <label style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            fontSize: 12, color: 'rgba(255,255,255,.5)', cursor: 'pointer', marginBottom: 10,
-          }}>
-            <input type="checkbox" checked={form.ativo}
-              onChange={e => setForm(f => ({ ...f, ativo: e.target.checked }))} />
-            {pick(T.ativoOverlay)}
-          </label>
-
-          {erro && <div style={{ color: '#ef4444', fontSize: 11, marginBottom: 8 }}>{erro}</div>}
-
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => { setNova(false); setEditando(null); setForm({ nome: '', cityId: '', ativo: true }); setErro(''); }}
-              style={{ flex: 1, padding: '8px', borderRadius: 8, border: '1px solid rgba(255,255,255,.1)',
-                background: 'rgba(255,255,255,.05)', color: 'rgba(255,255,255,.4)', cursor: 'pointer', fontSize: 12 }}>
-              {pick(T.cancelar)}
-            </button>
-            <button onClick={salvar} disabled={salvando}
-              style={{ flex: 2, padding: '8px', borderRadius: 8, border: 'none',
-                background: '#10b981', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: 12 }}>
-              {salvando ? pick(T.salvando) : pick(T.salvar)}
-            </button>
-          </div>
+      {loading ? (
+        <div style={{ color: 'rgba(255,255,255,.3)', fontSize: 12 }}>Carregando...</div>
+      ) : cidades.length === 0 ? (
+        <div style={{ color: 'rgba(255,255,255,.3)', fontSize: 12, padding: '20px 0', textAlign: 'center' }}>
+          {pick(T.semSync)}
         </div>
       ) : (
-        <button onClick={() => { setNova(true); setEditando(null); setForm({ nome: '', cityId: '', ativo: true }); }}
-          style={{ width: '100%', padding: '9px', borderRadius: 8, border: '1px dashed rgba(16,185,129,.3)',
-            background: 'rgba(16,185,129,.06)', color: '#10b981', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-          {pick(T.adicionarCidade)}
-        </button>
+        <>
+          <div style={S.tabs}>
+            <button style={S.tab(tab === 'ativas')} onClick={() => setTab('ativas')}>
+              {pick(T.ativas)} ({counts.ativas})
+            </button>
+            <button style={S.tab(tab === 'inativas')} onClick={() => setTab('inativas')}>
+              {pick(T.inativas)} ({counts.inativas})
+            </button>
+            {counts.novas > 0 && (
+              <button style={S.tab(tab === 'novas')} onClick={() => setTab('novas')}>
+                🆕 {pick(T.novas)} ({counts.novas})
+              </button>
+            )}
+          </div>
+
+          {filtered.map(c => (
+            <div key={c.id}>
+              <div style={S.row}>
+                <div style={S.toggle(c.ativo)} onClick={() => doToggle(c)}>
+                  <div style={S.toggleDot(c.ativo)} />
+                </div>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#dce8ff' }}>{c.nome}</div>
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,.3)', display: 'flex', gap: 8 }}>
+                    {c.total_zones != null && <span>{c.total_zones} {pick(T.zones)}</span>}
+                    {c.total_bikes != null && <span>{c.total_bikes} {pick(T.bikes)}</span>}
+                    {c.gojet_removida && <span style={{ color: '#ef4444' }}>{pick(T.removida)}</span>}
+                    {c.ultima_sync && (
+                      <span>{pick(T.ultimaSync)}: {new Date(c.ultima_sync).toLocaleDateString()}</span>
+                    )}
+                  </div>
+                </div>
+
+                {c.total_zones != null && c.total_zones > 0 && (
+                  <span style={S.badge('#3b82f6')}>{c.total_zones}z</span>
+                )}
+                {!c.ultima_sync && <span style={S.badge('#f59e0b')}>NOVA</span>}
+
+                {c.ativo && (
+                  <button
+                    onClick={() => {
+                      if (configOpen === c.id) { setConfigOpen(null); }
+                      else { setConfigOpen(c.id); setConfigForm(c.config || {}); }
+                    }}
+                    style={S.miniBtn('rgba(255,255,255,.08)')}
+                  >
+                    ⚙
+                  </button>
+                )}
+              </div>
+
+              {configOpen === c.id && (
+                <div style={S.configSection}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,.4)', marginBottom: 6 }}>
+                    {pick(T.config)} — {c.nome}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 11 }}>
+                    <span style={{ color: 'rgba(255,255,255,.5)' }}>{pick(T.limiteDefault)}:</span>
+                    <input
+                      type="number"
+                      style={S.inp}
+                      value={configForm.limite_default ?? 3}
+                      onChange={e => setConfigForm(f => ({ ...f, limite_default: parseInt(e.target.value) || 3 }))}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => doSaveConfig(c.id)} style={S.miniBtn('#10b981')}>
+                      {pick(T.salvar)}
+                    </button>
+                    <button onClick={() => doReImport(c.id)} style={S.miniBtn('#3b82f6')}>
+                      {pick(T.reImport)}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </>
       )}
     </div>
   );

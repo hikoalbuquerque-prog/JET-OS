@@ -12,7 +12,7 @@
 
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { buscarCityIdSupabase } from '../lib/gojet-config-supabase';
+import { buscarCityId as buscarCityIdSupabase } from '../lib/cidade-config';
 import { fnScraperGoJetManual } from '../lib/edge-functions';
 import { carregarEstacoesSupabase } from '../lib/estacoes-supabase';
 import { fetchGojetSnapshot } from '../lib/analytics-supabase';
@@ -409,9 +409,11 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
 
   const parkingLayerRef = useRef<L.LayerGroup | null>(null);
   const bikeLayerRef    = useRef<L.LayerGroup | null>(null);
+  const zonesLayerRef   = useRef<L.LayerGroup | null>(null);
 
   const [parkings,      setParkings]      = useState<GoJetParking[]>([]);
   const [bikes,         setBikes]         = useState<GoJetBike[]>([]);
+  const [zones,         setZones]         = useState<any[]>([]);
   const [estacoes,      setEstacoes]      = useState<EstacaoMonitor[]>([]);
   const [atualizadoEm,  setAtualizadoEm]  = useState<Date | null>(null);
   const [loading,       setLoading]       = useState(false);
@@ -421,6 +423,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
   // Layers ativos (independentes)
   const [showParkings, setShowParkings] = useState(true);
   const [showBikes,    setShowBikes]    = useState(false);
+  const [showZones,    setShowZones]    = useState(true);
   const [tickAgora,    setTickAgora]    = useState(() => Date.now());
   const statusSinceRef = useRef<Record<string, { status: string; since: number }>>({});
 
@@ -583,6 +586,15 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
       setBikes(enrichedBikes);
       setAtualizadoEm(new Date());
 
+      // Carregar zones da tabela zones (polígonos GeoJSON por cidade)
+      try {
+        const { data: zoneRows } = await supabase.from('zones')
+          .select('id, name, city, geometry, color')
+          .eq('city', cidade);
+        if (zoneRows && zoneRows.length > 0) setZones(zoneRows);
+        else setZones([]);
+      } catch { setZones([]); }
+
     } catch (e: any) { setErro(e.message ?? pick(T.errLerSnapshot)); }
     finally { setLoading(false); }
   }, [cityId, cidade]);
@@ -607,7 +619,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
     if (!cidade || !visivel) return;
     (async () => {
       try {
-        const { data, error } = await supabase.from('monitor_config').select('*').eq('cidade', cidade).single();
+        const { data, error } = await supabase.from('monitor_config').select('*').eq('cidade', cidade).maybeSingle();
         if (error || !data) setMonitorConfig(DEFAULT_MONITOR_CONFIG);
         else setMonitorConfig({ M1: data.m1, M2: data.m2, M3: data.m3 } as MonitorConfig);
       } catch { setMonitorConfig(DEFAULT_MONITOR_CONFIG); }
@@ -687,10 +699,29 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
   useEffect(() => {
     if (!visivel || !cityId) return;
     carregarSnapshot();
-    // Recarrega do Supabase a cada 5 min (o scraper já atualizou o snapshot)
     const t = setInterval(carregarSnapshot, 5 * 60_000);
     return () => clearInterval(t);
   }, [visivel, cityId, carregarSnapshot]);
+
+  // Auto-scraper: busca dados frescos da API GoJet pelo browser a cada 15min
+  useEffect(() => {
+    if (!visivel || !cityId || !cidade) return;
+    if (isNativeApp()) return; // APK não faz scraping direto (CORS)
+    const doScrape = async () => {
+      try {
+        const { scraperGoJetBrowser } = await import('../lib/gojet-scraper');
+        await scraperGoJetBrowser(cityId, cidade);
+        await carregarSnapshot();
+        console.log('[gojet] auto-scrape OK', cidade);
+      } catch (e: any) {
+        console.warn('[gojet] auto-scrape falhou:', e?.message);
+      }
+    };
+    // Primeiro scrape após 30s (dá tempo de carregar o snapshot salvo primeiro)
+    const init = setTimeout(doScrape, 30_000);
+    const t = setInterval(doScrape, 15 * 60_000);
+    return () => { clearTimeout(init); clearInterval(t); };
+  }, [visivel, cityId, cidade, carregarSnapshot]);
 
   // ── Parkings filtrados ────────────────────────────────────────────────────
 
@@ -965,6 +996,55 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
       if (mapa.hasLayer(bikeLayerRef.current)) mapa.removeLayer(bikeLayerRef.current);
     }
   }, [mapa, showBikes, bikesFiltrados]);
+
+  // Zones rendering — polygons from Supabase `zones` table (GeoJSON geometry)
+  useEffect(() => {
+    if (!mapa || !visivel) return;
+    if (!zonesLayerRef.current) zonesLayerRef.current = L.layerGroup();
+    const layer = zonesLayerRef.current;
+    layer.clearLayers();
+
+    if (showZones && zones.length > 0) {
+      for (const z of zones) {
+        const geom = z.geometry;
+        if (!geom || !geom.coordinates) continue;
+        const name = z.name ?? '';
+        const color = z.color ?? '#9ca3af';
+
+        try {
+          let rings: [number, number][][] = [];
+          if (geom.type === 'Polygon') {
+            // coordinates: [ [[lng,lat], ...] ]
+            rings = geom.coordinates.map((ring: number[][]) =>
+              ring.map((c: number[]) => [c[1], c[0]] as [number, number])
+            );
+          } else if (geom.type === 'MultiPolygon') {
+            // coordinates: [ [ [[lng,lat], ...] ] ]
+            for (const poly of geom.coordinates) {
+              rings.push(...poly.map((ring: number[][]) =>
+                ring.map((c: number[]) => [c[1], c[0]] as [number, number])
+              ));
+            }
+          }
+          if (rings.length === 0 || rings[0].length < 3) continue;
+
+          const poly = L.polygon(rings, {
+            color, weight: 2, opacity: 0.7,
+            fillColor: color, fillOpacity: 0.12,
+          });
+          if (name) poly.bindPopup(`<div style="font-family:Inter,sans-serif;font-size:12px;font-weight:600">${name}</div>`);
+          layer.addLayer(poly);
+        } catch { /* skip malformed zone */ }
+      }
+      if (!mapa.hasLayer(layer)) layer.addTo(mapa);
+    } else {
+      if (mapa.hasLayer(layer)) mapa.removeLayer(layer);
+    }
+
+    return () => {
+      if (zonesLayerRef.current) { mapa.removeLayer(zonesLayerRef.current); zonesLayerRef.current = null; }
+    };
+  }, [mapa, visivel, zones, showZones]);
 
   // tickAgora mantido por compatibilidade com iconBike, mas não mais atualiza markers em loop
   useEffect(() => { void tickAgora; }, []);
@@ -1250,6 +1330,15 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
             background: showBikes ? 'rgba(16,185,129,.25)' : 'transparent',
             color: showBikes ? '#10b981' : 'rgba(255,255,255,.45)',
           }}>{pick(T.patinetesToggle)} {showBikes ? `(${bikesFiltrados.length})` : `(${bikes.length})`}</button>
+
+          {zones.length > 0 && (
+            <button onClick={() => setShowZones(v => !v)} style={{
+              padding: '5px 12px', borderRadius: 16, border: 'none', cursor: 'pointer',
+              fontSize: 11, fontWeight: 700,
+              background: showZones ? 'rgba(99,102,241,.25)' : 'transparent',
+              color: showZones ? '#818cf8' : 'rgba(255,255,255,.45)',
+            }}>Zonas ({zones.length})</button>
+          )}
 
           {/* Filtros bikes */}
           {showBikes && ([

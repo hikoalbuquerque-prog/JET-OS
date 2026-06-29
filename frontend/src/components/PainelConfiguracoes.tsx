@@ -5,9 +5,10 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '../lib/supabase';
-import { onGojetConfigChange, salvarGojetConfigSupabase, removerGojetConfigSupabase } from '../lib/gojet-config-supabase';
 import { MonitorConfigPanel } from './MonitorConfigPanel';
 import TelegramConfigPanel from '../TelegramConfigPanel';
+import BroadcastPanel from './BroadcastPanel';
+import GoJetCidadesPanel from './GoJetCidadesPanel';
 
 // ─── i18n ─────────────────────────────────────────────────────────
 
@@ -51,18 +52,12 @@ const T = {
   tabMonitor:         { pt: '📊 Monitor', en: '📊 Monitor', es: '📊 Monitor', ru: '📊 Монитор' },
   tabPayments:        { pt: '💰 Pagamentos', en: '💰 Payments', es: '💰 Pagos', ru: '💰 Платежи' },
   tabTelegram:        { pt: '📨 Telegram', en: '📨 Telegram', es: '📨 Telegram', ru: '📨 Telegram' },
+  tabBroadcast:       { pt: '📡 Broadcast', en: '📡 Broadcast', es: '📡 Broadcast', ru: '📡 Рассылка' },
   settings:           { pt: '⚙️ Configurações', en: '⚙️ Settings', es: '⚙️ Configuración', ru: '⚙️ Настройки' },
   settingsSubtitle:   { pt: 'Integração, monitores, pagamentos e Telegram', en: 'Integration, monitors, payments and Telegram', es: 'Integración, monitores, pagos y Telegram', ru: 'Интеграция, мониторы, платежи и Telegram' },
 };
 
 // ─── Tipos ────────────────────────────────────────────────────────
-
-interface GoJetCidade {
-  id: string;
-  cityId: string;
-  nome: string;
-  ativo: boolean;
-}
 
 interface PagConfig {
   valor_por_tarefa: number;
@@ -73,6 +68,8 @@ interface PagConfig {
 interface Props {
   onFechar: () => void;
   cidadeAtual: string;
+  autorUid?: string;
+  autorNome?: string;
 }
 
 const S = {
@@ -94,12 +91,15 @@ const S = {
     borderBottom: '1px solid rgba(255,255,255,.07)',
     flexShrink: 0,
   },
-  tab: (ativo: boolean) => ({
+  tab: (ativo: boolean): React.CSSProperties => ({
     padding: '10px 16px', cursor: 'pointer', fontSize: 13, fontWeight: 600,
     color: ativo ? '#818cf8' : 'rgba(255,255,255,.4)',
-    borderBottom: ativo ? '2px solid #818cf8' : '2px solid transparent',
-    background: 'none', border: 'none', transition: 'color .15s',
-  } as React.CSSProperties),
+    borderStyle: 'solid',
+    borderColor: 'transparent',
+    borderWidth: '0 0 2px 0',
+    borderBottomColor: ativo ? '#818cf8' : 'transparent',
+    background: 'none', transition: 'color .15s', outline: 'none',
+  }),
   body: {
     flex: 1, overflowY: 'auto' as const, padding: 24,
   },
@@ -130,147 +130,10 @@ const S = {
   } as React.CSSProperties,
 };
 
-// ─── Aba GoJet ────────────────────────────────────────────────────
+// ─── Aba GoJet — agora usa GoJetCidadesPanel (cidade_config) ──────
 
 function AbaGoJet() {
-  const { i18n } = useTranslation();
-  const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
-  const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
-  const [cidades, setCidades] = useState<GoJetCidade[]>([]);
-  const [cidadesEstacoes, setCidadesEstacoes] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [editando, setEditando] = useState<GoJetCidade | null>(null);
-  const [nova, setNova] = useState(false);
-  const [form, setForm] = useState({ nome: '', cityId: '', ativo: true });
-  const [salvando, setSalvando] = useState(false);
-  const [msg, setMsg] = useState('');
-
-  useEffect(() => {
-    supabase.from('estacoes').select('cidade').then(({ data }) => {
-      const set = new Set<string>();
-      (data || []).forEach((d: any) => { if (d.cidade) set.add(d.cidade.trim()); });
-      setCidadesEstacoes(Array.from(set).sort());
-    });
-  }, []);
-
-  useEffect(() => {
-    return onGojetConfigChange(lista => {
-      setCidades(lista);
-      setLoading(false);
-    });
-  }, []);
-
-  const salvar = async () => {
-    if (!form.nome.trim() || !form.cityId.trim()) { setMsg(pick(T.fillNameCityId)); return; }
-    setSalvando(true);
-    try {
-      const nome = form.nome.trim();
-      const cityId = form.cityId.trim();
-      await salvarGojetConfigSupabase(nome, cityId, form.ativo);
-      setMsg(pick(T.saved));
-      setEditando(null); setNova(false);
-      setForm({ nome: '', cityId: '', ativo: true });
-    } catch { setMsg(pick(T.errorSaving)); }
-    finally { setSalvando(false); }
-  };
-
-  const toggleAtivo = async (c: GoJetCidade) => {
-    await salvarGojetConfigSupabase(c.id, c.cityId, !c.ativo);
-  };
-
-  const remover = async (id: string) => {
-    if (!confirm(`${pick(T.remove)} ${id}?`)) return;
-    await removerGojetConfigSupabase(id);
-  };
-
-  if (loading) return <div style={{ color: 'rgba(255,255,255,.4)', padding: 20 }}>{pick(T.loading)}</div>;
-
-  return (
-    <div>
-      <div style={{ marginBottom: 18, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 14, color: '#dce8ff' }}>{pick(T.gojetCities)}</div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,.4)', marginTop: 2 }}>{pick(T.gojetCitiesDesc)}</div>
-        </div>
-        <button onClick={() => { setNova(true); setEditando(null); setForm({ nome: '', cityId: '', ativo: true }); }} style={S.btnPrimary}>
-          {pick(T.newCity)}
-        </button>
-      </div>
-
-      {(nova || editando) && (
-        <div style={{ ...S.card, border: '1px solid rgba(99,102,241,.3)', marginBottom: 16 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, color: '#a5b4fc', marginBottom: 14 }}>
-            {editando ? `${pick(T.editPrefix)} ${editando.nome}` : pick(T.newCityTitle)}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <div>
-              <label style={S.lbl}>{pick(T.cityName)}</label>
-              {cidadesEstacoes.length > 0 ? (
-                <select value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
-                  style={{ ...S.inp, background: '#0d1521', colorScheme: 'dark' }}>
-                  <option value="">{pick(T.select)}</option>
-                  {cidadesEstacoes.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              ) : (
-                <input value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
-                  placeholder="São Paulo" style={S.inp} />
-              )}
-            </div>
-            <div>
-              <label style={S.lbl}>{pick(T.gojetCityId)}</label>
-              <input value={form.cityId} onChange={e => setForm(f => ({ ...f, cityId: e.target.value }))}
-                placeholder="669f89ebd06775867c31b984" style={S.inp} />
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', flex: 1 }}>
-              <input type="checkbox" checked={form.ativo} onChange={e => setForm(f => ({ ...f, ativo: e.target.checked }))} />
-              <span style={{ fontSize: 12, color: 'rgba(255,255,255,.6)' }}>{pick(T.active)}</span>
-            </label>
-            <button onClick={() => { setNova(false); setEditando(null); }} style={S.btnGhost}>{pick(T.cancel)}</button>
-            <button onClick={salvar} disabled={salvando} style={S.btnPrimary}>
-              {salvando ? pick(T.saving) : pick(T.save)}
-            </button>
-          </div>
-          {msg && <div style={{ fontSize: 11, color: msg.startsWith('✅') ? '#22c55e' : '#ef4444', marginTop: 8 }}>{msg}</div>}
-        </div>
-      )}
-
-      {cidades.map(c => (
-        <div key={c.id} style={S.card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 13, color: '#dce8ff' }}>{c.nome}</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,.38)', marginTop: 2, fontFamily: 'monospace' }}>{c.cityId}</div>
-            </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <span style={{
-                fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 6,
-                background: c.ativo ? 'rgba(34,197,94,.15)' : 'rgba(255,255,255,.07)',
-                color: c.ativo ? '#22c55e' : 'rgba(255,255,255,.35)',
-                border: `1px solid ${c.ativo ? 'rgba(34,197,94,.3)' : 'rgba(255,255,255,.1)'}`,
-                cursor: 'pointer',
-              }} onClick={() => toggleAtivo(c)}>
-                {c.ativo ? pick(T.badgeActive) : pick(T.badgeInactive)}
-              </span>
-              <button onClick={() => { setEditando(c); setNova(false); setForm({ nome: c.nome, cityId: c.cityId, ativo: c.ativo }); }}
-                style={{ ...S.btnGhost, padding: '5px 10px', fontSize: 11 }}>{pick(T.edit)}</button>
-              <button onClick={() => remover(c.id)}
-                style={{ background: 'rgba(239,68,68,.08)', color: '#f87171', border: '1px solid rgba(239,68,68,.2)', padding: '5px 10px', borderRadius: 7, cursor: 'pointer', fontSize: 11 }}>
-                {pick(T.remove)}
-              </button>
-            </div>
-          </div>
-        </div>
-      ))}
-
-      {cidades.length === 0 && !nova && (
-        <div style={{ textAlign: 'center', color: 'rgba(255,255,255,.3)', padding: '40px 0', fontSize: 13 }}>
-          {pick(T.noGojetCity)}
-        </div>
-      )}
-    </div>
-  );
+  return <GoJetCidadesPanel />;
 }
 
 // ─── Aba Monitor ──────────────────────────────────────────────────
@@ -436,9 +299,9 @@ function AbaPagamentos() {
 
 // ─── Componente principal ─────────────────────────────────────────
 
-type Aba = 'gojet' | 'monitor' | 'pagamentos' | 'telegram';
+type Aba = 'gojet' | 'monitor' | 'pagamentos' | 'telegram' | 'broadcast';
 
-export default function PainelConfiguracoes({ onFechar, cidadeAtual }: Props) {
+export default function PainelConfiguracoes({ onFechar, cidadeAtual, autorUid, autorNome }: Props) {
   const { i18n } = useTranslation();
   const lang = (((i18n.language || 'pt').slice(0, 2)) as 'pt' | 'en' | 'es' | 'ru');
   const pick = (o: { pt: string; en: string; es: string; ru: string }) => o[lang] ?? o.pt;
@@ -449,6 +312,7 @@ export default function PainelConfiguracoes({ onFechar, cidadeAtual }: Props) {
     { id: 'monitor',    label: pick(T.tabMonitor) },
     { id: 'pagamentos', label: pick(T.tabPayments) },
     { id: 'telegram',   label: pick(T.tabTelegram) },
+    { id: 'broadcast',  label: pick(T.tabBroadcast) },
   ];
 
   return (
@@ -479,6 +343,9 @@ export default function PainelConfiguracoes({ onFechar, cidadeAtual }: Props) {
           {aba === 'pagamentos' && <AbaPagamentos />}
           {aba === 'telegram'   && (
             <TelegramConfigPanel onFechar={onFechar} inline />
+          )}
+          {aba === 'broadcast'  && (
+            <BroadcastPanel autorUid={autorUid} autorNome={autorNome} />
           )}
         </div>
       </div>

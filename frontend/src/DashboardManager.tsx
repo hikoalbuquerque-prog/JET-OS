@@ -10,7 +10,6 @@ import { supabase } from './lib/supabase';
 import JSZip from 'jszip';
 import { useCidadesExpansao, STATUS_META, type CidadeExpansao } from './CidadesExpansao';
 import { fnGerarCroquisLote, fnSvEstatisticas, getEdgeCallable, functionsProviderSupabase } from './lib/edge-functions';
-import GoJetCidadesPanel from './components/GoJetCidadesPanel';
 import { showToastGlobal } from './components/ui/ToastQueue';
 
 interface Estacao {
@@ -5104,10 +5103,7 @@ export default function DashboardManager({ cidades, pais, onFechar, roleAtual }:
         {aba === 'guard' && (isGestor || isGestorSeg) && <GuardRelatoriosPanel isAdmin={roleAtual === 'admin'} />}
         {aba === 'usuarios' && (isAdmin || isGestorSeg) && <UsuariosPanel />}
 
-	{/* ── CONFIGURAÇÕES ── */}                                                                 
-	{aba === 'configuracoes' && (                                                               
-                    <GoJetCidadesPanel />                                                                     
-                )} 
+	{/* ── CONFIGURAÇÕES ── (movido para PainelConfiguracoes > aba GoJet) */}
 
         {/* ── IMPORTAR ── */}
         {aba === 'importar' && isGestor && (

@@ -67,7 +67,30 @@ export function subscribeTarefas(
   opts: { cidade: string; status?: string[]; limit?: number; intervaloMs?: number },
   cb: (t: any[]) => void,
 ): Unsub {
-  return poll(() => fetchTarefas(opts), cb, opts.intervaloMs ?? 8000);
+  // T1: Realtime + initial fetch
+  fetchTarefas(opts).then(cb).catch(e => console.warn('[gestor-supa] tarefas initial:', e?.message));
+
+  const channel = supabase
+    .channel(`tarefas_${opts.cidade || 'all'}`)
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'tarefas_logistica',
+      ...(opts.cidade ? { filter: `cidade=eq.${opts.cidade}` } : {}),
+    }, () => {
+      fetchTarefas(opts).then(cb).catch(e => console.warn('[gestor-supa] tarefas rt:', e?.message));
+    })
+    .subscribe();
+
+  // Fallback poll at 60s (safety net)
+  const fallback = setInterval(() => {
+    fetchTarefas(opts).then(cb).catch(() => {});
+  }, 60000);
+
+  return () => {
+    clearInterval(fallback);
+    supabase.removeChannel(channel);
+  };
 }
 
 export async function updateTarefa(id: string, patch: Record<string, unknown>): Promise<void> {
@@ -104,6 +127,7 @@ export function subscribeGpsLogistica(
   opts: { cidade: string; minutos?: number; intervaloMs?: number },
   cb: (w: any[]) => void,
 ): Unsub {
+  // GPS table may be a view — keep polling (T1: upgrade when table exists)
   return poll(() => fetchGpsLogistica(opts), cb, opts.intervaloMs ?? 10000);
 }
 
@@ -155,7 +179,29 @@ export function subscribeSlots(
   opts: { cidade: string; limit?: number; intervaloMs?: number },
   cb: (s: any[]) => void,
 ): Unsub {
-  return poll(() => fetchSlotsLogistica(opts), cb, opts.intervaloMs ?? 8000);
+  // T1: Realtime slots
+  fetchSlotsLogistica(opts).then(cb).catch(e => console.warn('[gestor-supa] slots initial:', e?.message));
+
+  const channel = supabase
+    .channel(`slots_${opts.cidade || 'all'}`)
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'slots',
+      ...(opts.cidade ? { filter: `cidade=eq.${opts.cidade}` } : {}),
+    }, () => {
+      fetchSlotsLogistica(opts).then(cb).catch(() => {});
+    })
+    .subscribe();
+
+  const fallback = setInterval(() => {
+    fetchSlotsLogistica(opts).then(cb).catch(() => {});
+  }, 60000);
+
+  return () => {
+    clearInterval(fallback);
+    supabase.removeChannel(channel);
+  };
 }
 
 export async function criarSlot(slot: Record<string, unknown>): Promise<void> {
