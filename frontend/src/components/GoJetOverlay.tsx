@@ -424,6 +424,7 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
   const [showParkings, setShowParkings] = useState(true);
   const [showBikes,    setShowBikes]    = useState(false);
   const [showZones,    setShowZones]    = useState(true);
+  const [syncingZones, setSyncingZones] = useState(false);
   const [tickAgora,    setTickAgora]    = useState(() => Date.now());
   const statusSinceRef = useRef<Record<string, { status: string; since: number }>>({});
 
@@ -697,17 +698,54 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
   }, [cidade]);
 
   // Carrega zones independente do cityId — basta ter cidade e visível
+  const loadZones = useCallback(async () => {
+    if (!cidade) return;
+    try {
+      const { data: zoneRows } = await supabase.from('zones')
+        .select('id, name, city, geometry, color')
+        .eq('city', cidade);
+      setZones(zoneRows ?? []);
+    } catch { setZones([]); }
+  }, [cidade]);
+
   useEffect(() => {
     if (!visivel || !cidade) return;
-    (async () => {
-      try {
-        const { data: zoneRows } = await supabase.from('zones')
-          .select('id, name, city, geometry, color')
-          .eq('city', cidade);
-        setZones(zoneRows ?? []);
-      } catch { setZones([]); }
-    })();
-  }, [visivel, cidade]);
+    loadZones();
+  }, [visivel, cidade, loadZones]);
+
+  const ZONE_COLORS = ['#ef4444','#3b82f6','#22c55e','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#f97316','#14b8a6','#6366f1'];
+  const syncTechzones = useCallback(async () => {
+    if (!cityId || !cidade) return;
+    setSyncingZones(true);
+    try {
+      const r = await fetch(`https://logistic.gojet.app/api/v0/urent/techzones?city_id=${cityId}`);
+      const list: { id: string; name: string }[] = await r.json();
+      let imported = 0;
+      for (let i = 0; i < list.length; i++) {
+        const z = list[i];
+        const dr = await fetch(`https://logistic.gojet.app/api/v0/urent/techzones/${z.id}`);
+        const detail = await dr.json();
+        const coords: { lat: number; lon: number }[] = detail.coordinates ?? [];
+        if (coords.length < 3) continue;
+        const ring = coords.map(p => [p.lon, p.lat]);
+        if (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1]) ring.push([...ring[0]]);
+        const geometry = { type: 'Polygon', coordinates: [ring] };
+        await supabase.from('zones').delete().eq('name', z.name).eq('city', cidade);
+        const { error } = await supabase.from('zones').insert({
+          name: z.name, city: cidade, geometry,
+          color: ZONE_COLORS[i % ZONE_COLORS.length],
+          notes: `GoJet techzone ${z.id}`,
+        });
+        if (!error) imported++;
+      }
+      console.log(`[techzones] ${imported}/${list.length} zonas importadas para ${cidade}`);
+      await loadZones();
+    } catch (e: any) {
+      console.error('[techzones] Erro:', e.message);
+    } finally {
+      setSyncingZones(false);
+    }
+  }, [cityId, cidade, loadZones]);
 
   useEffect(() => {
     if (!visivel || !cityId) return;
@@ -1351,6 +1389,14 @@ export function GoJetOverlay({ mapa, visivel, cidade, onTarefaRapida, isAdmin, g
               background: showZones ? 'rgba(99,102,241,.25)' : 'transparent',
               color: showZones ? '#818cf8' : 'rgba(255,255,255,.45)',
             }}>Zonas ({zones.length})</button>
+          )}
+          {cityId && (
+            <button onClick={syncTechzones} disabled={syncingZones} style={{
+              padding: '5px 10px', borderRadius: 16, border: 'none', cursor: syncingZones ? 'wait' : 'pointer',
+              fontSize: 10, fontWeight: 700,
+              background: syncingZones ? 'rgba(251,191,36,.25)' : 'rgba(255,255,255,.06)',
+              color: syncingZones ? '#fbbf24' : 'rgba(255,255,255,.35)',
+            }}>{syncingZones ? '⏳ Sync...' : '🔄 Sync Zonas'}</button>
           )}
 
           {/* Filtros bikes */}

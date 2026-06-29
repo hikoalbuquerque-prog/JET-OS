@@ -26,3 +26,5 @@ export const supabase = createClient(url, anon, {
     storageKey: 'jet-os-supabase-auth',
   },
 });
+
+(window as any).__supabase = supabase;
