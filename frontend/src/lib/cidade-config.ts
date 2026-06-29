@@ -129,12 +129,16 @@ export async function buscarCityId(cidade: string): Promise<string | null> {
     .eq('cidade', cidade)
     .maybeSingle();
   if (data?.city_id) return data.city_id;
-  const { data: fuzzy } = await supabase
+  // Fallback: busca todas e compara sem acentos
+  const { data: all } = await supabase
     .from('gojet_config')
-    .select('city_id, cidade')
-    .ilike('cidade', `%${cidade}%`)
-    .limit(1);
-  return fuzzy?.[0]?.city_id ?? null;
+    .select('city_id, cidade');
+  if (!all?.length) return null;
+  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/-/g, ' ').toLowerCase().trim();
+  const key = norm(cidade);
+  const match = all.find(r => norm(r.cidade) === key)
+    || all.find(r => norm(r.cidade).includes(key) || key.includes(norm(r.cidade)));
+  return match?.city_id ?? null;
 }
 
 // Retrocompatibilidade com gojet-config-supabase.ts
